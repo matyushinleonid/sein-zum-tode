@@ -7,7 +7,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN groupadd --system app && useradd --system --gid app --home-dir /app app
+RUN groupadd --gid 10001 app && \
+    useradd --uid 10001 --gid 10001 --no-create-home --home-dir /app \
+    --shell /usr/sbin/nologin app
 
 COPY pyproject.toml ./
 COPY src ./src
@@ -15,7 +17,6 @@ COPY src ./src
 RUN python -m pip install --upgrade pip && \
     python -m pip install .
 
-USER app
+USER 10001:10001
 
 CMD ["python", "-m", "sein_zum_tode.main"]
-

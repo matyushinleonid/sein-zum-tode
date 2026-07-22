@@ -26,14 +26,6 @@ app.kubernetes.io/name: {{ include "sein-zum-tode.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
-{{- define "sein-zum-tode.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "sein-zum-tode.fullname" .) .Values.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.serviceAccount.name }}
-{{- end }}
-{{- end }}
-
 {{- define "sein-zum-tode.secretName" -}}
 {{- if .Values.externalSecret.enabled }}
 {{- default (printf "%s-secrets" (include "sein-zum-tode.fullname" .)) .Values.externalSecret.targetName }}
