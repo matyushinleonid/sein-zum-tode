@@ -1,0 +1,85 @@
+replicaCount: 1
+
+image:
+  repository: cr.yandex/replace-with-registry-id/sein-zum-tode
+  pullPolicy: IfNotPresent
+  tag: latest
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+application:
+  logLevel: INFO
+  telegramBotTokenSecretKey: TELEGRAM_BOT_TOKEN
+
+postgres:
+  host: postgres.local
+  port: 6432
+  database: sein_zum_tode
+  user: sein_zum_tode
+  passwordSecretKey: POSTGRES_PASSWORD
+  ssl: false
+  pgbouncer: true
+
+temporal:
+  address: temporal.local:7233
+  namespace: default
+  taskQueue: sein-zum-tode
+  tls: false
+
+redis:
+  host: redis.local
+  port: 6379
+  passwordSecretKey: REDIS_PASSWORD
+  database: 0
+
+# If enabled, selected properties from one Lockbox secret are mapped into a
+# Kubernetes Secret. Source property names are configured under `properties`.
+externalSecret:
+  enabled: true
+  refreshInterval: 1h
+  secretStoreRef:
+    name: yandex-lockbox
+    kind: ClusterSecretStore
+  remoteKey: replace-with-lockbox-secret-id
+  targetName: ""
+  properties:
+    postgresPassword: POSTGRES_PASSWORD
+    redisPassword: REDIS_PASSWORD
+    telegramBotToken: TELEGRAM_BOT_TOKEN
+
+# Used only when externalSecret.enabled=false. The existing Secret must contain
+# the same three keys described above.
+existingSecret: ""
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

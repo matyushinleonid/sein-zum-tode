@@ -1,0 +1,20 @@
+PYTHON ?= python3.14
+
+.PHONY: install run test lint format
+
+install:
+	$(PYTHON) -m pip install -e ".[dev]"
+
+run:
+	docker compose up --build app
+
+test:
+	$(PYTHON) -m pytest
+
+lint:
+	$(PYTHON) -m ruff check .
+	$(PYTHON) -m ruff format --check .
+
+format:
+	$(PYTHON) -m ruff check --fix .
+	$(PYTHON) -m ruff format .
