@@ -1,0 +1,39 @@
+# Copy this file, replace all placeholders, and reference the resulting values
+# from the Argo CD Application.
+replicaCount: 1
+
+image:
+  repository: cr.yandex/crp00000000000000000/sein-zum-tode
+  tag: latest
+
+postgres:
+  host: postgres.local
+  port: 6432
+  database: sein_zum_tode
+  user: sein_zum_tode
+  ssl: false
+  pgbouncer: true
+
+temporal:
+  address: temporal.local:7233
+  namespace: default
+  taskQueue: sein-zum-tode
+  tls: false
+
+externalSecret:
+  enabled: true
+  refreshInterval: 15m
+  secretStoreRef:
+    name: yc-lockbox
+    kind: ClusterSecretStore
+  remoteKey: e6q00000000000000000
+  targetName: sein-zum-tode-secrets
+  properties:
+    postgresPassword: postgres_password
+    redisPassword: redis_password
+    telegramBotToken: telegram_bot_token
+
+redis:
+  host: redis.local
+  port: 6379
+  database: 0

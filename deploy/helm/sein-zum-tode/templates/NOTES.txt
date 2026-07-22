@@ -1,0 +1,7 @@
+The {{ .Chart.Name }} application has been installed.
+
+Application image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+Temporal: {{ .Values.temporal.address }}
+PostgreSQL: {{ .Values.postgres.host }}:{{ .Values.postgres.port }}
+Redis: {{ .Values.redis.host }}:{{ .Values.redis.port }}
+Secret: {{ include "sein-zum-tode.secretName" . }}
