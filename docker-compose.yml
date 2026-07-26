@@ -1,18 +1,25 @@
 services:
-  app:
+  telegram-ingress:
     build:
       context: .
       dockerfile: Dockerfile
-    env_file:
-      - .env
+    environment:
+      APP_NAME: ${APP_NAME:-sein-zum-tode-telegram-ingress}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env}
+      TELEGRAM_POLLING_TIMEOUT_SECONDS: ${TELEGRAM_POLLING_TIMEOUT_SECONDS:-30}
+      TELEGRAM_REQUEST_TIMEOUT_SECONDS: ${TELEGRAM_REQUEST_TIMEOUT_SECONDS:-40}
+      TELEGRAM_UPDATE_TTL_SECONDS: ${TELEGRAM_UPDATE_TTL_SECONDS:-3600}
+      RETRY_INITIAL_DELAY_SECONDS: ${RETRY_INITIAL_DELAY_SECONDS:-1}
+      RETRY_MAX_DELAY_SECONDS: ${RETRY_MAX_DELAY_SECONDS:-30}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DATABASE: ${REDIS_DATABASE:-0}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
   postgres:
     image: postgres:18-alpine
@@ -51,4 +58,3 @@ services:
 volumes:
   postgres-data:
   redis-data:
-

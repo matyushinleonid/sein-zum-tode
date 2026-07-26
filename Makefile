@@ -6,7 +6,7 @@ install:
 	$(PYTHON) -m pip install -e ".[dev]"
 
 run:
-	docker compose up --build app
+	docker compose up --build telegram-ingress
 
 test:
 	$(PYTHON) -m pytest
