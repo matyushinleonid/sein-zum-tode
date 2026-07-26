@@ -19,8 +19,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "coverage==7.15.2",
+    "mypy==2.3.0",
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
+    "pytest-cov==7.1.0",
     "ruff==0.15.22",
 ]
 
@@ -34,14 +37,39 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.pytest.ini_options]
-addopts = "-ra"
+addopts = [
+    "-ra",
+    "--cov=sein_zum_tode",
+    "--cov-report=term-missing:skip-covered",
+]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["sein_zum_tode"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+skip_covered = true
+exclude_also = [
+    'if __name__ == "__main__":',
+]
+
+[tool.mypy]
+python_version = "3.14"
+files = ["src"]
+plugins = ["pydantic.mypy"]
+strict = true
+warn_unreachable = true
 
 [tool.ruff]
 line-length = 100
 target-version = "py314"
 
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC"]
-
