@@ -28,6 +28,11 @@ securityContext:
 
 application:
   logLevel: INFO
+  telegramPollingTimeoutSeconds: 30
+  telegramRequestTimeoutSeconds: 40
+  telegramUpdateTtlSeconds: 3600
+  retryInitialDelaySeconds: 1
+  retryMaxDelaySeconds: 30
   telegramBotTokenSecretKey: TELEGRAM_BOT_TOKEN
 
 postgres:

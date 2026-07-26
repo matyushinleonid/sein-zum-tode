@@ -6,6 +6,8 @@ metadata:
     {{- include "sein-zum-tode.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "sein-zum-tode.selectorLabels" . | nindent 6 }}
@@ -27,7 +29,7 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
-        - name: {{ .Chart.Name }}
+        - name: telegram-ingress
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
@@ -37,28 +39,21 @@ spec:
               value: {{ include "sein-zum-tode.name" . | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.application.logLevel | quote }}
+            - name: TELEGRAM_POLLING_TIMEOUT_SECONDS
+              value: {{ .Values.application.telegramPollingTimeoutSeconds | quote }}
+            - name: TELEGRAM_REQUEST_TIMEOUT_SECONDS
+              value: {{ .Values.application.telegramRequestTimeoutSeconds | quote }}
+            - name: TELEGRAM_UPDATE_TTL_SECONDS
+              value: {{ .Values.application.telegramUpdateTtlSeconds | quote }}
+            - name: RETRY_INITIAL_DELAY_SECONDS
+              value: {{ .Values.application.retryInitialDelaySeconds | quote }}
+            - name: RETRY_MAX_DELAY_SECONDS
+              value: {{ .Values.application.retryMaxDelaySeconds | quote }}
             - name: TELEGRAM_BOT_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ include "sein-zum-tode.secretName" . }}
                   key: {{ .Values.application.telegramBotTokenSecretKey | quote }}
-            - name: POSTGRES_HOST
-              value: {{ .Values.postgres.host | quote }}
-            - name: POSTGRES_PORT
-              value: {{ .Values.postgres.port | quote }}
-            - name: POSTGRES_DATABASE
-              value: {{ .Values.postgres.database | quote }}
-            - name: POSTGRES_USER
-              value: {{ .Values.postgres.user | quote }}
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "sein-zum-tode.secretName" . }}
-                  key: {{ .Values.postgres.passwordSecretKey | quote }}
-            - name: POSTGRES_SSL
-              value: {{ .Values.postgres.ssl | quote }}
-            - name: POSTGRES_PGBOUNCER
-              value: {{ .Values.postgres.pgbouncer | quote }}
             - name: REDIS_HOST
               value: {{ .Values.redis.host | quote }}
             - name: REDIS_PORT
@@ -70,14 +65,6 @@ spec:
                 secretKeyRef:
                   name: {{ include "sein-zum-tode.secretName" . }}
                   key: {{ .Values.redis.passwordSecretKey | quote }}
-            - name: TEMPORAL_ADDRESS
-              value: {{ .Values.temporal.address | quote }}
-            - name: TEMPORAL_NAMESPACE
-              value: {{ .Values.temporal.namespace | quote }}
-            - name: TEMPORAL_TASK_QUEUE
-              value: {{ .Values.temporal.taskQueue | quote }}
-            - name: TEMPORAL_TLS
-              value: {{ .Values.temporal.tls | quote }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       {{- with .Values.nodeSelector }}
