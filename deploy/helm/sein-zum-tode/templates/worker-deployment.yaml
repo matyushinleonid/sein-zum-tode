@@ -1,25 +1,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "sein-zum-tode.fullname" . }}
+  name: {{ include "sein-zum-tode.fullname" . }}-worker
   labels:
     {{- include "sein-zum-tode.labels" . | nindent 4 }}
-    app.kubernetes.io/component: ingress
+    app.kubernetes.io/component: worker
 spec:
-  replicas: {{ .Values.replicaCount }}
-  strategy:
-    type: Recreate
+  replicas: {{ .Values.workerReplicaCount }}
   selector:
     matchLabels:
       {{- include "sein-zum-tode.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: ingress
+      app.kubernetes.io/component: worker
   template:
     metadata:
       annotations:
         {{- toYaml .Values.podAnnotations | nindent 8 }}
       labels:
         {{- include "sein-zum-tode.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: ingress
+        app.kubernetes.io/component: worker
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -32,28 +30,24 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
-        - name: telegram-ingress
+        - name: telegram-worker
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - python
+            - -m
+            - sein_zum_tode.bot.worker
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           env:
             - name: APP_NAME
-              value: {{ include "sein-zum-tode.name" . | quote }}
+              value: {{ printf "%s-worker" (include "sein-zum-tode.name" .) | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.application.logLevel | quote }}
             - name: LOG_FORMAT
               value: {{ .Values.application.logFormat | quote }}
-            - name: TELEGRAM_POLLING_TIMEOUT_SECONDS
-              value: {{ .Values.application.telegramPollingTimeoutSeconds | quote }}
-            - name: TELEGRAM_REQUEST_TIMEOUT_SECONDS
-              value: {{ .Values.application.telegramRequestTimeoutSeconds | quote }}
             - name: TELEGRAM_UPDATE_TTL_SECONDS
               value: {{ .Values.application.telegramUpdateTtlSeconds | quote }}
-            - name: RETRY_INITIAL_DELAY_SECONDS
-              value: {{ .Values.application.retryInitialDelaySeconds | quote }}
-            - name: RETRY_MAX_DELAY_SECONDS
-              value: {{ .Values.application.retryMaxDelaySeconds | quote }}
             - name: TEMPORAL_ADDRESS
               value: {{ .Values.temporal.address | quote }}
             - name: TEMPORAL_NAMESPACE

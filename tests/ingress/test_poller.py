@@ -63,8 +63,8 @@ async def test_poller_stores_and_hands_off_every_update_before_advancing_offset(
 ) -> None:
     first_update = make_update(10, "first")
     second_update = make_update(11, "second")
-    first_stored = StoredUpdate(10, "updates:10", 600)
-    second_stored = StoredUpdate(11, "updates:11", 600)
+    first_stored = StoredUpdate(10, "updates:10", 600, user_id=40)
+    second_stored = StoredUpdate(11, "updates:11", 600, user_id=40)
     source = create_autospec(UpdateSource, instance=True)
     store = create_autospec(UpdateStore, instance=True)
     handoff = create_autospec(UpdateHandoff, instance=True)
@@ -147,7 +147,7 @@ async def test_poller_retries_receiving_updates(
     make_update: Callable[[int, str], Update],
 ) -> None:
     update = make_update(10, "first")
-    stored = StoredUpdate(10, "updates:10", 600)
+    stored = StoredUpdate(10, "updates:10", 600, user_id=40)
     source = create_autospec(UpdateSource, instance=True)
     store = create_autospec(UpdateStore, instance=True)
     handoff = create_autospec(UpdateHandoff, instance=True)
@@ -181,7 +181,7 @@ async def test_poller_restores_payload_ttl_when_handoff_is_retried(
     make_update: Callable[[int, str], Update],
 ) -> None:
     update = make_update(10, "first")
-    stored = StoredUpdate(10, "updates:10", 600)
+    stored = StoredUpdate(10, "updates:10", 600, user_id=40)
     source = create_autospec(UpdateSource, instance=True)
     store = create_autospec(UpdateStore, instance=True)
     handoff = create_autospec(UpdateHandoff, instance=True)
@@ -214,7 +214,7 @@ async def test_poller_stops_while_retrying_handoff(
     make_update: Callable[[int, str], Update],
 ) -> None:
     update = make_update(10, "first")
-    stored = StoredUpdate(10, "updates:10", 600)
+    stored = StoredUpdate(10, "updates:10", 600, user_id=40)
     source = create_autospec(UpdateSource, instance=True)
     store = create_autospec(UpdateStore, instance=True)
     handoff = create_autospec(UpdateHandoff, instance=True)

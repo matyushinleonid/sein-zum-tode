@@ -3,18 +3,20 @@ from redis.exceptions import RedisError
 
 from sein_zum_tode.ingress.errors import UpdateStoreError
 from sein_zum_tode.ingress.models import StoredUpdate
-from sein_zum_tode.ingress.ports import KeyValueClient
+from sein_zum_tode.ingress.ports import KeyValueClient, UpdateUserResolver
 
 
 class RedisUpdateStore:
     def __init__(
         self,
         redis: KeyValueClient,
+        user_resolver: UpdateUserResolver,
         bot_id: int,
         ttl_seconds: int,
         key_prefix: str = "telegram:updates",
     ) -> None:
         self._redis = redis
+        self._user_resolver = user_resolver
         self._bot_id = bot_id
         self._ttl_seconds = ttl_seconds
         self._key_prefix = key_prefix
@@ -32,4 +34,5 @@ class RedisUpdateStore:
             update_id=update.update_id,
             key=key,
             ttl_seconds=self._ttl_seconds,
+            user_id=self._user_resolver.resolve(update),
         )

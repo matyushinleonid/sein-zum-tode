@@ -1,23 +1,19 @@
 import asyncio
-import signal
 
 from aiogram import Bot
 from redis.asyncio import Redis
+from temporalio.client import Client
 
 from sein_zum_tode.config import Settings
-from sein_zum_tode.ingress.handoff import LoggingUpdateHandoff
+from sein_zum_tode.ingress.handoff import TemporalUpdateHandoff
 from sein_zum_tode.ingress.poller import ExponentialRetryWaiter, TelegramPoller
 from sein_zum_tode.ingress.redis import RedisKeyValueClient
+from sein_zum_tode.ingress.routing import AiogramUpdateUserResolver
 from sein_zum_tode.ingress.source import AiogramUpdateSource
 from sein_zum_tode.ingress.store import RedisUpdateStore
+from sein_zum_tode.ingress.temporal import TemporalUserWorkflowStarter
 from sein_zum_tode.log_config import configure_logging
-
-
-def install_signal_handlers(stop_event: asyncio.Event) -> None:
-    loop = asyncio.get_running_loop()
-
-    for signum in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(signum, stop_event.set)
+from sein_zum_tode.runtime import install_signal_handlers
 
 
 async def run(settings: Settings) -> None:
@@ -30,6 +26,11 @@ async def run(settings: Settings) -> None:
         db=settings.redis_database,
         password=settings.redis_password.get_secret_value(),
     )
+    temporal = await Client.connect(
+        settings.temporal_address,
+        namespace=settings.temporal_namespace,
+        tls=settings.temporal_tls,
+    )
     source = AiogramUpdateSource(
         bot=bot,
         polling_timeout_seconds=settings.telegram_polling_timeout_seconds,
@@ -37,13 +38,20 @@ async def run(settings: Settings) -> None:
     )
     store = RedisUpdateStore(
         redis=RedisKeyValueClient(redis),
+        user_resolver=AiogramUpdateUserResolver(),
         bot_id=bot.id,
         ttl_seconds=settings.telegram_update_ttl_seconds,
+    )
+    workflow_starter = TemporalUserWorkflowStarter(
+        client=temporal,
+        bot_id=bot.id,
+        task_queue=settings.temporal_task_queue,
+        activity_retry_timeout_seconds=(settings.temporal_activity_retry_timeout_seconds),
     )
     poller = TelegramPoller(
         source=source,
         store=store,
-        handoff=LoggingUpdateHandoff(),
+        handoff=TemporalUpdateHandoff(workflow_starter),
         retry_waiter=ExponentialRetryWaiter(
             initial_delay_seconds=settings.retry_initial_delay_seconds,
             max_delay_seconds=settings.retry_max_delay_seconds,
@@ -58,7 +66,7 @@ async def run(settings: Settings) -> None:
 
 def main() -> None:
     settings = Settings()
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_format, settings.app_name)
     asyncio.run(run(settings))
 
 

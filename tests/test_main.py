@@ -23,14 +23,14 @@ def test_install_signal_handlers(monkeypatch) -> None:
 
     main_module.install_signal_handlers(stop_event)
 
-    assert loop.add_signal_handler.call_args_list[0].args == (
-        signal.SIGINT,
-        stop_event.set,
-    )
-    assert loop.add_signal_handler.call_args_list[1].args == (
-        signal.SIGTERM,
-        stop_event.set,
-    )
+    first_call, second_call = loop.add_signal_handler.call_args_list
+    assert first_call.args[0] == signal.SIGINT
+    assert second_call.args[0] == signal.SIGTERM
+    assert first_call.args[1] is second_call.args[1]
+
+    first_call.args[1]()
+
+    assert stop_event.is_set()
 
 
 async def test_run_builds_ingress_and_closes_clients(monkeypatch) -> None:
@@ -40,21 +40,37 @@ async def test_run_builds_ingress_and_closes_clients(monkeypatch) -> None:
         session=SimpleNamespace(close=AsyncMock()),
     )
     redis = SimpleNamespace(aclose=AsyncMock())
+    temporal = object()
     poller = SimpleNamespace(run=AsyncMock())
     bot_factory = Mock(return_value=bot)
     redis_factory = Mock(return_value=redis)
+    temporal_connect = AsyncMock(return_value=temporal)
+    temporal_client = SimpleNamespace(connect=temporal_connect)
     source_factory = Mock(return_value=object())
     redis_client_factory = Mock(return_value=object())
+    user_resolver_factory = Mock(return_value=object())
     store_factory = Mock(return_value=object())
+    workflow_starter_factory = Mock(return_value=object())
     handoff_factory = Mock(return_value=object())
     poller_factory = Mock(return_value=poller)
     install_signal_handlers = Mock()
     monkeypatch.setattr(main_module, "Bot", bot_factory)
     monkeypatch.setattr(main_module, "Redis", redis_factory)
+    monkeypatch.setattr(main_module, "Client", temporal_client)
     monkeypatch.setattr(main_module, "AiogramUpdateSource", source_factory)
     monkeypatch.setattr(main_module, "RedisKeyValueClient", redis_client_factory)
+    monkeypatch.setattr(
+        main_module,
+        "AiogramUpdateUserResolver",
+        user_resolver_factory,
+    )
     monkeypatch.setattr(main_module, "RedisUpdateStore", store_factory)
-    monkeypatch.setattr(main_module, "LoggingUpdateHandoff", handoff_factory)
+    monkeypatch.setattr(
+        main_module,
+        "TemporalUserWorkflowStarter",
+        workflow_starter_factory,
+    )
+    monkeypatch.setattr(main_module, "TemporalUpdateHandoff", handoff_factory)
     monkeypatch.setattr(main_module, "TelegramPoller", poller_factory)
     monkeypatch.setattr(main_module, "install_signal_handlers", install_signal_handlers)
 
@@ -67,6 +83,11 @@ async def test_run_builds_ingress_and_closes_clients(monkeypatch) -> None:
         db=0,
         password="redis-secret",
     )
+    temporal_connect.assert_awaited_once_with(
+        "localhost:7233",
+        namespace="default",
+        tls=False,
+    )
     source_factory.assert_called_once_with(
         bot=bot,
         polling_timeout_seconds=30,
@@ -75,10 +96,17 @@ async def test_run_builds_ingress_and_closes_clients(monkeypatch) -> None:
     redis_client_factory.assert_called_once_with(redis)
     store_factory.assert_called_once_with(
         redis=redis_client_factory.return_value,
+        user_resolver=user_resolver_factory.return_value,
         bot_id=42,
         ttl_seconds=3600,
     )
-    handoff_factory.assert_called_once_with()
+    workflow_starter_factory.assert_called_once_with(
+        client=temporal,
+        bot_id=42,
+        task_queue="sein-zum-tode",
+        activity_retry_timeout_seconds=300,
+    )
+    handoff_factory.assert_called_once_with(workflow_starter_factory.return_value)
     poller_factory.assert_called_once()
     retry_waiter = poller_factory.call_args.kwargs["retry_waiter"]
     assert retry_waiter.initial_delay_seconds == 1.0
@@ -103,5 +131,9 @@ def test_main_loads_settings_and_runs_application(monkeypatch) -> None:
 
     main_module.main()
 
-    configure_logging.assert_called_once_with("INFO")
+    configure_logging.assert_called_once_with(
+        "INFO",
+        "console",
+        "sein-zum-tode-telegram-ingress",
+    )
     assert captured == [settings]
