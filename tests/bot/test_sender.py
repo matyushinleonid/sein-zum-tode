@@ -1,8 +1,5 @@
-from unittest.mock import AsyncMock, Mock
-
 import pytest
-from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
+from aiogram.exceptions import TelegramForbiddenError, TelegramNetworkError
 from aiogram.methods import SendMessage
 
 from sein_zum_tode.bot.errors import (
@@ -10,41 +7,52 @@ from sein_zum_tode.bot.errors import (
     TelegramDeliveryError,
 )
 from sein_zum_tode.bot.sender import AiogramTelegramMessageSender
+from tests.support import TelegramBotDouble
+
+pytestmark = pytest.mark.fast
 
 
-async def test_sender_sends_plain_text() -> None:
-    bot = Mock(spec=Bot)
-    bot.send_message = AsyncMock()
-    sender = AiogramTelegramMessageSender(bot)
-
-    await sender.send_text(30, "<sensitive>")
-
-    bot.send_message.assert_awaited_once_with(chat_id=30, text="<sensitive>")
-
-
-async def test_sender_maps_permanent_telegram_error() -> None:
-    bot = Mock(spec=Bot)
-    bot.send_message = AsyncMock(
-        side_effect=TelegramBadRequest(
-            method=SendMessage(chat_id=30, text="response"),
-            message="bad request",
-        )
+async def test_sends_plain_text_through_the_telegram_bot() -> None:
+    bot = TelegramBotDouble(
+        updates=[],
+        delete_result=None,
+        receive_result=None,
+        send_result=None,
     )
     sender = AiogramTelegramMessageSender(bot)
 
-    with pytest.raises(PermanentTelegramDeliveryError, match="chat 30"):
-        await sender.send_text(30, "response")
+    await sender.send_text(170_927, "Quick wafting zephyrs vex bold Jim")
+
+    assert bot.events == [("send_message", (170_927, "Quick wafting zephyrs vex bold Jim"))], (
+        "sender changed the destination chat or response text"
+    )
 
 
-async def test_sender_maps_transient_telegram_error() -> None:
-    bot = Mock(spec=Bot)
-    bot.send_message = AsyncMock(
-        side_effect=TelegramNetworkError(
-            method=SendMessage(chat_id=30, text="response"),
-            message="network",
-        )
+async def test_classifies_a_rejected_chat_as_a_permanent_failure() -> None:
+    method = SendMessage(chat_id=172_109, text="Waltz, nymph, for quick jigs vex Bud")
+    failure = TelegramForbiddenError(method=method, message="forbidden galaxy 1721")
+    bot = TelegramBotDouble(
+        updates=[],
+        delete_result=None,
+        receive_result=None,
+        send_result=failure,
     )
     sender = AiogramTelegramMessageSender(bot)
 
-    with pytest.raises(TelegramDeliveryError, match="chat 30"):
-        await sender.send_text(30, "response")
+    with pytest.raises(PermanentTelegramDeliveryError):
+        await sender.send_text(172_109, "Waltz, nymph, for quick jigs vex Bud")
+
+
+async def test_classifies_a_network_problem_as_a_retryable_failure() -> None:
+    method = SendMessage(chat_id=172_337, text="Pack my red box with five dozen quality jugs")
+    failure = TelegramNetworkError(method=method, message="network aurora 1723")
+    bot = TelegramBotDouble(
+        updates=[],
+        delete_result=None,
+        receive_result=None,
+        send_result=failure,
+    )
+    sender = AiogramTelegramMessageSender(bot)
+
+    with pytest.raises(TelegramDeliveryError):
+        await sender.send_text(172_337, "Pack my red box with five dozen quality jugs")

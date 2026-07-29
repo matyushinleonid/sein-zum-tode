@@ -1,233 +1,294 @@
 import asyncio
-from collections.abc import Callable
-from unittest.mock import create_autospec
 
 import pytest
-from aiogram.types import Update
 
 from sein_zum_tode.ingress.errors import (
     UpdateHandoffError,
     UpdateSourceError,
+    UpdateStoreError,
 )
 from sein_zum_tode.ingress.models import StoredUpdate
 from sein_zum_tode.ingress.poller import ExponentialRetryWaiter, TelegramPoller
-from sein_zum_tode.ingress.ports import RetryWaiter, UpdateHandoff, UpdateSource, UpdateStore
+from tests.support import (
+    HandoffDouble,
+    RetryWaiterDouble,
+    SilentLogger,
+    SourceDouble,
+    StoreDouble,
+    TelegramUpdates,
+)
+
+pytestmark = pytest.mark.fast
 
 
-def build_poller(
-    source: UpdateSource,
-    store: UpdateStore,
-    handoff: UpdateHandoff,
-    waiter: RetryWaiter,
+def poller(
+    *,
+    source: SourceDouble,
+    store: StoreDouble,
+    handoff: HandoffDouble,
+    waiter: RetryWaiterDouble,
 ) -> TelegramPoller:
     return TelegramPoller(
         source=source,
         store=store,
         handoff=handoff,
         retry_waiter=waiter,
+        logger=SilentLogger(),
     )
 
 
-def test_retry_waiter_uses_capped_exponential_delay() -> None:
-    waiter = ExponentialRetryWaiter(initial_delay_seconds=0.5, max_delay_seconds=2.0)
+@pytest.mark.parametrize(
+    ("failure_count", "expected"),
+    [(0, 0.37), (1, 0.37), (2, 0.74), (4, 2.96), (10_000, 3.1)],
+)
+def test_caps_exponential_retry_delay(failure_count: int, expected: float) -> None:
+    actual = ExponentialRetryWaiter(0.37, 3.1).delay(failure_count)
 
-    assert waiter.delay(0) == 0.5
-    assert waiter.delay(1) == 0.5
-    assert waiter.delay(2) == 1.0
-    assert waiter.delay(3) == 2.0
-    assert waiter.delay(100) == 2.0
-
-
-async def test_retry_waiter_returns_after_timeout() -> None:
-    waiter = ExponentialRetryWaiter(
-        initial_delay_seconds=0.001,
-        max_delay_seconds=0.001,
-    )
-
-    await waiter.wait(1, asyncio.Event())
+    assert actual == expected, "retry delay escaped its exponential schedule or maximum cap"
 
 
-async def test_retry_waiter_returns_when_stopped() -> None:
+async def test_finishes_retry_wait_after_its_timeout() -> None:
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+
+    await ExponentialRetryWaiter(0.001, 0.001).wait(17, asyncio.Event())
+
+    assert loop.time() - started < 0.1, "retry waiter did not return after its timeout"
+
+
+async def test_interrupts_retry_wait_on_shutdown() -> None:
     stop_event = asyncio.Event()
     stop_event.set()
-    waiter = ExponentialRetryWaiter(
-        initial_delay_seconds=10,
-        max_delay_seconds=10,
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+
+    await ExponentialRetryWaiter(97.0, 101.0).wait(19, stop_event)
+
+    assert loop.time() - started < 0.1, "retry waiter ignored an application shutdown"
+
+
+async def test_processes_updates_in_order_before_advancing_offset() -> None:
+    stop = asyncio.Event()
+    first = TelegramUpdates.message(
+        update_id=1117,
+        user_id=111_731,
+        chat_id=111_733,
+        text="Quick zephyrs blow",
+        chat_type="private",
+    )
+    second = TelegramUpdates.message(
+        update_id=1123,
+        user_id=112_397,
+        chat_id=112_403,
+        text="Vexing daft zebras",
+        chat_type="private",
+    )
+    stored = [
+        StoredUpdate(
+            update_id=1117,
+            key="telegram:zephyrs:1117",
+            ttl_seconds=1129,
+            user_id=111_731,
+        ),
+        StoredUpdate(
+            update_id=1123,
+            key="telegram:zebras:1123",
+            ttl_seconds=1151,
+            user_id=112_397,
+        ),
+    ]
+    source = SourceDouble(
+        prepare_outcomes=[None],
+        receive_outcomes=[[first, second], []],
+        stop_event=stop,
+    )
+    store = StoreDouble(stored.copy())
+    handoff = HandoffDouble([None, None])
+    waiter = RetryWaiterDouble(False)
+
+    await poller(source=source, store=store, handoff=handoff, waiter=waiter).run(stop)
+
+    assert (source.events, store.events, handoff.events, waiter.events) == (
+        [("prepare", 1), ("receive", None), ("receive", 1124)],
+        [1117, 1123],
+        stored,
+        [],
+    ), "poller acknowledged an update before ordered storage and handoff"
+
+
+async def test_retries_source_preparation_before_polling() -> None:
+    stop = asyncio.Event()
+    source = SourceDouble(
+        prepare_outcomes=[UpdateSourceError("solar flare 1153"), None],
+        receive_outcomes=[[]],
+        stop_event=stop,
+    )
+    store = StoreDouble([])
+    handoff = HandoffDouble([])
+    waiter = RetryWaiterDouble(False)
+
+    await poller(source=source, store=store, handoff=handoff, waiter=waiter).run(stop)
+
+    assert (source.events, waiter.events) == (
+        [("prepare", 2), ("prepare", 1), ("receive", None)],
+        [1],
+    ), "poller did not retry source preparation with the first backoff"
+
+
+async def test_stops_during_source_preparation_backoff() -> None:
+    stop = asyncio.Event()
+    source = SourceDouble(
+        prepare_outcomes=[UpdateSourceError("coronal mass 1163")],
+        receive_outcomes=[],
+        stop_event=stop,
+    )
+    waiter = RetryWaiterDouble(True)
+
+    await poller(
+        source=source,
+        store=StoreDouble([]),
+        handoff=HandoffDouble([]),
+        waiter=waiter,
+    ).run(stop)
+
+    assert source.events == [("prepare", 1)], (
+        "poller contacted Telegram after shutdown interrupted preparation"
     )
 
-    await waiter.wait(1, stop_event)
+
+async def test_propagates_an_unexpected_source_failure() -> None:
+    stop = asyncio.Event()
+    source = SourceDouble(
+        prepare_outcomes=[RuntimeError("broken invariant 1171")],
+        receive_outcomes=[],
+        stop_event=stop,
+    )
+    subject = poller(
+        source=source,
+        store=StoreDouble([]),
+        handoff=HandoffDouble([]),
+        waiter=RetryWaiterDouble(False),
+    )
+
+    with pytest.raises(RuntimeError):
+        await subject.run(stop)
 
 
-async def test_poller_stores_and_hands_off_every_update_before_advancing_offset(
-    make_update: Callable[[int, str], Update],
-) -> None:
-    first_update = make_update(10, "first")
-    second_update = make_update(11, "second")
-    first_stored = StoredUpdate(10, "updates:10", 600, user_id=40)
-    second_stored = StoredUpdate(11, "updates:11", 600, user_id=40)
-    source = create_autospec(UpdateSource, instance=True)
-    store = create_autospec(UpdateStore, instance=True)
-    handoff = create_autospec(UpdateHandoff, instance=True)
-    waiter = create_autospec(RetryWaiter, instance=True)
-    stop_event = asyncio.Event()
-    calls = 0
+async def test_recovers_from_a_receive_failure_without_losing_offset() -> None:
+    stop = asyncio.Event()
+    update = TelegramUpdates.message(
+        update_id=1181,
+        user_id=118_187,
+        chat_id=118_189,
+        text="Crazy Fredrick",
+        chat_type="private",
+    )
+    stored = StoredUpdate(
+        update_id=1181,
+        key="telegram:fredrick:1181",
+        ttl_seconds=1193,
+        user_id=118_187,
+    )
+    source = SourceDouble(
+        prepare_outcomes=[None],
+        receive_outcomes=[UpdateSourceError("ionosphere 1201"), [update], []],
+        stop_event=stop,
+    )
+    handoff = HandoffDouble([None])
+    waiter = RetryWaiterDouble(False)
 
-    async def receive(offset: int | None):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            assert offset is None
-            return [first_update, second_update]
-        assert offset == 12
-        stop_event.set()
-        return []
+    await poller(
+        source=source,
+        store=StoreDouble([stored]),
+        handoff=handoff,
+        waiter=waiter,
+    ).run(stop)
 
-    source.receive.side_effect = receive
-    store.store.side_effect = [first_stored, second_stored]
-    poller = build_poller(source, store, handoff, waiter)
-
-    await poller.run(stop_event)
-
-    source.prepare.assert_awaited_once_with()
-    assert store.store.await_args_list[0].args == (first_update,)
-    assert store.store.await_args_list[1].args == (second_update,)
-    assert handoff.handoff.await_args_list[0].args == (first_stored,)
-    assert handoff.handoff.await_args_list[1].args == (second_stored,)
-    waiter.wait.assert_not_awaited()
-
-
-async def test_poller_retries_source_preparation_until_success() -> None:
-    source = create_autospec(UpdateSource, instance=True)
-    store = create_autospec(UpdateStore, instance=True)
-    handoff = create_autospec(UpdateHandoff, instance=True)
-    waiter = create_autospec(RetryWaiter, instance=True)
-    stop_event = asyncio.Event()
-    source.prepare.side_effect = [UpdateSourceError("unavailable"), None]
-    source.receive.side_effect = lambda offset: stop_event.set() or []
-    poller = build_poller(source, store, handoff, waiter)
-
-    await poller.run(stop_event)
-
-    assert source.prepare.await_count == 2
-    waiter.wait.assert_awaited_once_with(1, stop_event)
+    assert (source.events, waiter.events, handoff.events) == (
+        [
+            ("prepare", 1),
+            ("receive", None),
+            ("receive", None),
+            ("receive", 1182),
+        ],
+        [1],
+        [stored],
+    ), "poller changed offset or duplicated handoff after receive recovery"
 
 
-async def test_poller_stops_while_retrying_source_preparation() -> None:
-    source = create_autospec(UpdateSource, instance=True)
-    store = create_autospec(UpdateStore, instance=True)
-    handoff = create_autospec(UpdateHandoff, instance=True)
-    waiter = create_autospec(RetryWaiter, instance=True)
-    stop_event = asyncio.Event()
-    source.prepare.side_effect = UpdateSourceError("unavailable")
-    waiter.wait.side_effect = lambda failure_count, event: event.set()
-    poller = build_poller(source, store, handoff, waiter)
+@pytest.mark.parametrize("failing_boundary", ["store", "handoff"])
+async def test_restores_payload_ttl_before_every_ingest_retry(failing_boundary: str) -> None:
+    stop = asyncio.Event()
+    update = TelegramUpdates.message(
+        update_id=1213,
+        user_id=121_309,
+        chat_id=121_313,
+        text="Five quacking zephyrs",
+        chat_type="private",
+    )
+    stored = StoredUpdate(
+        update_id=1213,
+        key="telegram:quacking:1213",
+        ttl_seconds=1217,
+        user_id=121_309,
+    )
+    store_outcomes = (
+        [UpdateStoreError("redis 1223"), stored]
+        if failing_boundary == "store"
+        else [stored, stored]
+    )
+    handoff_outcomes = (
+        [None] if failing_boundary == "store" else [UpdateHandoffError("temporal 1229"), None]
+    )
+    source = SourceDouble(
+        prepare_outcomes=[None],
+        receive_outcomes=[[update], []],
+        stop_event=stop,
+    )
+    store = StoreDouble(store_outcomes)
+    handoff = HandoffDouble(handoff_outcomes)
+    waiter = RetryWaiterDouble(False)
 
-    await poller.run(stop_event)
+    await poller(source=source, store=store, handoff=handoff, waiter=waiter).run(stop)
 
-    source.prepare.assert_awaited_once_with()
-    source.receive.assert_not_awaited()
-
-
-async def test_poller_does_not_retry_unexpected_source_errors() -> None:
-    source = create_autospec(UpdateSource, instance=True)
-    store = create_autospec(UpdateStore, instance=True)
-    handoff = create_autospec(UpdateHandoff, instance=True)
-    waiter = create_autospec(RetryWaiter, instance=True)
-    stop_event = asyncio.Event()
-    source.prepare.side_effect = RuntimeError("programming error")
-    poller = build_poller(source, store, handoff, waiter)
-
-    with pytest.raises(RuntimeError, match="programming error"):
-        await poller.run(stop_event)
-
-    waiter.wait.assert_not_awaited()
-
-
-async def test_poller_retries_receiving_updates(
-    make_update: Callable[[int, str], Update],
-) -> None:
-    update = make_update(10, "first")
-    stored = StoredUpdate(10, "updates:10", 600, user_id=40)
-    source = create_autospec(UpdateSource, instance=True)
-    store = create_autospec(UpdateStore, instance=True)
-    handoff = create_autospec(UpdateHandoff, instance=True)
-    waiter = create_autospec(RetryWaiter, instance=True)
-    stop_event = asyncio.Event()
-    calls = 0
-
-    async def receive(offset: int | None):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise UpdateSourceError("network")
-        if calls == 2:
-            return [update]
-        assert offset == 11
-        stop_event.set()
-        return []
-
-    source.receive.side_effect = receive
-    store.store.return_value = stored
-    poller = build_poller(source, store, handoff, waiter)
-
-    await poller.run(stop_event)
-
-    assert source.receive.await_count == 3
-    waiter.wait.assert_awaited_once_with(1, stop_event)
-    handoff.handoff.assert_awaited_once_with(stored)
+    assert (store.events, len(handoff.events), waiter.events) == (
+        [1213, 1213],
+        1 if failing_boundary == "store" else 2,
+        [1],
+    ), "ingest retry failed to rewrite Redis payload and refresh its TTL"
 
 
-async def test_poller_restores_payload_ttl_when_handoff_is_retried(
-    make_update: Callable[[int, str], Update],
-) -> None:
-    update = make_update(10, "first")
-    stored = StoredUpdate(10, "updates:10", 600, user_id=40)
-    source = create_autospec(UpdateSource, instance=True)
-    store = create_autospec(UpdateStore, instance=True)
-    handoff = create_autospec(UpdateHandoff, instance=True)
-    waiter = create_autospec(RetryWaiter, instance=True)
-    stop_event = asyncio.Event()
-    receives = 0
+async def test_stops_during_handoff_backoff_without_advancing_offset() -> None:
+    stop = asyncio.Event()
+    update = TelegramUpdates.message(
+        update_id=1231,
+        user_id=123_137,
+        chat_id=123_143,
+        text="Woven silk pyjamas",
+        chat_type="private",
+    )
+    stored = StoredUpdate(
+        update_id=1231,
+        key="telegram:silk:1231",
+        ttl_seconds=1237,
+        user_id=123_137,
+    )
+    source = SourceDouble(
+        prepare_outcomes=[None],
+        receive_outcomes=[[update], []],
+        stop_event=stop,
+    )
+    store = StoreDouble([stored])
+    handoff = HandoffDouble([UpdateHandoffError("workflow frozen 1249")])
 
-    async def receive(offset: int | None):
-        nonlocal receives
-        receives += 1
-        if receives == 1:
-            return [update]
-        assert offset == 11
-        stop_event.set()
-        return []
+    await poller(
+        source=source,
+        store=store,
+        handoff=handoff,
+        waiter=RetryWaiterDouble(True),
+    ).run(stop)
 
-    source.receive.side_effect = receive
-    store.store.return_value = stored
-    handoff.handoff.side_effect = [UpdateHandoffError("handoff"), None]
-    poller = build_poller(source, store, handoff, waiter)
-
-    await poller.run(stop_event)
-
-    assert store.store.await_count == 2
-    assert handoff.handoff.await_count == 2
-    waiter.wait.assert_awaited_once_with(1, stop_event)
-
-
-async def test_poller_stops_while_retrying_handoff(
-    make_update: Callable[[int, str], Update],
-) -> None:
-    update = make_update(10, "first")
-    stored = StoredUpdate(10, "updates:10", 600, user_id=40)
-    source = create_autospec(UpdateSource, instance=True)
-    store = create_autospec(UpdateStore, instance=True)
-    handoff = create_autospec(UpdateHandoff, instance=True)
-    waiter = create_autospec(RetryWaiter, instance=True)
-    stop_event = asyncio.Event()
-    source.receive.return_value = [update]
-    store.store.return_value = stored
-    handoff.handoff.side_effect = UpdateHandoffError("handoff")
-    waiter.wait.side_effect = lambda failure_count, event: event.set()
-    poller = build_poller(source, store, handoff, waiter)
-
-    await poller.run(stop_event)
-
-    store.store.assert_awaited_once_with(update)
-    handoff.handoff.assert_awaited_once_with(stored)
-    source.receive.assert_awaited_once_with(None)
+    assert source.events == [
+        ("prepare", 1),
+        ("receive", None),
+    ], "poller requested a newer offset after an interrupted handoff"
