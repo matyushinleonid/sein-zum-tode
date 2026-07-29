@@ -1,69 +1,71 @@
-from collections.abc import Callable
-from unittest.mock import create_autospec
-
 import pytest
-from aiogram.types import Update
 from redis.exceptions import ConnectionError
 
 from sein_zum_tode.ingress.errors import UpdateStoreError
-from sein_zum_tode.ingress.ports import KeyValueClient, UpdateUserResolver
+from sein_zum_tode.ingress.models import StoredUpdate
 from sein_zum_tode.ingress.store import RedisUpdateStore
+from tests.support import KeyValueDouble, TelegramUpdates, UserResolverDouble
+
+pytestmark = pytest.mark.fast
 
 
-async def test_store_writes_complete_update_and_refreshes_ttl(
-    make_update: Callable[[int, str], Update],
-) -> None:
-    redis = create_autospec(KeyValueClient, instance=True)
-    user_resolver = create_autospec(UpdateUserResolver, instance=True)
-    redis.set.return_value = True
-    user_resolver.resolve.return_value = 40
+async def test_stores_the_complete_update_and_its_route() -> None:
+    update = TelegramUpdates.message(
+        update_id=983,
+        user_id=98_333,
+        chat_id=98_339,
+        text="Jived fox nymph grabs",
+        chat_type="private",
+    )
+    redis = KeyValueDouble([b"STORED-991"])
+    resolver = UserResolverDouble(98_333)
     store = RedisUpdateStore(
         redis=redis,
-        user_resolver=user_resolver,
-        bot_id=42,
-        ttl_seconds=600,
+        user_resolver=resolver,
+        bot_id=98_347,
+        ttl_seconds=997,
+        key_prefix="telegram:constellations",
     )
-    update = make_update(17, "sensitive text")
 
-    first = await store.store(update)
-    second = await store.store(update)
+    actual = await store.store(update)
 
-    assert first == second
-    assert first.update_id == 17
-    assert first.key == "telegram:updates:42:17"
-    assert first.ttl_seconds == 600
-    assert first.user_id == 40
-    assert user_resolver.resolve.call_count == 2
-    assert redis.set.await_count == 2
-    for call in redis.set.await_args_list:
-        key, payload = call.args
-        assert key == "telegram:updates:42:17"
-        assert call.kwargs == {"ex": 600}
-        restored = Update.model_validate_json(payload)
-        assert restored == update
-        assert '"text":"sensitive text"' in payload
-        assert '"from":' in payload
-
-
-async def test_store_raises_when_redis_rejects_write(
-    make_update: Callable[[int, str], Update],
-) -> None:
-    redis = create_autospec(KeyValueClient, instance=True)
-    user_resolver = create_autospec(UpdateUserResolver, instance=True)
-    redis.set.return_value = None
-    store = RedisUpdateStore(redis, user_resolver, bot_id=42, ttl_seconds=600)
-
-    with pytest.raises(UpdateStoreError, match="did not store Telegram update 17"):
-        await store.store(make_update(17, "sensitive"))
+    assert (actual, redis.events, resolver.events) == (
+        StoredUpdate(
+            update_id=983,
+            key="telegram:constellations:98347:983",
+            ttl_seconds=997,
+            user_id=98_333,
+        ),
+        [
+            (
+                "telegram:constellations:98347:983",
+                update.model_dump_json(by_alias=True, exclude_none=True),
+                997,
+            )
+        ],
+        [983],
+    ), "store lost Telegram payload, TTL, key identity, or user route"
 
 
-async def test_store_wraps_redis_error(
-    make_update: Callable[[int, str], Update],
-) -> None:
-    redis = create_autospec(KeyValueClient, instance=True)
-    user_resolver = create_autospec(UpdateUserResolver, instance=True)
-    redis.set.side_effect = ConnectionError("unavailable")
-    store = RedisUpdateStore(redis, user_resolver, bot_id=42, ttl_seconds=600)
+@pytest.mark.parametrize(
+    "redis_outcome",
+    [None, ConnectionError("magnetosphere unavailable 1009")],
+)
+async def test_rejects_every_unsuccessful_redis_write(redis_outcome: object) -> None:
+    update = TelegramUpdates.message(
+        update_id=1013,
+        user_id=101_323,
+        chat_id=101_333,
+        text="Glib jocks quiz",
+        chat_type="private",
+    )
+    store = RedisUpdateStore(
+        redis=KeyValueDouble([redis_outcome]),
+        user_resolver=UserResolverDouble(101_323),
+        bot_id=101_347,
+        ttl_seconds=1019,
+        key_prefix="telegram:pulsars",
+    )
 
-    with pytest.raises(UpdateStoreError, match="Failed to store Telegram update 17"):
-        await store.store(make_update(17, "sensitive"))
+    with pytest.raises(UpdateStoreError):
+        await store.store(update)

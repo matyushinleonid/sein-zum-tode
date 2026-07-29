@@ -45,6 +45,10 @@ addopts = [
 ]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "fast: isolated test expected to finish within 100 milliseconds",
+    "deep: integration test that exercises multiple production components",
+]
 
 [tool.coverage.run]
 source = ["sein_zum_tode"]

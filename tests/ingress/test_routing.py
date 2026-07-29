@@ -1,68 +1,32 @@
+import pytest
 from aiogram.types import Update
 
 from sein_zum_tode.ingress.routing import AiogramUpdateUserResolver
+from tests.support import TelegramUpdates
+
+pytestmark = pytest.mark.fast
 
 
-def test_resolver_uses_event_from_user() -> None:
-    update = Update.model_validate(
-        {
-            "update_id": 1,
-            "callback_query": {
-                "id": "callback",
-                "from": {
-                    "id": 40,
-                    "is_bot": False,
-                    "first_name": "Ada",
-                },
-                "chat_instance": "instance",
-            },
-        }
-    )
+@pytest.mark.parametrize(
+    ("update", "expected"),
+    [
+        (
+            TelegramUpdates.callback(
+                update_id=791,
+                user_id=65_537,
+                chat_id=-940_031,
+            ),
+            65_537,
+        ),
+        (TelegramUpdates.poll_answer(update_id=809, user_id=71_903), 71_903),
+        (TelegramUpdates.anonymous_poll(update_id=823), None),
+        (Update(update_id=827), None),
+    ],
+)
+def test_resolves_user_from_every_supported_event_shape(
+    update: Update,
+    expected: int | None,
+) -> None:
+    actual = AiogramUpdateUserResolver().resolve(update)
 
-    assert AiogramUpdateUserResolver().resolve(update) == 40
-
-
-def test_resolver_uses_event_user() -> None:
-    update = Update.model_validate(
-        {
-            "update_id": 1,
-            "poll_answer": {
-                "poll_id": "poll",
-                "option_ids": [0],
-                "option_persistent_ids": [],
-                "user": {
-                    "id": 40,
-                    "is_bot": False,
-                    "first_name": "Ada",
-                },
-            },
-        }
-    )
-
-    assert AiogramUpdateUserResolver().resolve(update) == 40
-
-
-def test_resolver_returns_none_for_event_without_user() -> None:
-    update = Update.model_validate(
-        {
-            "update_id": 1,
-            "poll": {
-                "id": "poll",
-                "question": "Question",
-                "options": [],
-                "total_voter_count": 0,
-                "is_closed": False,
-                "is_anonymous": True,
-                "type": "regular",
-                "allows_multiple_answers": False,
-                "allows_revoting": False,
-                "members_only": False,
-            },
-        }
-    )
-
-    assert AiogramUpdateUserResolver().resolve(update) is None
-
-
-def test_resolver_returns_none_for_unknown_event() -> None:
-    assert AiogramUpdateUserResolver().resolve(Update(update_id=1)) is None
+    assert actual == expected, "resolver chose a user outside the Telegram event contract"

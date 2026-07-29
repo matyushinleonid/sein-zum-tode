@@ -1,9 +1,10 @@
 import asyncio
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from types import TracebackType
 from uuid import uuid4
 
-from aiogram.types import Update
+import pytest
 from temporalio import activity
 from temporalio.client import WorkflowHandle
 from temporalio.exceptions import ApplicationError
@@ -31,75 +32,98 @@ from sein_zum_tode.bot.models import (
     InspectionKind,
     InspectUpdateInput,
     PrepareResponseInput,
-    TelegramResponse,
     TelegramUpdateSignal,
     UserWorkflowInput,
 )
 from sein_zum_tode.bot.workflow import TelegramUserWorkflow
+from tests.support import SilentLogger, TelegramMemory, TelegramUpdates
+
+pytestmark = pytest.mark.deep
 
 
-class RecordingActivities:
+class ActivityTranscript:
     def __init__(
         self,
         inspections: dict[str, InspectionKind],
-        *,
-        inspect_failure_key: str | None = None,
-        cleanup_failure: bool = False,
+        failing_inspection: str | None,
+        failing_cleanup: bool,
     ) -> None:
         self.inspections = inspections
-        self.inspect_failure_key = inspect_failure_key
-        self.cleanup_failure = cleanup_failure
-        self.calls: list[tuple[str, str]] = []
+        self.failing_inspection = failing_inspection
+        self.failing_cleanup = failing_cleanup
+        self.events: list[tuple[str, str, int | None]] = []
         self.changed = asyncio.Event()
+
+    def record(self, operation: str, update_key: str, user_id: int | None) -> None:
+        self.events.append((operation, update_key, user_id))
+        self.changed.set()
 
     @activity.defn(name=INSPECT_UPDATE_ACTIVITY_NAME)
     async def inspect(self, input: InspectUpdateInput) -> InspectedUpdate:
-        self.calls.append(("inspect", input.update_key))
-        self.changed.set()
-        if input.update_key == self.inspect_failure_key:
-            raise ApplicationError("inspection failed", non_retryable=True)
+        self.record(
+            operation="inspect",
+            update_key=input.update_key,
+            user_id=input.user_id,
+        )
+        if input.update_key == self.failing_inspection:
+            raise ApplicationError("inspection rejected", non_retryable=True)
         return InspectedUpdate(
             kind=self.inspections[input.update_key],
             update_key=input.update_key,
-            chat_id=input.user_id,
+            chat_id=input.user_id + 17,
         )
 
     @activity.defn(name=PREPARE_ECHO_ACTIVITY_NAME)
     async def prepare_echo(self, input: PrepareResponseInput) -> None:
-        assert input.user_id == 40
-        self._record("prepare_echo", input.update_key)
+        self.record(
+            operation="prepare_echo",
+            update_key=input.update_key,
+            user_id=input.user_id,
+        )
 
     @activity.defn(name=PREPARE_HELP_ACTIVITY_NAME)
     async def prepare_help(self, input: PrepareResponseInput) -> None:
-        assert input.user_id == 40
-        self._record("prepare_help", input.update_key)
+        self.record(
+            operation="prepare_help",
+            update_key=input.update_key,
+            user_id=input.user_id,
+        )
 
     @activity.defn(name=PREPARE_UNSUPPORTED_ACTIVITY_NAME)
     async def prepare_unsupported(self, input: PrepareResponseInput) -> None:
-        assert input.user_id == 40
-        self._record("prepare_unsupported", input.update_key)
+        self.record(
+            operation="prepare_unsupported",
+            update_key=input.update_key,
+            user_id=input.user_id,
+        )
 
     @activity.defn(name=PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME)
     async def prepare_group_unsupported(self, input: PrepareResponseInput) -> None:
-        assert input.user_id == 40
-        self._record("prepare_group_unsupported", input.update_key)
+        self.record(
+            operation="prepare_group_unsupported",
+            update_key=input.update_key,
+            user_id=input.user_id,
+        )
 
     @activity.defn(name=DELIVER_RESPONSE_ACTIVITY_NAME)
     async def deliver(self, input: DeliverResponseInput) -> None:
-        assert input.user_id == 40
-        assert input.update_key is not None
-        self._record("deliver", input.response_key.removesuffix(":response"))
+        self.record(
+            operation="deliver",
+            update_key=input.update_key or "missing-update-key",
+            user_id=input.user_id,
+        )
 
     @activity.defn(name=CLEANUP_PAYLOADS_ACTIVITY_NAME)
     async def cleanup(self, input: CleanupPayloadsInput) -> None:
-        assert input.user_id == 40
-        assert input.update_key is not None
-        update_key = input.keys[0]
-        self._record("cleanup", update_key)
-        if self.cleanup_failure:
-            raise ApplicationError("cleanup failed", non_retryable=True)
+        self.record(
+            operation="cleanup",
+            update_key=input.update_key or "missing-update-key",
+            user_id=input.user_id,
+        )
+        if self.failing_cleanup:
+            raise ApplicationError("cleanup rejected", non_retryable=True)
 
-    def activities(self) -> list[Callable[..., object]]:
+    def definitions(self) -> Sequence[Callable[..., object]]:
         return [
             self.inspect,
             self.prepare_echo,
@@ -110,246 +134,244 @@ class RecordingActivities:
             self.cleanup,
         ]
 
-    def _record(self, operation: str, update_key: str) -> None:
-        self.calls.append((operation, update_key))
-        self.changed.set()
-
-    async def wait_for(self, predicate: Callable[[], bool]) -> None:
-        while not predicate():
+    async def wait_for(self, operation: str, count: int) -> None:
+        while sum(event[0] == operation for event in self.events) < count:
             self.changed.clear()
-            await asyncio.wait_for(self.changed.wait(), timeout=10)
+            await asyncio.wait_for(self.changed.wait(), timeout=7)
 
 
-async def start_workflow(
-    environment: WorkflowEnvironment,
-    task_queue: str,
-    input: UserWorkflowInput,
-    update_key: str,
-) -> WorkflowHandle:
-    return await environment.client.start_workflow(
-        TelegramUserWorkflow.run,
-        input,
-        id=f"test-user-{uuid4()}",
-        task_queue=task_queue,
-        start_signal=TELEGRAM_UPDATE_SIGNAL_NAME,
-        start_signal_args=[TelegramUpdateSignal(update_key)],
-    )
-
-
-async def test_workflow_uses_selected_prepare_activities_and_deduplicates() -> None:
-    environment = await WorkflowEnvironment.start_time_skipping()
-    task_queue = str(uuid4())
-    kinds = {
-        "echo": InspectionKind.ECHO,
-        "help": InspectionKind.HELP,
-        "unsupported": InspectionKind.UNSUPPORTED,
-        "group": InspectionKind.GROUP_UNSUPPORTED,
-    }
-    recording = RecordingActivities(kinds)
-    try:
-        async with Worker(
-            environment.client,
-            task_queue=task_queue,
-            workflows=[TelegramUserWorkflow],
-            activities=recording.activities(),
-        ):
-            handle = await start_workflow(
-                environment,
-                task_queue,
-                UserWorkflowInput(user_id=40, activity_retry_timeout_seconds=2),
-                "echo",
-            )
-            await handle.signal(
-                TELEGRAM_UPDATE_SIGNAL_NAME,
-                TelegramUpdateSignal("echo"),
-            )
-            for key in ("help", "unsupported", "group"):
-                await handle.signal(
-                    TELEGRAM_UPDATE_SIGNAL_NAME,
-                    TelegramUpdateSignal(key),
-                )
-            await recording.wait_for(
-                lambda: sum(call[0] == "cleanup" for call in recording.calls) == 4
-            )
-
-            assert recording.calls == [
-                ("inspect", "echo"),
-                ("prepare_echo", "echo"),
-                ("deliver", "echo"),
-                ("cleanup", "echo"),
-                ("inspect", "help"),
-                ("prepare_help", "help"),
-                ("deliver", "help"),
-                ("cleanup", "help"),
-                ("inspect", "unsupported"),
-                ("prepare_unsupported", "unsupported"),
-                ("deliver", "unsupported"),
-                ("cleanup", "unsupported"),
-                ("inspect", "group"),
-                ("prepare_group_unsupported", "group"),
-                ("deliver", "group"),
-                ("cleanup", "group"),
-            ]
-            await handle.cancel()
-    finally:
-        await environment.shutdown()
-
-
-async def test_workflow_cleans_up_after_processing_and_cleanup_failures() -> None:
-    environment = await WorkflowEnvironment.start_time_skipping()
-    task_queue = str(uuid4())
-    recording = RecordingActivities(
-        {"inspect-fails": InspectionKind.ECHO, "next": InspectionKind.HELP},
-        inspect_failure_key="inspect-fails",
-        cleanup_failure=True,
-    )
-    try:
-        async with Worker(
-            environment.client,
-            task_queue=task_queue,
-            workflows=[TelegramUserWorkflow],
-            activities=recording.activities(),
-        ):
-            handle = await start_workflow(
-                environment,
-                task_queue,
-                UserWorkflowInput(user_id=40, activity_retry_timeout_seconds=2),
-                "inspect-fails",
-            )
-            await recording.wait_for(lambda: ("cleanup", "inspect-fails") in recording.calls)
-            await handle.signal(
-                TELEGRAM_UPDATE_SIGNAL_NAME,
-                TelegramUpdateSignal("next"),
-            )
-            await recording.wait_for(lambda: ("inspect", "next") in recording.calls)
-
-            assert ("prepare_echo", "inspect-fails") not in recording.calls
-            await handle.cancel()
-    finally:
-        await environment.shutdown()
-
-
-async def test_workflow_continues_as_new_and_carries_deduplication_state() -> None:
-    environment = await WorkflowEnvironment.start_time_skipping()
-    task_queue = str(uuid4())
-    recording = RecordingActivities({"first": InspectionKind.ECHO, "second": InspectionKind.HELP})
-    try:
-        async with Worker(
-            environment.client,
-            task_queue=task_queue,
-            workflows=[TelegramUserWorkflow],
-            activities=recording.activities(),
-        ):
-            handle = await start_workflow(
-                environment,
-                task_queue,
-                UserWorkflowInput(
-                    user_id=40,
-                    activity_retry_timeout_seconds=2,
-                    continue_as_new_after_updates=1,
-                ),
-                "first",
-            )
-            first_run_id = handle.first_execution_run_id
-            await recording.wait_for(lambda: ("cleanup", "first") in recording.calls)
-
-            async def current_run_id() -> str:
-                description = await handle.describe()
-                return description.raw_description.workflow_execution_info.execution.run_id
-
-            for _ in range(100):
-                if await current_run_id() != first_run_id:
-                    break
-                await asyncio.sleep(0.01)
-            assert await current_run_id() != first_run_id
-
-            await handle.signal(
-                TELEGRAM_UPDATE_SIGNAL_NAME,
-                TelegramUpdateSignal("first"),
-            )
-            await handle.signal(
-                TELEGRAM_UPDATE_SIGNAL_NAME,
-                TelegramUpdateSignal("second"),
-            )
-            await recording.wait_for(lambda: ("cleanup", "second") in recording.calls)
-
-            assert recording.calls.count(("inspect", "first")) == 1
-            await handle.cancel()
-    finally:
-        await environment.shutdown()
-
-
-class InMemoryTelegram:
-    def __init__(self, update: Update) -> None:
-        self.update = update
-        self.responses: dict[str, TelegramResponse] = {}
-        self.sent: list[TelegramResponse] = []
-        self.delivered = asyncio.Event()
-
-    async def load_update(self, key: str) -> Update | None:
-        return self.update
-
-    async def store_response(
+class WorkflowStory:
+    def __init__(
         self,
-        key: str,
-        response: TelegramResponse,
-        ttl_seconds: int,
+        environment: WorkflowEnvironment,
+        worker: Worker,
+        task_queue: str,
     ) -> None:
-        self.responses[key] = response
+        self.environment = environment
+        self.worker = worker
+        self.task_queue = task_queue
+        self.handles: list[WorkflowHandle] = []
 
-    async def load_response(self, key: str) -> TelegramResponse | None:
-        return self.responses.get(key)
-
-    async def delete(self, keys: tuple[str, ...]) -> None:
-        for key in keys:
-            self.responses.pop(key, None)
-
-    async def send_text(self, chat_id: int, text: str) -> None:
-        self.sent.append(TelegramResponse(chat_id=chat_id, text=text))
-        self.delivered.set()
-
-
-async def test_workflow_history_does_not_contain_sensitive_payload(
-    make_update: Callable[[int, str], Update],
-) -> None:
-    secret = "history-must-not-contain-this-secret"
-    telegram = InMemoryTelegram(make_update(17, secret))
-    inspect = InspectTelegramUpdateActivity(telegram)
-    prepare = PrepareTelegramResponseActivities(
-        telegram,
-        telegram,
-        ttl_seconds=600,
-    )
-    deliver = DeliverTelegramResponseActivity(telegram, telegram)
-    cleanup = CleanupTelegramPayloadsActivity(telegram)
-    environment = await WorkflowEnvironment.start_time_skipping()
-    task_queue = str(uuid4())
-    try:
-        async with Worker(
+    @classmethod
+    async def open(cls, activities: Sequence[Callable[..., object]]) -> WorkflowStory:
+        environment = await WorkflowEnvironment.start_time_skipping()
+        task_queue = f"deep-telegram-{uuid4()}"
+        worker = Worker(
             environment.client,
             task_queue=task_queue,
             workflows=[TelegramUserWorkflow],
-            activities=[
-                inspect.inspect,
-                prepare.prepare_echo,
-                prepare.prepare_help,
-                prepare.prepare_unsupported,
-                prepare.prepare_group_unsupported,
-                deliver.deliver,
-                cleanup.cleanup,
-            ],
-        ):
-            handle = await start_workflow(
-                environment,
-                task_queue,
-                UserWorkflowInput(user_id=40, activity_retry_timeout_seconds=2),
-                "telegram:updates:42:17",
-            )
-            await asyncio.wait_for(telegram.delivered.wait(), timeout=10)
-            history = await handle.fetch_history()
+            activities=activities,
+        )
+        await worker.__aenter__()
+        return cls(
+            environment=environment,
+            worker=worker,
+            task_queue=task_queue,
+        )
 
-            assert telegram.sent == [TelegramResponse(chat_id=30, text=secret)]
-            assert secret not in json.dumps(history.to_json_dict())
+    async def __aenter__(self) -> WorkflowStory:
+        return self
+
+    async def __aexit__(
+        self,
+        exception_type: type[BaseException] | None,
+        exception: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        for handle in self.handles:
             await handle.cancel()
-    finally:
-        await environment.shutdown()
+        await self.worker.__aexit__(exception_type, exception, traceback)
+        await self.environment.shutdown()
+
+    async def start(
+        self,
+        update_key: str,
+        *,
+        continue_after: int | None,
+    ) -> WorkflowHandle:
+        handle = await self.environment.client.start_workflow(
+            TelegramUserWorkflow.run,
+            UserWorkflowInput(
+                user_id=173_357,
+                activity_retry_timeout_seconds=7,
+                continue_as_new_after_updates=continue_after,
+            ),
+            id=f"deep-user-{uuid4()}",
+            task_queue=self.task_queue,
+            start_signal=TELEGRAM_UPDATE_SIGNAL_NAME,
+            start_signal_args=[TelegramUpdateSignal(redis_key=update_key)],
+        )
+        self.handles.append(handle)
+        return handle
+
+    async def wait_for_new_run(self, handle: WorkflowHandle, previous_run: str) -> str:
+        async with asyncio.timeout(7):
+            while True:
+                current = (
+                    await handle.describe()
+                ).raw_description.workflow_execution_info.execution.run_id
+                if current != previous_run:
+                    return current
+                await asyncio.sleep(0)
+
+
+async def test_routes_unique_signals_through_the_complete_pipeline() -> None:
+    kinds = {
+        "redis:echo:1733": InspectionKind.ECHO,
+        "redis:help:1741": InspectionKind.HELP,
+        "redis:unsupported:1747": InspectionKind.UNSUPPORTED,
+        "redis:group:1753": InspectionKind.GROUP_UNSUPPORTED,
+    }
+    transcript = ActivityTranscript(
+        inspections=kinds,
+        failing_inspection=None,
+        failing_cleanup=False,
+    )
+    async with await WorkflowStory.open(transcript.definitions()) as story:
+        handle = await story.start("redis:echo:1733", continue_after=None)
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key="redis:echo:1733"),
+        )
+        for key in ("redis:help:1741", "redis:unsupported:1747", "redis:group:1753"):
+            await handle.signal(
+                TELEGRAM_UPDATE_SIGNAL_NAME,
+                TelegramUpdateSignal(redis_key=key),
+            )
+        await transcript.wait_for("cleanup", 4)
+
+        assert transcript.events == [
+            ("inspect", "redis:echo:1733", 173_357),
+            ("prepare_echo", "redis:echo:1733", 173_357),
+            ("deliver", "redis:echo:1733", 173_357),
+            ("cleanup", "redis:echo:1733", 173_357),
+            ("inspect", "redis:help:1741", 173_357),
+            ("prepare_help", "redis:help:1741", 173_357),
+            ("deliver", "redis:help:1741", 173_357),
+            ("cleanup", "redis:help:1741", 173_357),
+            ("inspect", "redis:unsupported:1747", 173_357),
+            ("prepare_unsupported", "redis:unsupported:1747", 173_357),
+            ("deliver", "redis:unsupported:1747", 173_357),
+            ("cleanup", "redis:unsupported:1747", 173_357),
+            ("inspect", "redis:group:1753", 173_357),
+            ("prepare_group_unsupported", "redis:group:1753", 173_357),
+            ("deliver", "redis:group:1753", 173_357),
+            ("cleanup", "redis:group:1753", 173_357),
+        ], "workflow duplicated a signal or selected an incorrect Activity pipeline"
+
+
+async def test_keeps_processing_after_activity_and_cleanup_failures() -> None:
+    transcript = ActivityTranscript(
+        inspections={
+            "redis:fractured:1759": InspectionKind.ECHO,
+            "redis:survivor:1777": InspectionKind.HELP,
+        },
+        failing_inspection="redis:fractured:1759",
+        failing_cleanup=True,
+    )
+    async with await WorkflowStory.open(transcript.definitions()) as story:
+        handle = await story.start("redis:fractured:1759", continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key="redis:survivor:1777"),
+        )
+        await transcript.wait_for("cleanup", 2)
+
+        assert transcript.events[:4] == [
+            ("inspect", "redis:fractured:1759", 173_357),
+            ("cleanup", "redis:fractured:1759", 173_357),
+            ("inspect", "redis:survivor:1777", 173_357),
+            ("prepare_help", "redis:survivor:1777", 173_357),
+        ], "one failed update or cleanup terminated the per-user workflow"
+
+
+async def test_carries_deduplication_state_through_continue_as_new() -> None:
+    transcript = ActivityTranscript(
+        inspections={
+            "redis:first:1783": InspectionKind.ECHO,
+            "redis:second:1787": InspectionKind.HELP,
+        },
+        failing_inspection=None,
+        failing_cleanup=False,
+    )
+    async with await WorkflowStory.open(transcript.definitions()) as story:
+        handle = await story.start("redis:first:1783", continue_after=1)
+        first_run = handle.first_execution_run_id
+        await transcript.wait_for("cleanup", 1)
+        current_run = await story.wait_for_new_run(handle, first_run)
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key="redis:first:1783"),
+        )
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key="redis:second:1787"),
+        )
+        await transcript.wait_for("cleanup", 2)
+
+        assert (
+            current_run != first_run,
+            [event for event in transcript.events if event[0] == "inspect"],
+        ) == (
+            True,
+            [
+                ("inspect", "redis:first:1783", 173_357),
+                ("inspect", "redis:second:1787", 173_357),
+            ],
+        ), "Continue-As-New lost recent keys or failed to rotate Workflow History"
+
+
+async def test_keeps_sensitive_message_text_out_of_workflow_history() -> None:
+    secret = "The five boxing wizards jump quickly over history 1789"
+    update = TelegramUpdates.message(
+        update_id=1789,
+        user_id=173_357,
+        chat_id=179_297,
+        text=secret,
+        chat_type="private",
+    )
+    telegram = TelegramMemory(
+        update_result=update,
+        response_result=None,
+        store_result=None,
+        send_result=None,
+        delete_result=None,
+    )
+    inspect = InspectTelegramUpdateActivity(
+        update_reader=telegram,
+        logger=SilentLogger(),
+    )
+    prepare = PrepareTelegramResponseActivities(
+        update_reader=telegram,
+        response_store=telegram,
+        ttl_seconds=1801,
+        logger=SilentLogger(),
+    )
+    deliver = DeliverTelegramResponseActivity(
+        response_reader=telegram,
+        sender=telegram,
+        logger=SilentLogger(),
+    )
+    cleanup = CleanupTelegramPayloadsActivity(
+        cleaner=telegram,
+        logger=SilentLogger(),
+    )
+    definitions = [
+        inspect.inspect,
+        prepare.prepare_echo,
+        prepare.prepare_help,
+        prepare.prepare_unsupported,
+        prepare.prepare_group_unsupported,
+        deliver.deliver,
+        cleanup.cleanup,
+    ]
+    async with await WorkflowStory.open(definitions) as story:
+        handle = await story.start("telegram:updates:1801:1789", continue_after=None)
+        await asyncio.wait_for(telegram.sent.wait(), timeout=7)
+        history = await handle.fetch_history()
+
+        assert (
+            ("send_text", 179_297, secret) in telegram.events,
+            secret not in json.dumps(history.to_json_dict()),
+        ) == (True, True), "Temporal persisted sensitive text or delivery changed it"
