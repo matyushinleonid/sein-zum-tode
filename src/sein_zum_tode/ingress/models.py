@@ -6,6 +6,7 @@ class StoredUpdate:
     update_id: int
     key: str
     ttl_seconds: int
+    user_id: int | None
 
     def next_offset(self) -> int:
         return self.update_id + 1

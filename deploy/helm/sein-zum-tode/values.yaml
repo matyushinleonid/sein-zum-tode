@@ -1,4 +1,5 @@
 replicaCount: 1
+workerReplicaCount: 1
 
 image:
   repository: cr.yandex/replace-with-registry-id/sein-zum-tode
@@ -28,11 +29,13 @@ securityContext:
 
 application:
   logLevel: INFO
+  logFormat: json
   telegramPollingTimeoutSeconds: 30
   telegramRequestTimeoutSeconds: 40
   telegramUpdateTtlSeconds: 3600
   retryInitialDelaySeconds: 1
   retryMaxDelaySeconds: 30
+  temporalActivityRetryTimeoutSeconds: 300
   telegramBotTokenSecretKey: TELEGRAM_BOT_TOKEN
 
 postgres:

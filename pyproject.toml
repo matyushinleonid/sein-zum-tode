@@ -29,6 +29,7 @@ dev = [
 
 [project.scripts]
 sein-zum-tode = "sein_zum_tode.main:main"
+sein-zum-tode-worker = "sein_zum_tode.bot.worker:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

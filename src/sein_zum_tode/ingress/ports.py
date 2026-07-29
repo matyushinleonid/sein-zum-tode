@@ -27,8 +27,21 @@ class UpdateStore(Protocol):
     async def store(self, update: Update) -> StoredUpdate: ...
 
 
+class UpdateUserResolver(Protocol):
+    def resolve(self, update: Update) -> int | None: ...
+
+
 class UpdateHandoff(Protocol):
     async def handoff(self, update: StoredUpdate) -> None: ...
+
+
+class UserWorkflowStarter(Protocol):
+    async def signal_with_start(
+        self,
+        *,
+        user_id: int,
+        update_key: str,
+    ) -> None: ...
 
 
 class RetryWaiter(Protocol):

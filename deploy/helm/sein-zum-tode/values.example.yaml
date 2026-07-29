@@ -1,6 +1,7 @@
 # Copy this file, replace all placeholders, and reference the resulting values
 # from the Argo CD Application.
 replicaCount: 1
+workerReplicaCount: 1
 
 image:
   repository: cr.yandex/crp00000000000000000/sein-zum-tode
@@ -19,6 +20,10 @@ temporal:
   namespace: default
   taskQueue: sein-zum-tode
   tls: false
+
+application:
+  logFormat: json
+  temporalActivityRetryTimeoutSeconds: 300
 
 externalSecret:
   enabled: true
