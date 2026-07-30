@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Literal, Self
 
 from pydantic import Field, SecretStr, model_validator
@@ -19,6 +20,8 @@ class Settings(BaseSettings):
     telegram_polling_timeout_seconds: int = Field(default=30, ge=1)
     telegram_request_timeout_seconds: int = Field(default=40, ge=1)
     telegram_update_ttl_seconds: int = Field(default=3600, ge=1)
+    conversation_ttl_seconds: int = Field(default=3600, ge=1)
+    bot_content_path: Path = Path("config/bot-content.yaml")
 
     retry_initial_delay_seconds: float = Field(default=1.0, gt=0)
     retry_max_delay_seconds: float = Field(default=30.0, gt=0)
@@ -36,9 +39,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_activity_retry_timeout(self) -> Self:
-        if self.temporal_activity_retry_timeout_seconds >= self.telegram_update_ttl_seconds:
+        shortest_payload_ttl = min(
+            self.telegram_update_ttl_seconds,
+            self.conversation_ttl_seconds,
+        )
+        if self.temporal_activity_retry_timeout_seconds >= shortest_payload_ttl:
             raise ValueError(
                 "TEMPORAL_ACTIVITY_RETRY_TIMEOUT_SECONDS must be less than "
-                "TELEGRAM_UPDATE_TTL_SECONDS"
+                "TELEGRAM_UPDATE_TTL_SECONDS and CONVERSATION_TTL_SECONDS"
             )
         return self

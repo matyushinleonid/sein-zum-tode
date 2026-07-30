@@ -11,6 +11,13 @@ from sein_zum_tode.bot.activities import (
     InspectTelegramUpdateActivity,
     PrepareTelegramResponseActivities,
 )
+from sein_zum_tode.bot.content import YamlBotContentLoader
+from sein_zum_tode.bot.conversation.activities import (
+    RecordTelegramConversationAnswerActivity,
+    StartTelegramConversationActivity,
+)
+from sein_zum_tode.bot.conversation.redis import RedisConversationStateRepository
+from sein_zum_tode.bot.conversation.workflow import TelegramConversationWorkflow
 from sein_zum_tode.bot.redis import RedisTelegramPayloadRepository
 from sein_zum_tode.bot.sender import AiogramTelegramMessageSender
 from sein_zum_tode.bot.workflow import TelegramUserWorkflow
@@ -22,6 +29,7 @@ from sein_zum_tode.runtime import install_signal_handlers
 async def run(settings: Settings) -> None:
     stop_event = asyncio.Event()
     install_signal_handlers(stop_event)
+    content = YamlBotContentLoader(settings.bot_content_path).load()
     bot = Bot(token=settings.telegram_bot_token.get_secret_value())
     redis = Redis(
         host=settings.redis_host,
@@ -35,25 +43,52 @@ async def run(settings: Settings) -> None:
         tls=settings.temporal_tls,
     )
     payloads = RedisTelegramPayloadRepository(redis)
+    conversations = RedisConversationStateRepository(redis)
     sender = AiogramTelegramMessageSender(bot)
     inspect = InspectTelegramUpdateActivity(payloads)
     prepare = PrepareTelegramResponseActivities(
         update_reader=payloads,
         response_store=payloads,
         ttl_seconds=settings.telegram_update_ttl_seconds,
+        help_text=content.default().help,
     )
-    deliver = DeliverTelegramResponseActivity(payloads, sender)
-    cleanup = CleanupTelegramPayloadsActivity(payloads)
+    start_conversation = StartTelegramConversationActivity(
+        content=content,
+        conversations=conversations,
+        responses=payloads,
+        conversation_ttl_seconds=settings.conversation_ttl_seconds,
+        response_ttl_seconds=settings.telegram_update_ttl_seconds,
+        privacy_response_ttl_seconds=(
+            settings.conversation_ttl_seconds + settings.temporal_activity_retry_timeout_seconds
+        ),
+    )
+    record_answer = RecordTelegramConversationAnswerActivity(
+        updates=payloads,
+        conversations=conversations,
+        responses=payloads,
+        conversation_ttl_seconds=settings.conversation_ttl_seconds,
+        response_ttl_seconds=settings.telegram_update_ttl_seconds,
+        privacy_response_ttl_seconds=(
+            settings.conversation_ttl_seconds + settings.temporal_activity_retry_timeout_seconds
+        ),
+    )
+    deliver = DeliverTelegramResponseActivity(
+        response_reader=payloads,
+        sender=sender,
+    )
+    cleanup = CleanupTelegramPayloadsActivity(cleaner=payloads)
     worker = Worker(
         temporal,
         task_queue=settings.temporal_task_queue,
-        workflows=[TelegramUserWorkflow],
+        workflows=[TelegramUserWorkflow, TelegramConversationWorkflow],
         activities=[
             inspect.inspect,
             prepare.prepare_echo,
             prepare.prepare_help,
             prepare.prepare_unsupported,
             prepare.prepare_group_unsupported,
+            start_conversation.start,
+            record_answer.record,
             deliver.deliver,
             cleanup.cleanup,
         ],

@@ -2,6 +2,10 @@ class PayloadRepositoryError(Exception):
     pass
 
 
+class ContentConfigurationError(Exception):
+    pass
+
+
 class InvalidStoredPayloadError(Exception):
     pass
 

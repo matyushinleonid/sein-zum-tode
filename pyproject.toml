@@ -12,6 +12,7 @@ dependencies = [
     "asyncpg==0.31.0",
     "pydantic==2.13.4",
     "pydantic-settings==2.14.2",
+    "PyYAML==6.0.3",
     "redis==8.0.1",
     "SQLAlchemy==2.0.51",
     "temporalio==1.30.0",
@@ -25,6 +26,7 @@ dev = [
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
     "ruff==0.16.0",
+    "types-PyYAML==6.0.12.20260518",
 ]
 
 [project.scripts]

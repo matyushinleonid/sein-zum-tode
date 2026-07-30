@@ -24,6 +24,23 @@ temporal:
 application:
   logFormat: json
   temporalActivityRetryTimeoutSeconds: 300
+  conversationTtlSeconds: 3600
+
+botContent:
+  version: production-v1
+  default_locale: en
+  locales:
+    en:
+      help: Show available commands
+      conversation:
+        started: Conversation started
+        completed: Thanks for your answers!
+        deleted: Your answers were deleted from our system
+        questions:
+          - id: first_question
+            text: First question?
+          - id: second_question
+            text: Second question?
 
 externalSecret:
   enabled: true

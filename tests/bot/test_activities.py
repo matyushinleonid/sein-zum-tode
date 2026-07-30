@@ -16,7 +16,6 @@ from sein_zum_tode.bot.errors import (
 )
 from sein_zum_tode.bot.models import (
     GROUP_UNSUPPORTED_RESPONSE_TEXT,
-    HELP_RESPONSE_TEXT,
     UNSUPPORTED_RESPONSE_TEXT,
     CleanupPayloadsInput,
     DeliverResponseInput,
@@ -29,6 +28,7 @@ from sein_zum_tode.bot.models import (
 from tests.support import ActivityCase, SilentLogger, TelegramMemory, TelegramUpdates
 
 pytestmark = pytest.mark.fast
+HELP_TEXT = "Navigate by the constellations"
 
 
 def memory(update: object, response: object = None) -> TelegramMemory:
@@ -65,6 +65,17 @@ def memory(update: object, response: object = None) -> TelegramMemory:
             ),
             expected_kind=InspectionKind.HELP,
             expected_chat_id=127_789,
+        ),
+        ActivityCase(
+            update=TelegramUpdates.message(
+                update_id=1279,
+                user_id=127_981,
+                chat_id=127_987,
+                text="/begin",
+                chat_type="private",
+            ),
+            expected_kind=InspectionKind.BEGIN,
+            expected_chat_id=127_987,
         ),
         ActivityCase(
             update=TelegramUpdates.message(
@@ -180,6 +191,7 @@ async def test_prepares_echo_or_safe_fallback(
         update_reader=payloads,
         response_store=payloads,
         ttl_seconds=1409,
+        help_text=HELP_TEXT,
         logger=SilentLogger(),
     )
     input = PrepareResponseInput(
@@ -207,7 +219,7 @@ async def test_prepares_echo_or_safe_fallback(
     [
         (
             lambda subject, input: subject.prepare_help(input),
-            HELP_RESPONSE_TEXT,
+            HELP_TEXT,
         ),
         (
             lambda subject, input: subject.prepare_unsupported(input),
@@ -231,6 +243,7 @@ async def test_prepares_each_static_response(
         update_reader=payloads,
         response_store=payloads,
         ttl_seconds=1433,
+        help_text=HELP_TEXT,
         logger=SilentLogger(),
     )
     input = PrepareResponseInput(

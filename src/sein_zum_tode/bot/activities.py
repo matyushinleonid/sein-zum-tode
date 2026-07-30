@@ -1,5 +1,4 @@
 import logging
-import time
 
 from aiogram.enums import ChatType
 from aiogram.types import Chat, Update
@@ -14,7 +13,6 @@ from sein_zum_tode.bot.models import (
     CLEANUP_PAYLOADS_ACTIVITY_NAME,
     DELIVER_RESPONSE_ACTIVITY_NAME,
     GROUP_UNSUPPORTED_RESPONSE_TEXT,
-    HELP_RESPONSE_TEXT,
     INSPECT_UPDATE_ACTIVITY_NAME,
     PREPARE_ECHO_ACTIVITY_NAME,
     PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
@@ -50,7 +48,6 @@ class InspectTelegramUpdateActivity:
 
     @activity.defn(name=INSPECT_UPDATE_ACTIVITY_NAME)
     async def inspect(self, input: InspectUpdateInput) -> InspectedUpdate:
-        started_at = time.perf_counter()
         try:
             update = await self._update_reader.load_update(input.update_key)
         except InvalidStoredPayloadError:
@@ -69,7 +66,6 @@ class InspectTelegramUpdateActivity:
                 "telegram_update_inspected",
                 inspection_kind=inspected.kind.value,
                 chat_id=inspected.chat_id,
-                duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
             ),
         )
         return inspected
@@ -90,7 +86,9 @@ class InspectTelegramUpdateActivity:
                 update_key=input.update_key,
                 chat_id=chat.id if chat is not None else input.user_id,
             )
-        if message.text == "/help":
+        if message.text == "/begin":
+            kind = InspectionKind.BEGIN
+        elif message.text == "/help":
             kind = InspectionKind.HELP
         elif message.text is not None:
             kind = InspectionKind.ECHO
@@ -128,16 +126,17 @@ class PrepareTelegramResponseActivities:
         update_reader: TelegramUpdateReader,
         response_store: TelegramResponseStore,
         ttl_seconds: int,
+        help_text: str,
         logger: logging.Logger | None = None,
     ) -> None:
         self._update_reader = update_reader
         self._response_store = response_store
         self._ttl_seconds = ttl_seconds
+        self._help_text = help_text
         self._logger = logger or logging.getLogger(__name__)
 
     @activity.defn(name=PREPARE_ECHO_ACTIVITY_NAME)
     async def prepare_echo(self, input: PrepareResponseInput) -> None:
-        started_at = time.perf_counter()
         text = UNSUPPORTED_RESPONSE_TEXT
         try:
             update = await self._update_reader.load_update(input.update_key)
@@ -146,11 +145,11 @@ class PrepareTelegramResponseActivities:
         if update is not None and update.message is not None and update.message.text is not None:
             text = update.message.text
         await self._store(input, text)
-        self._log_prepared(input, InspectionKind.ECHO, started_at)
+        self._log_prepared(input, InspectionKind.ECHO)
 
     @activity.defn(name=PREPARE_HELP_ACTIVITY_NAME)
     async def prepare_help(self, input: PrepareResponseInput) -> None:
-        await self._prepare_static(input, InspectionKind.HELP, HELP_RESPONSE_TEXT)
+        await self._prepare_static(input, InspectionKind.HELP, self._help_text)
 
     @activity.defn(name=PREPARE_UNSUPPORTED_ACTIVITY_NAME)
     async def prepare_unsupported(self, input: PrepareResponseInput) -> None:
@@ -174,9 +173,8 @@ class PrepareTelegramResponseActivities:
         kind: InspectionKind,
         text: str,
     ) -> None:
-        started_at = time.perf_counter()
         await self._store(input, text)
-        self._log_prepared(input, kind, started_at)
+        self._log_prepared(input, kind)
 
     async def _store(self, input: PrepareResponseInput, text: str) -> None:
         await self._response_store.store_response(
@@ -189,7 +187,6 @@ class PrepareTelegramResponseActivities:
         self,
         input: PrepareResponseInput,
         kind: InspectionKind,
-        started_at: float,
     ) -> None:
         self._logger.info(
             "Telegram response prepared",
@@ -201,7 +198,6 @@ class PrepareTelegramResponseActivities:
                 "telegram_response_prepared",
                 inspection_kind=kind.value,
                 chat_id=input.chat_id,
-                duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
             ),
         )
 
@@ -219,7 +215,6 @@ class DeliverTelegramResponseActivity:
 
     @activity.defn(name=DELIVER_RESPONSE_ACTIVITY_NAME)
     async def deliver(self, input: DeliverResponseInput) -> None:
-        started_at = time.perf_counter()
         try:
             response = await self._response_reader.load_response(input.response_key)
         except InvalidStoredPayloadError as error:
@@ -251,7 +246,6 @@ class DeliverTelegramResponseActivity:
             ).event(
                 "telegram_response_delivered",
                 chat_id=response.chat_id,
-                duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
             ),
         )
 
@@ -267,7 +261,6 @@ class CleanupTelegramPayloadsActivity:
 
     @activity.defn(name=CLEANUP_PAYLOADS_ACTIVITY_NAME)
     async def cleanup(self, input: CleanupPayloadsInput) -> None:
-        started_at = time.perf_counter()
         await self._cleaner.delete(input.keys)
         self._logger.debug(
             "Telegram payloads cleaned up",
@@ -275,8 +268,5 @@ class CleanupTelegramPayloadsActivity:
                 component="worker",
                 user_id=input.user_id,
                 update_key=input.update_key,
-            ).event(
-                "telegram_payloads_cleaned_up",
-                duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
-            ),
+            ).event("telegram_payloads_cleaned_up"),
         )

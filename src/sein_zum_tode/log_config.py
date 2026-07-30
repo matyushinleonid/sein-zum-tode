@@ -18,7 +18,6 @@ _FIELD_ORDER = (
     "update_key",
     "inspection_kind",
     "chat_id",
-    "duration_ms",
 )
 
 

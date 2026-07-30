@@ -1,0 +1,14 @@
+version: debug-v1
+default_locale: en
+locales:
+  en:
+    help: Mock help response
+    conversation:
+      started: mock conversation started
+      completed: thanks for your answers!
+      deleted: your answers were deleted from our system
+      questions:
+        - id: q1
+          text: q1?
+        - id: q2
+          text: q2?
