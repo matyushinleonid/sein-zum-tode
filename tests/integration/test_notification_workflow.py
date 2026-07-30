@@ -1,9 +1,9 @@
-from collections.abc import Callable, Sequence
-from types import TracebackType
+from collections.abc import AsyncIterator, Callable, Sequence
 from typing import cast
 from uuid import uuid4
 
 import pytest
+import pytest_asyncio
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
@@ -30,7 +30,10 @@ from sein_zum_tode.notifications.models import (
 )
 from sein_zum_tode.notifications.workflow import MortalNotificationWorkflow
 
-pytestmark = pytest.mark.deep
+pytestmark = [
+    pytest.mark.deep,
+    pytest.mark.asyncio(loop_scope="module"),
+]
 
 
 def result_or_raise(value: object) -> object:
@@ -97,6 +100,51 @@ class NotificationActivityTranscript:
         ]
 
 
+class NotificationActivityRouter:
+    def __init__(self) -> None:
+        self._transcript: NotificationActivityTranscript | None = None
+
+    def use(self, transcript: NotificationActivityTranscript) -> None:
+        self._transcript = transcript
+
+    def selected(self) -> NotificationActivityTranscript:
+        if self._transcript is None:
+            raise RuntimeError("Notification Activity transcript is not selected")
+        return self._transcript
+
+    @activity.defn(name=PREPARE_MORTAL_NOTIFICATION_ACTIVITY_NAME)
+    async def prepare(
+        self,
+        input: PrepareMortalNotificationInput,
+    ) -> PreparedMortalNotification | None:
+        return await self.selected().prepare(input)
+
+    @activity.defn(name=DELIVER_RESPONSE_ACTIVITY_NAME)
+    async def deliver(self, input: DeliverResponseInput) -> None:
+        await self.selected().deliver(input)
+
+    @activity.defn(name=CLEANUP_PAYLOADS_ACTIVITY_NAME)
+    async def cleanup(self, input: CleanupPayloadsInput) -> None:
+        await self.selected().cleanup(input)
+
+    @activity.defn(name=DEACTIVATE_MORTAL_ACTIVITY_NAME)
+    async def deactivate(self, input: MortalActivityInput) -> None:
+        await self.selected().deactivate(input)
+
+    @activity.defn(name=DELETE_MORTAL_SCHEDULE_ACTIVITY_NAME)
+    async def delete_schedule(self, input: MortalActivityInput) -> None:
+        await self.selected().delete_schedule(input)
+
+    def definitions(self) -> Sequence[Callable[..., object]]:
+        return [
+            self.prepare,
+            self.deliver,
+            self.cleanup,
+            self.deactivate,
+            self.delete_schedule,
+        ]
+
+
 class NotificationWorkflowStory:
     def __init__(
         self,
@@ -104,44 +152,40 @@ class NotificationWorkflowStory:
         environment: WorkflowEnvironment,
         worker: Worker,
         task_queue: str,
+        activities: NotificationActivityRouter,
     ) -> None:
         self.environment = environment
         self.worker = worker
         self.task_queue = task_queue
+        self.activities = activities
 
     @classmethod
     async def open(
         cls,
-        activities: Sequence[Callable[..., object]],
+        *,
+        environment: WorkflowEnvironment,
     ) -> NotificationWorkflowStory:
-        environment = await WorkflowEnvironment.start_time_skipping()
         task_queue = f"deep-notification-{uuid4()}"
+        activities = NotificationActivityRouter()
         worker = Worker(
             environment.client,
             task_queue=task_queue,
             workflows=[MortalNotificationWorkflow],
-            activities=activities,
+            activities=activities.definitions(),
         )
         await worker.__aenter__()
         return cls(
             environment=environment,
             worker=worker,
             task_queue=task_queue,
+            activities=activities,
         )
 
-    async def __aenter__(self) -> NotificationWorkflowStory:
-        return self
+    async def close(self) -> None:
+        await self.worker.__aexit__(None, None, None)
 
-    async def __aexit__(
-        self,
-        exception_type: type[BaseException] | None,
-        exception: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        await self.worker.__aexit__(exception_type, exception, traceback)
-        await self.environment.shutdown()
-
-    async def run(self) -> None:
+    async def run(self, transcript: NotificationActivityTranscript) -> None:
+        self.activities.use(transcript)
         await self.environment.client.execute_workflow(
             MORTAL_NOTIFICATION_WORKFLOW_NAME,
             MortalNotificationWorkflowInput(
@@ -153,15 +197,25 @@ class NotificationWorkflowStory:
         )
 
 
-async def test_delivers_and_cleans_a_nonterminal_notification() -> None:
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
+async def notification_story(
+    temporal_environment: WorkflowEnvironment,
+) -> AsyncIterator[NotificationWorkflowStory]:
+    story = await NotificationWorkflowStory.open(environment=temporal_environment)
+    yield story
+    await story.close()
+
+
+async def test_delivers_and_cleans_a_nonterminal_notification(
+    notification_story: NotificationWorkflowStory,
+) -> None:
     transcript = NotificationActivityTranscript(
         prepare_outcome=PreparedMortalNotification(
             response_key="telegram:notification:3607",
             days_left=19,
         )
     )
-    async with await NotificationWorkflowStory.open(transcript.definitions()) as story:
-        await story.run()
+    await notification_story.run(transcript)
 
     assert [event[0] for event in transcript.events] == [
         "prepare",
@@ -170,15 +224,16 @@ async def test_delivers_and_cleans_a_nonterminal_notification() -> None:
     ], "ordinary notification skipped delivery/cleanup or deleted its recurring Schedule"
 
 
-async def test_deletes_the_schedule_after_delivering_death_day() -> None:
+async def test_deletes_the_schedule_after_delivering_death_day(
+    notification_story: NotificationWorkflowStory,
+) -> None:
     transcript = NotificationActivityTranscript(
         prepare_outcome=PreparedMortalNotification(
             response_key="telegram:notification:3613",
             days_left=0,
         )
     )
-    async with await NotificationWorkflowStory.open(transcript.definitions()) as story:
-        await story.run()
+    await notification_story.run(transcript)
 
     assert [event[0] for event in transcript.events] == [
         "prepare",
@@ -188,10 +243,11 @@ async def test_deletes_the_schedule_after_delivering_death_day() -> None:
     ], "death-day notification left its Temporal Schedule active"
 
 
-async def test_reconciles_a_schedule_without_an_enabled_mortal() -> None:
+async def test_reconciles_a_schedule_without_an_enabled_mortal(
+    notification_story: NotificationWorkflowStory,
+) -> None:
     transcript = NotificationActivityTranscript(prepare_outcome=None)
-    async with await NotificationWorkflowStory.open(transcript.definitions()) as story:
-        await story.run()
+    await notification_story.run(transcript)
 
     assert [event[0] for event in transcript.events] == [
         "prepare",
@@ -200,7 +256,9 @@ async def test_reconciles_a_schedule_without_an_enabled_mortal() -> None:
     ], "stale Schedule was not removed when notification preferences disappeared"
 
 
-async def test_forbidden_delivery_deactivates_the_mortal() -> None:
+async def test_forbidden_delivery_deactivates_the_mortal(
+    notification_story: NotificationWorkflowStory,
+) -> None:
     transcript = NotificationActivityTranscript(
         prepare_outcome=PreparedMortalNotification(
             response_key="telegram:notification:3617",
@@ -212,8 +270,7 @@ async def test_forbidden_delivery_deactivates_the_mortal() -> None:
             non_retryable=True,
         ),
     )
-    async with await NotificationWorkflowStory.open(transcript.definitions()) as story:
-        await story.run()
+    await notification_story.run(transcript)
 
     assert [event[0] for event in transcript.events] == [
         "prepare",
@@ -223,7 +280,9 @@ async def test_forbidden_delivery_deactivates_the_mortal() -> None:
     ], "Telegram Forbidden did not remove the Mortal and its Schedule"
 
 
-async def test_best_effort_cleanup_survives_delivery_and_cleanup_failures() -> None:
+async def test_best_effort_cleanup_survives_delivery_and_cleanup_failures(
+    notification_story: NotificationWorkflowStory,
+) -> None:
     transcript = NotificationActivityTranscript(
         prepare_outcome=PreparedMortalNotification(
             response_key="telegram:notification:3623",
@@ -232,8 +291,7 @@ async def test_best_effort_cleanup_survives_delivery_and_cleanup_failures() -> N
         delivery_outcome=ApplicationError("Telegram unavailable", non_retryable=True),
         cleanup_outcome=ApplicationError("Redis unavailable", non_retryable=True),
     )
-    async with await NotificationWorkflowStory.open(transcript.definitions()) as story:
-        await story.run()
+    await notification_story.run(transcript)
 
     assert [event[0] for event in transcript.events] == [
         "prepare",
@@ -251,6 +309,7 @@ async def test_best_effort_cleanup_survives_delivery_and_cleanup_failures() -> N
 )
 async def test_lifecycle_activity_failure_does_not_hide_delivery_outcome(
     failed_operation: str,
+    notification_story: NotificationWorkflowStory,
 ) -> None:
     lifecycle_failure = ApplicationError(
         f"{failed_operation} unavailable",
@@ -278,19 +337,19 @@ async def test_lifecycle_activity_failure_does_not_hide_delivery_outcome(
         deactivate_outcome=lifecycle_failure if forbidden else None,
         delete_schedule_outcome=lifecycle_failure if not forbidden else None,
     )
-    async with await NotificationWorkflowStory.open(transcript.definitions()) as story:
-        await story.run()
+    await notification_story.run(transcript)
 
     assert failed_operation in [cast(str, event[0]) for event in transcript.events]
 
 
-async def test_preparation_failure_fails_the_notification_workflow() -> None:
+async def test_preparation_failure_fails_the_notification_workflow(
+    notification_story: NotificationWorkflowStory,
+) -> None:
     transcript = NotificationActivityTranscript(
         prepare_outcome=ApplicationError("PostgreSQL unavailable", non_retryable=True)
     )
-    async with await NotificationWorkflowStory.open(transcript.definitions()) as story:
-        with pytest.raises(WorkflowFailureError):
-            await story.run()
+    with pytest.raises(WorkflowFailureError):
+        await notification_story.run(transcript)
 
     assert [event[0] for event in transcript.events] == ["prepare"], (
         "failed preparation continued into notification delivery or lifecycle cleanup"

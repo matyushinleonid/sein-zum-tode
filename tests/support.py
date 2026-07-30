@@ -40,6 +40,8 @@ from sein_zum_tode.ingress.ports import (
 from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.prediction.models import StoredDeathPrediction
 
+TEST_TIMEOUT_SECONDS = 30
+
 
 class SilentLogger(logging.Logger):
     def __init__(self) -> None:
@@ -529,12 +531,18 @@ class ConversationMemory(
     async def wait_for_messages(self, count: int) -> None:
         while len(self.messages) < count:
             self.changed.clear()
-            await asyncio.wait_for(self.changed.wait(), timeout=7)
+            await asyncio.wait_for(
+                self.changed.wait(),
+                timeout=TEST_TIMEOUT_SECONDS,
+            )
 
     async def wait_until_absent(self, key: str) -> None:
         while key in self.updates or key in self.conversations or key in self.responses:
             self.changed.clear()
-            await asyncio.wait_for(self.changed.wait(), timeout=7)
+            await asyncio.wait_for(
+                self.changed.wait(),
+                timeout=TEST_TIMEOUT_SECONDS,
+            )
 
 
 class ConversationRepositoryDouble(ConversationStateRepository):

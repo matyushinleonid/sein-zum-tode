@@ -1,4 +1,5 @@
 PYTHON ?= python3.14
+PYTEST_WORKERS ?= auto
 
 .PHONY: install run test lint typecheck format check
 
@@ -9,7 +10,7 @@ run:
 	docker compose up --build telegram-ingress telegram-worker
 
 test:
-	$(PYTHON) -m pytest
+	$(PYTHON) -m pytest -n $(PYTEST_WORKERS) --dist loadscope --maxprocesses 4
 
 lint:
 	$(PYTHON) -m ruff check .

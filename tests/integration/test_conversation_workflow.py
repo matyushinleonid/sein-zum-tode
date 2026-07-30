@@ -1,12 +1,13 @@
 import asyncio
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from datetime import timedelta
 from types import TracebackType
 from typing import cast
 from uuid import uuid4
 
 import pytest
+import pytest_asyncio
 from aiogram.types import Update
 from temporalio import activity
 from temporalio.client import WorkflowHandle
@@ -70,6 +71,7 @@ from sein_zum_tode.prediction.activities import (
 from sein_zum_tode.prediction.config import MockPredictionConfig
 from sein_zum_tode.prediction.mock import MockDeathPredictor
 from tests.support import (
+    TEST_TIMEOUT_SECONDS,
     BotContents,
     ConversationMemory,
     MortalMemory,
@@ -78,7 +80,10 @@ from tests.support import (
     TelegramUpdates,
 )
 
-pytestmark = pytest.mark.deep
+pytestmark = [
+    pytest.mark.deep,
+    pytest.mark.asyncio(loop_scope="module"),
+]
 
 
 class ConversationActivityTranscript:
@@ -189,7 +194,70 @@ class ConversationActivityTranscript:
     async def wait_for(self, operation: str, count: int) -> None:
         while sum(event[0] == operation for event in self.events) < count:
             self.changed.clear()
-            await asyncio.wait_for(self.changed.wait(), timeout=7)
+            await asyncio.wait_for(
+                self.changed.wait(),
+                timeout=TEST_TIMEOUT_SECONDS,
+            )
+
+
+class ConversationActivityRouter:
+    def __init__(self) -> None:
+        self._transcript: ConversationActivityTranscript | None = None
+
+    def use(self, transcript: ConversationActivityTranscript) -> None:
+        self._transcript = transcript
+
+    def selected(self) -> ConversationActivityTranscript:
+        if self._transcript is None:
+            raise RuntimeError("Conversation Activity transcript is not selected")
+        return self._transcript
+
+    @activity.defn(name=START_CONVERSATION_ACTIVITY_NAME)
+    async def start(self, input: StartConversationInput) -> ConversationStarted:
+        return await self.selected().start(input)
+
+    @activity.defn(name=RECORD_CONVERSATION_ANSWER_ACTIVITY_NAME)
+    async def record(self, input: RecordConversationAnswerInput) -> ConversationTurn:
+        return await self.selected().record(input)
+
+    @activity.defn(name=DELIVER_RESPONSE_ACTIVITY_NAME)
+    async def deliver(self, input: DeliverResponseInput) -> None:
+        await self.selected().deliver(input)
+
+    @activity.defn(name=CLEANUP_PAYLOADS_ACTIVITY_NAME)
+    async def cleanup(self, input: CleanupPayloadsInput) -> None:
+        await self.selected().cleanup(input)
+
+    @activity.defn(name=GENERATE_DEATH_PREDICTION_ACTIVITY_NAME)
+    async def generate_prediction(self, input: GenerateDeathPredictionInput) -> None:
+        await self.selected().generate_prediction(input)
+
+    @activity.defn(name=APPLY_DEATH_PREDICTION_ACTIVITY_NAME)
+    async def apply_prediction(self, input: ApplyDeathPredictionInput) -> None:
+        await self.selected().apply_prediction(input)
+
+    @activity.defn(name=PREPARE_PREDICTION_FAILURE_ACTIVITY_NAME)
+    async def prepare_prediction_failure(
+        self,
+        input: PreparePredictionFailureInput,
+    ) -> None:
+        await self.selected().prepare_prediction_failure(input)
+
+    @activity.defn(name=DEACTIVATE_MORTAL_ACTIVITY_NAME)
+    async def deactivate_mortal(self, input: MortalActivityInput) -> None:
+        await self.selected().deactivate_mortal(input)
+
+    def definitions(self) -> Sequence[Callable[..., object]]:
+        return [
+            self.start,
+            self.record,
+            self.deliver,
+            self.cleanup,
+            self.generate_prediction,
+            self.apply_prediction,
+            self.prepare_prediction_failure,
+            self.deactivate_mortal,
+        ]
 
 
 class FaultConversationWorkflowStory:
@@ -199,45 +267,43 @@ class FaultConversationWorkflowStory:
         environment: WorkflowEnvironment,
         worker: Worker,
         task_queue: str,
+        activities: ConversationActivityRouter,
     ) -> None:
         self.environment = environment
         self.worker = worker
         self.task_queue = task_queue
+        self.activities = activities
         self.handles: list[WorkflowHandle[TelegramConversationWorkflow, None]] = []
 
     @classmethod
     async def open(
         cls,
-        activities: Sequence[Callable[..., object]],
+        *,
+        environment: WorkflowEnvironment,
     ) -> FaultConversationWorkflowStory:
-        environment = await WorkflowEnvironment.start_time_skipping()
         task_queue = f"fault-conversation-{uuid4()}"
+        activities = ConversationActivityRouter()
         worker = Worker(
             environment.client,
             task_queue=task_queue,
             workflows=[TelegramConversationWorkflow],
-            activities=activities,
+            activities=activities.definitions(),
         )
         await worker.__aenter__()
         return cls(
             environment=environment,
             worker=worker,
             task_queue=task_queue,
+            activities=activities,
         )
 
-    async def __aenter__(self) -> FaultConversationWorkflowStory:
-        return self
+    def use(self, transcript: ConversationActivityTranscript) -> None:
+        self.activities.use(transcript)
 
-    async def __aexit__(
-        self,
-        exception_type: type[BaseException] | None,
-        exception: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
+    async def close(self) -> None:
         for handle in self.handles:
             await handle.cancel()
-        await self.worker.__aexit__(exception_type, exception, traceback)
-        await self.environment.shutdown()
+        await self.worker.__aexit__(None, None, None)
 
     async def start(self) -> WorkflowHandle[TelegramConversationWorkflow, None]:
         handle = await self.environment.client.start_workflow(
@@ -254,6 +320,17 @@ class FaultConversationWorkflowStory:
         )
         self.handles.append(handle)
         return handle
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
+async def fault_conversation_story(
+    temporal_environment: WorkflowEnvironment,
+) -> AsyncIterator[FaultConversationWorkflowStory]:
+    story = await FaultConversationWorkflowStory.open(
+        environment=temporal_environment,
+    )
+    yield story
+    await story.close()
 
 
 class ConversationWorkflowStory:
@@ -287,10 +364,10 @@ class ConversationWorkflowStory:
     async def open(
         cls,
         *,
+        environment: WorkflowEnvironment,
         memory: ConversationMemory,
         inactivity_timeout_seconds: int,
     ) -> ConversationWorkflowStory:
-        environment = await WorkflowEnvironment.start_time_skipping()
         task_queue = f"deep-conversation-{uuid4()}"
         content = BotContents.debug()
         mortals = MortalMemory({241_103: Mortal(id=241_103)})
@@ -402,7 +479,6 @@ class ConversationWorkflowStory:
         for handle in self.handles:
             await handle.cancel()
         await self.worker.__aexit__(exception_type, exception, traceback)
-        await self.environment.shutdown()
 
     async def start(
         self,
@@ -434,7 +510,9 @@ def private_message(*, update_id: int, text: str) -> Update:
     )
 
 
-async def test_runs_the_complete_private_questionnaire_without_persisting_answers() -> None:
+async def test_runs_the_complete_private_questionnaire_without_persisting_answers(
+    temporal_environment: WorkflowEnvironment,
+) -> None:
     begin_key = "telegram:update:begin:2411"
     first_answer_key = "telegram:update:answer:2417"
     second_answer_key = "telegram:update:answer:2423"
@@ -450,6 +528,7 @@ async def test_runs_the_complete_private_questionnaire_without_persisting_answer
         }
     )
     async with await ConversationWorkflowStory.open(
+        environment=temporal_environment,
         memory=memory,
         inactivity_timeout_seconds=300,
     ) as story:
@@ -518,10 +597,13 @@ async def test_runs_the_complete_private_questionnaire_without_persisting_answer
         ), "completion retained private Redis data or persisted answers in Temporal history"
 
 
-async def test_deletes_an_inactive_conversation_and_notifies_the_user() -> None:
+async def test_deletes_an_inactive_conversation_and_notifies_the_user(
+    temporal_environment: WorkflowEnvironment,
+) -> None:
     begin_key = "telegram:update:begin:2437"
     memory = ConversationMemory(updates={begin_key: private_message(update_id=2437, text="/begin")})
     async with await ConversationWorkflowStory.open(
+        environment=temporal_environment,
         memory=memory,
         inactivity_timeout_seconds=5,
     ) as story:
@@ -546,7 +628,9 @@ async def test_deletes_an_inactive_conversation_and_notifies_the_user() -> None:
         ), "inactivity timeout failed to clean Redis or send the configured privacy notice"
 
 
-async def test_restarts_an_active_conversation_without_a_deletion_notice() -> None:
+async def test_restarts_an_active_conversation_without_a_deletion_notice(
+    temporal_environment: WorkflowEnvironment,
+) -> None:
     first_begin_key = "telegram:update:begin:2441"
     second_begin_key = "telegram:update:begin:2447"
     memory = ConversationMemory(
@@ -556,6 +640,7 @@ async def test_restarts_an_active_conversation_without_a_deletion_notice() -> No
         }
     )
     async with await ConversationWorkflowStory.open(
+        environment=temporal_environment,
         memory=memory,
         inactivity_timeout_seconds=300,
     ) as story:
@@ -582,22 +667,26 @@ async def test_restarts_an_active_conversation_without_a_deletion_notice() -> No
         ), "repeated /begin did not silently replace the active conversation snapshot"
 
 
-async def test_finishes_when_the_conversation_cannot_be_started() -> None:
+async def test_finishes_when_the_conversation_cannot_be_started(
+    fault_conversation_story: FaultConversationWorkflowStory,
+) -> None:
     transcript = ConversationActivityTranscript(
         start_outcome=ApplicationError("snapshot rejected", non_retryable=True),
         turn_outcomes={},
     )
-    async with await FaultConversationWorkflowStory.open(transcript.definitions()) as story:
-        handle = await story.start()
+    fault_conversation_story.use(transcript)
+    handle = await fault_conversation_story.start()
 
-        await handle.result()
+    await handle.result()
 
-        assert transcript.events == [("start", "telegram:conversation:fault:2401")], (
-            "failed start continued into delivery or conversation processing"
-        )
+    assert transcript.events == [("start", "telegram:conversation:fault:2401")], (
+        "failed start continued into delivery or conversation processing"
+    )
 
 
-async def test_cleans_private_data_when_initial_delivery_and_cleanup_fail() -> None:
+async def test_cleans_private_data_when_initial_delivery_and_cleanup_fail(
+    fault_conversation_story: FaultConversationWorkflowStory,
+) -> None:
     transcript = ConversationActivityTranscript(
         start_outcome=ConversationStarted(
             response_keys=("telegram:response:initial:2467",),
@@ -607,27 +696,29 @@ async def test_cleans_private_data_when_initial_delivery_and_cleanup_fail() -> N
         failed_deliveries={"telegram:response:initial:2467"},
         fail_cleanup=True,
     )
-    async with await FaultConversationWorkflowStory.open(transcript.definitions()) as story:
-        handle = await story.start()
+    fault_conversation_story.use(transcript)
+    handle = await fault_conversation_story.start()
 
-        await handle.result()
+    await handle.result()
 
-        assert transcript.events == [
-            ("start", "telegram:conversation:fault:2401"),
-            ("deliver", "telegram:response:initial:2467"),
-            ("cleanup", ("telegram:response:initial:2467",)),
-            ("deliver", "telegram:response:privacy:2473"),
+    assert transcript.events == [
+        ("start", "telegram:conversation:fault:2401"),
+        ("deliver", "telegram:response:initial:2467"),
+        ("cleanup", ("telegram:response:initial:2467",)),
+        ("deliver", "telegram:response:privacy:2473"),
+        (
+            "cleanup",
             (
-                "cleanup",
-                (
-                    "telegram:conversation:fault:2401",
-                    "telegram:response:privacy:2473",
-                ),
+                "telegram:conversation:fault:2401",
+                "telegram:response:privacy:2473",
             ),
-        ], "delivery failure skipped best-effort conversation and privacy cleanup"
+        ),
+    ], "delivery failure skipped best-effort conversation and privacy cleanup"
 
 
-async def test_finishes_privately_when_recording_an_answer_fails() -> None:
+async def test_finishes_privately_when_recording_an_answer_fails(
+    fault_conversation_story: FaultConversationWorkflowStory,
+) -> None:
     update_key = "telegram:update:fault:2503"
     transcript = ConversationActivityTranscript(
         start_outcome=ConversationStarted(
@@ -636,32 +727,34 @@ async def test_finishes_privately_when_recording_an_answer_fails() -> None:
         ),
         turn_outcomes={update_key: ApplicationError("record rejected", non_retryable=True)},
     )
-    async with await FaultConversationWorkflowStory.open(transcript.definitions()) as story:
-        with story.environment.auto_time_skipping_disabled():
-            handle = await story.start()
-            await transcript.wait_for("start", 1)
-            await handle.signal(
-                CONVERSATION_UPDATE_SIGNAL_NAME,
-                ConversationUpdateSignal(update_key=update_key),
-            )
-            await handle.result()
+    fault_conversation_story.use(transcript)
+    with fault_conversation_story.environment.auto_time_skipping_disabled():
+        handle = await fault_conversation_story.start()
+        await transcript.wait_for("start", 1)
+        await handle.signal(
+            CONVERSATION_UPDATE_SIGNAL_NAME,
+            ConversationUpdateSignal(update_key=update_key),
+        )
+        await handle.result()
 
-        assert transcript.events == [
-            ("start", "telegram:conversation:fault:2401"),
-            ("record", update_key),
-            ("deliver", "telegram:response:privacy:2503"),
+    assert transcript.events == [
+        ("start", "telegram:conversation:fault:2401"),
+        ("record", update_key),
+        ("deliver", "telegram:response:privacy:2503"),
+        (
+            "cleanup",
             (
-                "cleanup",
-                (
-                    "telegram:conversation:fault:2401",
-                    update_key,
-                    "telegram:response:privacy:2503",
-                ),
+                "telegram:conversation:fault:2401",
+                update_key,
+                "telegram:response:privacy:2503",
             ),
-        ], "failed answer recording left the update or conversation snapshot behind"
+        ),
+    ], "failed answer recording left the update or conversation snapshot behind"
 
 
-async def test_ignores_duplicate_input_then_finishes_an_expired_conversation() -> None:
+async def test_ignores_duplicate_input_then_finishes_an_expired_conversation(
+    fault_conversation_story: FaultConversationWorkflowStory,
+) -> None:
     ignored_key = "telegram:update:ignored:2521"
     expired_key = "telegram:update:expired:2531"
     transcript = ConversationActivityTranscript(
@@ -675,34 +768,39 @@ async def test_ignores_duplicate_input_then_finishes_an_expired_conversation() -
         },
         blocked_updates={ignored_key},
     )
-    async with await FaultConversationWorkflowStory.open(transcript.definitions()) as story:
-        with story.environment.auto_time_skipping_disabled():
-            handle = await story.start()
-            await transcript.wait_for("start", 1)
-            await handle.signal(
-                CONVERSATION_UPDATE_SIGNAL_NAME,
-                ConversationUpdateSignal(update_key=ignored_key),
-            )
-            await asyncio.wait_for(transcript.record_started.wait(), timeout=7)
-            await handle.signal(
-                CONVERSATION_UPDATE_SIGNAL_NAME,
-                ConversationUpdateSignal(update_key=ignored_key),
-            )
-            transcript.release_record.set()
-            await transcript.wait_for("cleanup", 1)
-            await handle.signal(
-                CONVERSATION_UPDATE_SIGNAL_NAME,
-                ConversationUpdateSignal(update_key=expired_key),
-            )
-            await handle.result()
+    fault_conversation_story.use(transcript)
+    with fault_conversation_story.environment.auto_time_skipping_disabled():
+        handle = await fault_conversation_story.start()
+        await transcript.wait_for("start", 1)
+        await handle.signal(
+            CONVERSATION_UPDATE_SIGNAL_NAME,
+            ConversationUpdateSignal(update_key=ignored_key),
+        )
+        await asyncio.wait_for(
+            transcript.record_started.wait(),
+            timeout=TEST_TIMEOUT_SECONDS,
+        )
+        await handle.signal(
+            CONVERSATION_UPDATE_SIGNAL_NAME,
+            ConversationUpdateSignal(update_key=ignored_key),
+        )
+        transcript.release_record.set()
+        await transcript.wait_for("cleanup", 1)
+        await handle.signal(
+            CONVERSATION_UPDATE_SIGNAL_NAME,
+            ConversationUpdateSignal(update_key=expired_key),
+        )
+        await handle.result()
 
-        assert [event for event in transcript.events if event[0] == "record"] == [
-            ("record", ignored_key),
-            ("record", expired_key),
-        ], "ignored duplicate advanced the questionnaire or expiration failed to finish it"
+    assert [event for event in transcript.events if event[0] == "record"] == [
+        ("record", ignored_key),
+        ("record", expired_key),
+    ], "ignored duplicate advanced the questionnaire or expiration failed to finish it"
 
 
-async def test_cancellation_cleans_an_update_being_recorded() -> None:
+async def test_cancellation_cleans_an_update_being_recorded(
+    fault_conversation_story: FaultConversationWorkflowStory,
+) -> None:
     update_key = "telegram:update:blocked:2551"
     transcript = ConversationActivityTranscript(
         start_outcome=ConversationStarted(
@@ -712,29 +810,34 @@ async def test_cancellation_cleans_an_update_being_recorded() -> None:
         turn_outcomes={update_key: ConversationTurn(kind=ConversationTurnKind.QUESTION)},
         blocked_updates={update_key},
     )
-    async with await FaultConversationWorkflowStory.open(transcript.definitions()) as story:
-        with story.environment.auto_time_skipping_disabled():
-            handle = await story.start()
-            await transcript.wait_for("start", 1)
-            await handle.signal(
-                CONVERSATION_UPDATE_SIGNAL_NAME,
-                ConversationUpdateSignal(update_key=update_key),
-            )
-            await asyncio.wait_for(transcript.record_started.wait(), timeout=7)
-            await handle.cancel()
-            await transcript.wait_for("cleanup", 1)
+    fault_conversation_story.use(transcript)
+    with fault_conversation_story.environment.auto_time_skipping_disabled():
+        handle = await fault_conversation_story.start()
+        await transcript.wait_for("start", 1)
+        await handle.signal(
+            CONVERSATION_UPDATE_SIGNAL_NAME,
+            ConversationUpdateSignal(update_key=update_key),
+        )
+        await asyncio.wait_for(
+            transcript.record_started.wait(),
+            timeout=TEST_TIMEOUT_SECONDS,
+        )
+        await handle.cancel()
+        await transcript.wait_for("cleanup", 1)
 
-        assert (
-            "cleanup",
-            (
-                "telegram:conversation:fault:2401",
-                update_key,
-                "telegram:response:privacy:2557",
-            ),
-        ) in transcript.events, "cancellation failed to clean the answer currently being recorded"
+    assert (
+        "cleanup",
+        (
+            "telegram:conversation:fault:2401",
+            update_key,
+            "telegram:response:privacy:2557",
+        ),
+    ) in transcript.events, "cancellation failed to clean the answer currently being recorded"
 
 
-async def test_activation_failure_does_not_restore_private_redis_data() -> None:
+async def test_activation_failure_does_not_restore_private_redis_data(
+    fault_conversation_story: FaultConversationWorkflowStory,
+) -> None:
     update_key = "telegram:update:completed:2579"
     response_key = "telegram:response:completed:2591"
     transcript = ConversationActivityTranscript(
@@ -750,15 +853,15 @@ async def test_activation_failure_does_not_restore_private_redis_data() -> None:
         },
         fail_activation=True,
     )
-    async with await FaultConversationWorkflowStory.open(transcript.definitions()) as story:
-        with story.environment.auto_time_skipping_disabled():
-            handle = await story.start()
-            await transcript.wait_for("start", 1)
-            await handle.signal(
-                CONVERSATION_UPDATE_SIGNAL_NAME,
-                ConversationUpdateSignal(update_key=update_key),
-            )
-            await handle.result()
+    fault_conversation_story.use(transcript)
+    with fault_conversation_story.environment.auto_time_skipping_disabled():
+        handle = await fault_conversation_story.start()
+        await transcript.wait_for("start", 1)
+        await handle.signal(
+            CONVERSATION_UPDATE_SIGNAL_NAME,
+            ConversationUpdateSignal(update_key=update_key),
+        )
+        await handle.result()
 
     assert [event[0] for event in transcript.events] == [
         "start",
@@ -773,7 +876,9 @@ async def test_activation_failure_does_not_restore_private_redis_data() -> None:
     ], "prediction failure changed the private-data completion sequence"
 
 
-async def test_prediction_and_fallback_failure_still_deliver_privacy_notice() -> None:
+async def test_prediction_and_fallback_failure_still_deliver_privacy_notice(
+    fault_conversation_story: FaultConversationWorkflowStory,
+) -> None:
     update_key = "telegram:update:prediction-double-failure:2597"
     response_key = "telegram:response:prediction-double-failure:2599"
     transcript = ConversationActivityTranscript(
@@ -790,15 +895,15 @@ async def test_prediction_and_fallback_failure_still_deliver_privacy_notice() ->
         fail_activation=True,
         fail_prediction_failure_response=True,
     )
-    async with await FaultConversationWorkflowStory.open(transcript.definitions()) as story:
-        with story.environment.auto_time_skipping_disabled():
-            handle = await story.start()
-            await transcript.wait_for("start", 1)
-            await handle.signal(
-                CONVERSATION_UPDATE_SIGNAL_NAME,
-                ConversationUpdateSignal(update_key=update_key),
-            )
-            await handle.result()
+    fault_conversation_story.use(transcript)
+    with fault_conversation_story.environment.auto_time_skipping_disabled():
+        handle = await fault_conversation_story.start()
+        await transcript.wait_for("start", 1)
+        await handle.signal(
+            CONVERSATION_UPDATE_SIGNAL_NAME,
+            ConversationUpdateSignal(update_key=update_key),
+        )
+        await handle.result()
 
     assert [event[0] for event in transcript.events][-3:] == [
         "deliver",
@@ -810,6 +915,7 @@ async def test_prediction_and_fallback_failure_still_deliver_privacy_notice() ->
 @pytest.mark.parametrize("fail_deactivation", [False, True])
 async def test_forbidden_conversation_delivery_deactivates_the_mortal(
     fail_deactivation: bool,
+    fault_conversation_story: FaultConversationWorkflowStory,
 ) -> None:
     response_key = "telegram:response:forbidden:2609"
     transcript = ConversationActivityTranscript(
@@ -821,9 +927,9 @@ async def test_forbidden_conversation_delivery_deactivates_the_mortal(
         unavailable_deliveries={response_key},
         fail_deactivation=fail_deactivation,
     )
-    async with await FaultConversationWorkflowStory.open(transcript.definitions()) as story:
-        handle = await story.start()
-        await handle.result()
+    fault_conversation_story.use(transcript)
+    handle = await fault_conversation_story.start()
+    await handle.result()
 
     assert [event[0] for event in transcript.events[:4]] == [
         "start",
