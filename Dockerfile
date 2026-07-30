@@ -13,6 +13,7 @@ RUN groupadd --gid 10001 app && \
 
 COPY pyproject.toml ./
 COPY src ./src
+COPY config ./config
 
 RUN python -m pip install --upgrade pip && \
     python -m pip install .

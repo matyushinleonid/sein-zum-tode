@@ -47,6 +47,7 @@ async def run(settings: Settings) -> None:
         bot_id=bot.id,
         task_queue=settings.temporal_task_queue,
         activity_retry_timeout_seconds=(settings.temporal_activity_retry_timeout_seconds),
+        conversation_ttl_seconds=settings.conversation_ttl_seconds,
     )
     poller = TelegramPoller(
         source=source,

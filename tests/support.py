@@ -5,6 +5,13 @@ from typing import Any
 
 from aiogram.types import Update
 
+from sein_zum_tode.bot.content import (
+    BotContent,
+    ConversationContent,
+    LocalizedBotContent,
+    QuestionContent,
+)
+from sein_zum_tode.bot.conversation.models import ConversationState
 from sein_zum_tode.bot.models import TelegramResponse
 from sein_zum_tode.ingress.models import StoredUpdate
 
@@ -21,6 +28,33 @@ class SilentLogger:
 
     def exception(self, *args: object, **kwargs: object) -> None:
         pass
+
+
+class BotContents:
+    @staticmethod
+    def debug(
+        *,
+        first_question: str = "q1?",
+        second_question: str = "q2?",
+    ) -> BotContent:
+        return BotContent(
+            version="debug-cosmos-v1",
+            default_locale="en",
+            locales={
+                "en": LocalizedBotContent(
+                    help="Navigate by the constellations",
+                    conversation=ConversationContent(
+                        started="mock conversation started",
+                        completed="thanks for your answers!",
+                        deleted="your answers were deleted from our system",
+                        questions=(
+                            QuestionContent(id="q1", text=first_question),
+                            QuestionContent(id="q2", text=second_question),
+                        ),
+                    ),
+                )
+            },
+        )
 
 
 class TelegramUpdates:
@@ -249,6 +283,99 @@ class TelegramMemory:
         self.events.append(("send_text", chat_id, text))
         result_or_raise(self.send_result)
         self.sent.set()
+
+
+class ConversationMemory:
+    def __init__(
+        self,
+        *,
+        updates: dict[str, Update] | None = None,
+        conversations: dict[str, ConversationState] | None = None,
+    ) -> None:
+        self.updates = dict(updates or {})
+        self.conversations = dict(conversations or {})
+        self.responses: dict[str, TelegramResponse] = {}
+        self.events: list[tuple[object, ...]] = []
+        self.messages: list[tuple[int, str]] = []
+        self.changed = asyncio.Event()
+
+    async def load_update(self, key: str) -> Update | None:
+        self.events.append(("load_update", key))
+        return self.updates.get(key)
+
+    async def load_conversation(self, key: str) -> ConversationState | None:
+        self.events.append(("load_conversation", key))
+        return self.conversations.get(key)
+
+    async def store_conversation(
+        self,
+        key: str,
+        state: ConversationState,
+        ttl_seconds: int,
+    ) -> None:
+        self.events.append(("store_conversation", key, state, ttl_seconds))
+        self.conversations[key] = state
+
+    async def store_response(
+        self,
+        key: str,
+        response: TelegramResponse,
+        ttl_seconds: int,
+    ) -> None:
+        self.events.append(("store_response", key, response, ttl_seconds))
+        self.responses[key] = response
+
+    async def load_response(self, key: str) -> TelegramResponse | None:
+        self.events.append(("load_response", key))
+        return self.responses.get(key)
+
+    async def delete(self, keys: tuple[str, ...]) -> None:
+        self.events.append(("delete", keys))
+        for key in keys:
+            self.updates.pop(key, None)
+            self.conversations.pop(key, None)
+            self.responses.pop(key, None)
+        self.changed.set()
+
+    async def send_text(self, chat_id: int, text: str) -> None:
+        self.events.append(("send_text", chat_id, text))
+        self.messages.append((chat_id, text))
+        self.changed.set()
+
+    async def wait_for_messages(self, count: int) -> None:
+        while len(self.messages) < count:
+            self.changed.clear()
+            await asyncio.wait_for(self.changed.wait(), timeout=7)
+
+    async def wait_until_absent(self, key: str) -> None:
+        while key in self.updates or key in self.conversations or key in self.responses:
+            self.changed.clear()
+            await asyncio.wait_for(self.changed.wait(), timeout=7)
+
+
+class ConversationRepositoryDouble:
+    def __init__(
+        self,
+        *,
+        load_result: object,
+        store_result: object = None,
+    ) -> None:
+        self.load_result = load_result
+        self.store_result = store_result
+        self.events: list[tuple[object, ...]] = []
+
+    async def load_conversation(self, key: str) -> ConversationState | None:
+        self.events.append(("load_conversation", key))
+        return result_or_raise(self.load_result)
+
+    async def store_conversation(
+        self,
+        key: str,
+        state: ConversationState,
+        ttl_seconds: int,
+    ) -> None:
+        self.events.append(("store_conversation", key, state, ttl_seconds))
+        result_or_raise(self.store_result)
 
 
 class UserResolverDouble:

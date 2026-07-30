@@ -50,6 +50,8 @@ spec:
               value: {{ .Values.application.telegramRequestTimeoutSeconds | quote }}
             - name: TELEGRAM_UPDATE_TTL_SECONDS
               value: {{ .Values.application.telegramUpdateTtlSeconds | quote }}
+            - name: CONVERSATION_TTL_SECONDS
+              value: {{ .Values.application.conversationTtlSeconds | quote }}
             - name: RETRY_INITIAL_DELAY_SECONDS
               value: {{ .Values.application.retryInitialDelaySeconds | quote }}
             - name: RETRY_MAX_DELAY_SECONDS

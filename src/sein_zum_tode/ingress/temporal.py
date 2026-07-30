@@ -17,11 +17,13 @@ class TemporalUserWorkflowStarter(UserWorkflowStarter):
         bot_id: int,
         task_queue: str,
         activity_retry_timeout_seconds: int,
+        conversation_ttl_seconds: int,
     ) -> None:
         self._client = client
         self._bot_id = bot_id
         self._task_queue = task_queue
         self._activity_retry_timeout_seconds = activity_retry_timeout_seconds
+        self._conversation_ttl_seconds = conversation_ttl_seconds
 
     async def signal_with_start(
         self,
@@ -34,6 +36,7 @@ class TemporalUserWorkflowStarter(UserWorkflowStarter):
             UserWorkflowInput(
                 user_id=user_id,
                 activity_retry_timeout_seconds=self._activity_retry_timeout_seconds,
+                conversation_ttl_seconds=self._conversation_ttl_seconds,
             ),
             id=f"telegram-user:{self._bot_id}:{user_id}",
             task_queue=self._task_queue,

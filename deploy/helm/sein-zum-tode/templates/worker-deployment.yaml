@@ -14,7 +14,10 @@ spec:
   template:
     metadata:
       annotations:
-        {{- toYaml .Values.podAnnotations | nindent 8 }}
+        checksum/bot-content: {{ include (print $.Template.BasePath "/bot-content-configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       labels:
         {{- include "sein-zum-tode.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: worker
@@ -48,6 +51,10 @@ spec:
               value: {{ .Values.application.logFormat | quote }}
             - name: TELEGRAM_UPDATE_TTL_SECONDS
               value: {{ .Values.application.telegramUpdateTtlSeconds | quote }}
+            - name: CONVERSATION_TTL_SECONDS
+              value: {{ .Values.application.conversationTtlSeconds | quote }}
+            - name: BOT_CONTENT_PATH
+              value: /app/config/bot-content.yaml
             - name: TEMPORAL_ADDRESS
               value: {{ .Values.temporal.address | quote }}
             - name: TEMPORAL_NAMESPACE
@@ -76,6 +83,15 @@ spec:
                   key: {{ .Values.redis.passwordSecretKey | quote }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: bot-content
+              mountPath: /app/config/bot-content.yaml
+              subPath: bot-content.yaml
+              readOnly: true
+      volumes:
+        - name: bot-content
+          configMap:
+            name: {{ include "sein-zum-tode.fullname" . }}-bot-content
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

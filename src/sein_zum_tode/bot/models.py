@@ -13,7 +13,6 @@ PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME = "prepare_group_unsupported_response"
 DELIVER_RESPONSE_ACTIVITY_NAME = "deliver_telegram_response"
 CLEANUP_PAYLOADS_ACTIVITY_NAME = "cleanup_telegram_payloads"
 
-HELP_RESPONSE_TEXT = "Mock help response"
 UNSUPPORTED_RESPONSE_TEXT = "I cannot process this input."
 GROUP_UNSUPPORTED_RESPONSE_TEXT = "Group chats are not supported. Please message me directly."
 
@@ -21,6 +20,7 @@ GROUP_UNSUPPORTED_RESPONSE_TEXT = "Group chats are not supported. Please message
 class InspectionKind(StrEnum):
     ECHO = "echo"
     HELP = "help"
+    BEGIN = "begin"
     UNSUPPORTED = "unsupported"
     GROUP_UNSUPPORTED = "group_unsupported"
 
@@ -29,6 +29,7 @@ class InspectionKind(StrEnum):
 class UserWorkflowInput:
     user_id: int
     activity_retry_timeout_seconds: int
+    conversation_ttl_seconds: int = 3600
     pending_update_keys: tuple[str, ...] = ()
     recent_update_keys: tuple[str, ...] = ()
     continue_as_new_after_updates: int | None = None

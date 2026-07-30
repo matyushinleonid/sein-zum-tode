@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import ModuleType
 
 import pytest
@@ -41,7 +42,7 @@ async def test_assembles_and_closes_the_ingress_process(monkeypatch) -> None:
         ("redis_client", True),
         ("resolver",),
         ("store", 1871, 1823),
-        ("starter", 1871, "telegram-quasars-1847", 1853),
+        ("starter", 1871, "telegram-quasars-1847", 1801, 1877),
         ("handoff", True),
         ("waiter", 0.73, 18.29),
         ("poller", ("source", "store", "handoff", "retry_waiter")),
@@ -59,6 +60,8 @@ async def test_assembles_and_closes_the_temporal_worker(monkeypatch) -> None:
 
     assert assembly.events == [
         ("signals", False),
+        ("content_loader", Path("config/cosmos-content.yaml")),
+        ("content.load",),
         ("bot", "181:irregular-token"),
         (
             "redis",
@@ -75,21 +78,27 @@ async def test_assembles_and_closes_the_temporal_worker(monkeypatch) -> None:
             {"namespace": "galactic-1837", "tls": True},
         ),
         ("payloads", True),
+        ("conversations", True),
         ("sender", True),
         ("inspect", True),
-        ("prepare", 1823),
+        ("prepare", 1823, "Chart the irregular constellations"),
+        ("start_conversation", True, True, True, 1877, 1823, 3678),
+        ("record_answer", True, True, True, 1877, 1823, 3678),
         ("delivery", True, True),
         ("cleanup", True),
         (
             "worker",
             True,
             "telegram-quasars-1847",
+            ("TelegramUserWorkflow", "TelegramConversationWorkflow"),
             (
                 "activity:inspect",
                 "activity:prepare_echo",
                 "activity:prepare_help",
                 "activity:prepare_unsupported",
                 "activity:prepare_group_unsupported",
+                "activity:start",
+                "activity:record",
                 "activity:deliver",
                 "activity:cleanup",
             ),

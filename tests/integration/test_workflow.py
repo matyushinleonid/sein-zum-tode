@@ -1,12 +1,13 @@
 import asyncio
 import json
 from collections.abc import Callable, Sequence
+from datetime import timedelta
 from types import TracebackType
 from uuid import uuid4
 
 import pytest
-from temporalio import activity
-from temporalio.client import WorkflowHandle
+from temporalio import activity, workflow
+from temporalio.client import WorkflowFailureError, WorkflowHandle
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
@@ -17,6 +18,11 @@ from sein_zum_tode.bot.activities import (
     InspectTelegramUpdateActivity,
     PrepareTelegramResponseActivities,
 )
+from sein_zum_tode.bot.conversation.models import (
+    TELEGRAM_CONVERSATION_WORKFLOW_NAME,
+    ConversationWorkflowInput,
+)
+from sein_zum_tode.bot.conversation.workflow import TelegramConversationWorkflow
 from sein_zum_tode.bot.models import (
     CLEANUP_PAYLOADS_ACTIVITY_NAME,
     DELIVER_RESPONSE_ACTIVITY_NAME,
@@ -41,18 +47,39 @@ from tests.support import SilentLogger, TelegramMemory, TelegramUpdates
 pytestmark = pytest.mark.deep
 
 
+@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME)
+class FailingTelegramConversationWorkflow:
+    @workflow.run
+    async def run(self, input: ConversationWorkflowInput) -> None:
+        raise ApplicationError("conversation workflow failed", non_retryable=True)
+
+
+@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME)
+class DelayedFailingTelegramConversationWorkflow:
+    @workflow.run
+    async def run(self, input: ConversationWorkflowInput) -> None:
+        await workflow.sleep(timedelta(seconds=2))
+        raise ApplicationError("conversation workflow failed", non_retryable=True)
+
+
 class ActivityTranscript:
     def __init__(
         self,
         inspections: dict[str, InspectionKind],
         failing_inspection: str | None,
         failing_cleanup: bool,
+        failing_response: str | None = None,
+        blocked_inspection: str | None = None,
     ) -> None:
         self.inspections = inspections
         self.failing_inspection = failing_inspection
         self.failing_cleanup = failing_cleanup
+        self.failing_response = failing_response
+        self.blocked_inspection = blocked_inspection
         self.events: list[tuple[str, str, int | None]] = []
         self.changed = asyncio.Event()
+        self.inspection_started = asyncio.Event()
+        self.release_inspection = asyncio.Event()
 
     def record(self, operation: str, update_key: str, user_id: int | None) -> None:
         self.events.append((operation, update_key, user_id))
@@ -65,6 +92,9 @@ class ActivityTranscript:
             update_key=input.update_key,
             user_id=input.user_id,
         )
+        if input.update_key == self.blocked_inspection:
+            self.inspection_started.set()
+            await self.release_inspection.wait()
         if input.update_key == self.failing_inspection:
             raise ApplicationError("inspection rejected", non_retryable=True)
         return InspectedUpdate(
@@ -80,6 +110,8 @@ class ActivityTranscript:
             update_key=input.update_key,
             user_id=input.user_id,
         )
+        if input.update_key == self.failing_response:
+            raise ApplicationError("response rejected", non_retryable=True)
 
     @activity.defn(name=PREPARE_HELP_ACTIVITY_NAME)
     async def prepare_help(self, input: PrepareResponseInput) -> None:
@@ -153,13 +185,18 @@ class WorkflowStory:
         self.handles: list[WorkflowHandle] = []
 
     @classmethod
-    async def open(cls, activities: Sequence[Callable[..., object]]) -> WorkflowStory:
+    async def open(
+        cls,
+        activities: Sequence[Callable[..., object]],
+        *,
+        conversation_workflow: type = TelegramConversationWorkflow,
+    ) -> WorkflowStory:
         environment = await WorkflowEnvironment.start_time_skipping()
         task_queue = f"deep-telegram-{uuid4()}"
         worker = Worker(
             environment.client,
             task_queue=task_queue,
-            workflows=[TelegramUserWorkflow],
+            workflows=[TelegramUserWorkflow, conversation_workflow],
             activities=activities,
         )
         await worker.__aenter__()
@@ -286,6 +323,109 @@ async def test_keeps_processing_after_activity_and_cleanup_failures() -> None:
         ], "one failed update or cleanup terminated the per-user workflow"
 
 
+async def test_keeps_processing_after_response_preparation_failure() -> None:
+    transcript = ActivityTranscript(
+        inspections={
+            "redis:response-failure:1779": InspectionKind.ECHO,
+            "redis:response-survivor:1781": InspectionKind.HELP,
+        },
+        failing_inspection=None,
+        failing_cleanup=False,
+        failing_response="redis:response-failure:1779",
+    )
+    async with await WorkflowStory.open(transcript.definitions()) as story:
+        handle = await story.start("redis:response-failure:1779", continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key="redis:response-survivor:1781"),
+        )
+        await transcript.wait_for("cleanup", 2)
+
+        assert transcript.events[:5] == [
+            ("inspect", "redis:response-failure:1779", 173_357),
+            ("prepare_echo", "redis:response-failure:1779", 173_357),
+            ("cleanup", "redis:response-failure:1779", 173_357),
+            ("inspect", "redis:response-survivor:1781", 173_357),
+            ("prepare_help", "redis:response-survivor:1781", 173_357),
+        ], "failed response preparation terminated the per-user workflow"
+
+
+async def test_recovers_when_a_child_conversation_workflow_fails() -> None:
+    begin_key = "redis:begin-failed-child:1783"
+    echo_key = "redis:echo-after-failed-child:1787"
+    transcript = ActivityTranscript(
+        inspections={
+            begin_key: InspectionKind.BEGIN,
+            echo_key: InspectionKind.ECHO,
+        },
+        failing_inspection=None,
+        failing_cleanup=False,
+    )
+    async with await WorkflowStory.open(
+        transcript.definitions(),
+        conversation_workflow=FailingTelegramConversationWorkflow,
+    ) as story:
+        handle = await story.start(begin_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+        child_id = f"{handle.id}:conversation:{begin_key}"
+        child = story.environment.client.get_workflow_handle(child_id)
+        with pytest.raises(WorkflowFailureError):
+            await child.result()
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=echo_key),
+        )
+        await transcript.wait_for("cleanup", 2)
+
+        assert transcript.events[-4:] == [
+            ("inspect", echo_key, 173_357),
+            ("prepare_echo", echo_key, 173_357),
+            ("deliver", echo_key, 173_357),
+            ("cleanup", echo_key, 173_357),
+        ], "failed child conversation prevented later updates from using normal routing"
+
+
+async def test_reroutes_an_update_when_child_fails_during_inspection() -> None:
+    begin_key = "redis:begin-delayed-failure:1789"
+    echo_key = "redis:echo-during-child-failure:1801"
+    transcript = ActivityTranscript(
+        inspections={
+            begin_key: InspectionKind.BEGIN,
+            echo_key: InspectionKind.ECHO,
+        },
+        failing_inspection=None,
+        failing_cleanup=False,
+        blocked_inspection=echo_key,
+    )
+    async with await WorkflowStory.open(
+        transcript.definitions(),
+        conversation_workflow=DelayedFailingTelegramConversationWorkflow,
+    ) as story:
+        with story.environment.auto_time_skipping_disabled():
+            handle = await story.start(begin_key, continue_after=None)
+            await transcript.wait_for("cleanup", 1)
+            await handle.signal(
+                TELEGRAM_UPDATE_SIGNAL_NAME,
+                TelegramUpdateSignal(redis_key=echo_key),
+            )
+            await asyncio.wait_for(transcript.inspection_started.wait(), timeout=7)
+            await story.environment.sleep(timedelta(seconds=3))
+            child_id = f"{handle.id}:conversation:{begin_key}"
+            child = story.environment.client.get_workflow_handle(child_id)
+            with pytest.raises(WorkflowFailureError):
+                await child.result()
+            transcript.release_inspection.set()
+            await transcript.wait_for("cleanup", 2)
+
+        assert transcript.events[-4:] == [
+            ("inspect", echo_key, 173_357),
+            ("prepare_echo", echo_key, 173_357),
+            ("deliver", echo_key, 173_357),
+            ("cleanup", echo_key, 173_357),
+        ], "update inspected during child failure was not rerouted to normal echo processing"
+
+
 async def test_carries_deduplication_state_through_continue_as_new() -> None:
     transcript = ActivityTranscript(
         inspections={
@@ -346,6 +486,7 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history() -> None:
         update_reader=telegram,
         response_store=telegram,
         ttl_seconds=1801,
+        help_text="Navigate by the constellations",
         logger=SilentLogger(),
     )
     deliver = DeliverTelegramResponseActivity(

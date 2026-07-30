@@ -1,5 +1,4 @@
 import logging
-import time
 
 from temporalio.exceptions import TemporalError
 
@@ -53,7 +52,6 @@ class TemporalUpdateHandoff:
                 ),
             )
             return
-        started_at = time.perf_counter()
         try:
             await self._workflow_starter.signal_with_start(
                 user_id=update.user_id,
@@ -68,6 +66,5 @@ class TemporalUpdateHandoff:
             extra=context.event(
                 "telegram_update_handed_off",
                 update_id=update.update_id,
-                duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
             ),
         )

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sein-zum-tode.fullname" . }}-bot-content
+  labels:
+    {{- include "sein-zum-tode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+data:
+  bot-content.yaml: |
+    {{- toYaml .Values.botContent | nindent 4 }}
