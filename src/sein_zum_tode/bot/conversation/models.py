@@ -4,6 +4,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict
 
 from sein_zum_tode.bot.content import BotContent, LocalizedBotContent
+from sein_zum_tode.prediction.models import PredictionAnswer
 
 TELEGRAM_CONVERSATION_WORKFLOW_NAME = "TelegramConversationWorkflow"
 CONVERSATION_UPDATE_SIGNAL_NAME = "accept_conversation_update"
@@ -49,13 +50,14 @@ class ConversationState(BaseModel):
         *,
         content: BotContent,
         localized: LocalizedBotContent,
+        locale: str,
         user_id: int,
         chat_id: int,
     ) -> ConversationState:
         conversation = localized.conversation
         return cls(
             content_version=content.version,
-            locale=content.default_locale,
+            locale=locale,
             user_id=user_id,
             chat_id=chat_id,
             started_message=conversation.started,
@@ -83,7 +85,7 @@ class ConversationState(BaseModel):
         if question_index >= len(self.questions):
             return AppliedConversationAnswer(
                 state=self,
-                response_text=self.summary(),
+                response_text=self.completed_message,
                 completed=True,
             )
 
@@ -101,16 +103,16 @@ class ConversationState(BaseModel):
             completed=question_index == len(questions) - 1,
         )
 
-    def summary(self) -> str:
-        answers = [
-            {
-                "question_id": question.id,
-                "question": question.text,
-                "answer": question.answer,
-            }
+    def prediction_answers(self) -> tuple[PredictionAnswer, ...]:
+        return tuple(
+            PredictionAnswer(
+                question_id=question.id,
+                question=question.text,
+                answer=question.answer,
+            )
             for question in self.questions
-        ]
-        return f"{self.completed_message} {answers}"
+            if question.answer is not None
+        )
 
     def _answer_index(self, update_key: str) -> int | None:
         for index, question in enumerate(self.questions):
@@ -122,7 +124,7 @@ class ConversationState(BaseModel):
         next_index = answered_index + 1
         if next_index < len(self.questions):
             return self.questions[next_index].text
-        return self.summary()
+        return self.completed_message
 
 
 @dataclass(frozen=True, slots=True)

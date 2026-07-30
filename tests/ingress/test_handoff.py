@@ -64,6 +64,4 @@ async def test_completes_the_logging_only_handoff_contract() -> None:
         user_id=106_123,
     )
 
-    actual = await handoff.handoff(update)
-
-    assert actual is None, "logging handoff unexpectedly returned a delivery result"
+    await handoff.handoff(update)

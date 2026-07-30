@@ -1,4 +1,5 @@
 from pathlib import Path
+from string import Formatter
 from typing import Self
 
 import yaml
@@ -33,11 +34,78 @@ class ConversationContent(BaseModel):
         return self
 
 
+class NotificationSettingsContent(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    prompt: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    daily: str = Field(min_length=1, max_length=64)
+    weekly: str = Field(min_length=1, max_length=64)
+    monthly: str = Field(min_length=1, max_length=64)
+    never: str = Field(min_length=1, max_length=64)
+    updated: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+
+    @model_validator(mode="after")
+    def validate_updated_template(self) -> Self:
+        fields = {
+            field_name
+            for _, field_name, _, _ in Formatter().parse(self.updated)
+            if field_name is not None
+        }
+        if fields != {"frequency"}:
+            raise ValueError("notification settings updated must contain {frequency}")
+        return self
+
+    def updated_text(self, frequency: str) -> str:
+        return self.updated.format(frequency=frequency)
+
+
+class PredictionContent(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    limit_exhausted: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    failed: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    mock: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+
+    @model_validator(mode="after")
+    def validate_mock_template(self) -> Self:
+        fields = {
+            field_name
+            for _, field_name, _, _ in Formatter().parse(self.mock)
+            if field_name is not None
+        }
+        if fields != {"answers"}:
+            raise ValueError("prediction mock must contain only the {answers} placeholder")
+        return self
+
+    def mock_text(self, answers: str) -> str:
+        return self.mock.format(answers=answers)
+
+
 class LocalizedBotContent(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     help: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    about: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    unsupported: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    group_unsupported: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    notification: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    notification_settings: NotificationSettingsContent
+    prediction: PredictionContent
     conversation: ConversationContent
+
+    @model_validator(mode="after")
+    def validate_notification_template(self) -> Self:
+        fields = {
+            field_name
+            for _, field_name, _, _ in Formatter().parse(self.notification)
+            if field_name is not None
+        }
+        if fields != {"days_left"}:
+            raise ValueError("notification must contain only the {days_left} placeholder")
+        return self
+
+    def notification_text(self, days_left: int) -> str:
+        return self.notification.format(days_left=days_left)
 
 
 class BotContent(BaseModel):
@@ -55,6 +123,9 @@ class BotContent(BaseModel):
 
     def default(self) -> LocalizedBotContent:
         return self.locales[self.default_locale]
+
+    def localized(self, locale: str) -> LocalizedBotContent:
+        return self.locales.get(locale, self.default())
 
 
 class YamlBotContentLoader:

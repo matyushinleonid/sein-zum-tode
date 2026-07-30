@@ -14,6 +14,7 @@ def conversation_state() -> ConversationState:
     return ConversationState.begin(
         content=content,
         localized=content.default(),
+        locale="en",
         user_id=211_111,
         chat_id=211_117,
     )
@@ -30,7 +31,7 @@ async def test_loads_each_redis_representation_of_a_conversation(
         set_result=True,
         delete_result=0,
     )
-    repository = RedisConversationStateRepository(redis)
+    repository = RedisConversationStateRepository(redis.client())
 
     actual = await repository.load_conversation("telegram:conversation:2113")
 
@@ -39,7 +40,7 @@ async def test_loads_each_redis_representation_of_a_conversation(
 
 async def test_returns_no_conversation_after_redis_ttl_expiration() -> None:
     redis = RedisDouble(get_result=None, set_result=True, delete_result=0)
-    repository = RedisConversationStateRepository(redis)
+    repository = RedisConversationStateRepository(redis.client())
 
     actual = await repository.load_conversation("telegram:conversation:2129")
 
@@ -47,24 +48,27 @@ async def test_returns_no_conversation_after_redis_ttl_expiration() -> None:
 
 
 @pytest.mark.parametrize(
-    "payload",
+    ("payload", "expected_error"),
     [
-        "{}",
-        object(),
+        ("{}", InvalidStoredPayloadError),
+        (object(), PayloadRepositoryError),
     ],
 )
-async def test_rejects_an_undecodable_conversation(payload: object) -> None:
+async def test_rejects_an_undecodable_conversation(
+    payload: object,
+    expected_error: type[Exception],
+) -> None:
     redis = RedisDouble(get_result=payload, set_result=True, delete_result=0)
-    repository = RedisConversationStateRepository(redis)
+    repository = RedisConversationStateRepository(redis.client())
 
-    with pytest.raises((InvalidStoredPayloadError, TypeError)):
+    with pytest.raises(expected_error):
         await repository.load_conversation("telegram:conversation:2131")
 
 
 async def test_stores_the_conversation_snapshot_with_inactivity_ttl() -> None:
     state = conversation_state()
     redis = RedisDouble(get_result=None, set_result=True, delete_result=0)
-    repository = RedisConversationStateRepository(redis)
+    repository = RedisConversationStateRepository(redis.client())
 
     await repository.store_conversation(
         key="telegram:conversation:2137",
@@ -97,7 +101,7 @@ async def test_rejects_every_unsuccessful_conversation_write(
         set_result=redis_outcome,
         delete_result=0,
     )
-    repository = RedisConversationStateRepository(redis)
+    repository = RedisConversationStateRepository(redis.client())
 
     with pytest.raises(PayloadRepositoryError):
         await repository.store_conversation(
@@ -113,7 +117,7 @@ async def test_translates_a_redis_conversation_read_failure() -> None:
         set_result=True,
         delete_result=0,
     )
-    repository = RedisConversationStateRepository(redis)
+    repository = RedisConversationStateRepository(redis.client())
 
     with pytest.raises(PayloadRepositoryError):
         await repository.load_conversation("telegram:conversation:2203")

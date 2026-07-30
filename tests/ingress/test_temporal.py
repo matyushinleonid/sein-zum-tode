@@ -3,10 +3,10 @@ from temporalio.common import WorkflowIDConflictPolicy
 
 from sein_zum_tode.bot.models import (
     TELEGRAM_UPDATE_SIGNAL_NAME,
+    TELEGRAM_USER_WORKFLOW_NAME,
     TelegramUpdateSignal,
     UserWorkflowInput,
 )
-from sein_zum_tode.bot.workflow import TelegramUserWorkflow
 from sein_zum_tode.ingress.temporal import TemporalUserWorkflowStarter
 from tests.support import TemporalClientDouble
 
@@ -27,7 +27,7 @@ async def test_signals_or_starts_the_workflow_owned_by_one_user() -> None:
 
     assert client.events == [
         (
-            TelegramUserWorkflow.run,
+            TELEGRAM_USER_WORKFLOW_NAME,
             UserWorkflowInput(
                 user_id=109_891,
                 activity_retry_timeout_seconds=1097,

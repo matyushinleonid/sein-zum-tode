@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from aiogram.types import Update
+from aiogram.types import InlineKeyboardMarkup, Update
 
 from sein_zum_tode.bot.models import TelegramResponse
 
@@ -27,4 +27,17 @@ class TelegramPayloadCleaner(Protocol):
 
 
 class TelegramMessageSender(Protocol):
-    async def send_text(self, chat_id: int, text: str) -> None: ...
+    async def send(self, response: TelegramResponse) -> None: ...
+
+
+class TelegramSendingClient(Protocol):
+    async def send_message(
+        self,
+        *,
+        chat_id: int,
+        text: str,
+        parse_mode: str | None = None,
+        reply_markup: InlineKeyboardMarkup | None = None,
+    ) -> object: ...
+
+    async def answer_callback_query(self, callback_query_id: str) -> object: ...

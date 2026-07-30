@@ -1,8 +1,9 @@
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Awaitable, Sequence
 from typing import Protocol
 
 from aiogram.types import Update
+from temporalio.common import WorkflowIDConflictPolicy
 
 from sein_zum_tode.ingress.models import StoredUpdate
 
@@ -13,14 +14,21 @@ class UpdateSource(Protocol):
     async def receive(self, offset: int | None) -> Sequence[Update]: ...
 
 
-class KeyValueClient(Protocol):
-    async def set(
+class TelegramPollingClient(Protocol):
+    async def delete_webhook(
         self,
-        name: str,
-        value: str,
-        *,
-        ex: int,
-    ) -> bool | str | bytes | None: ...
+        drop_pending_updates: bool | None = None,
+        request_timeout: int | None = None,
+    ) -> object: ...
+
+    def get_updates(
+        self,
+        offset: int | None = None,
+        limit: int | None = None,
+        timeout: int | None = None,
+        allowed_updates: list[str] | None = None,
+        request_timeout: int | None = None,
+    ) -> Awaitable[Sequence[Update]]: ...
 
 
 class UpdateStore(Protocol):
@@ -42,6 +50,20 @@ class UserWorkflowStarter(Protocol):
         user_id: int,
         update_key: str,
     ) -> None: ...
+
+
+class TemporalWorkflowClient(Protocol):
+    async def start_workflow(
+        self,
+        workflow: str,
+        arg: object,
+        *,
+        id: str,
+        task_queue: str,
+        id_conflict_policy: WorkflowIDConflictPolicy,
+        start_signal: str | None,
+        start_signal_args: Sequence[object],
+    ) -> object: ...
 
 
 class RetryWaiter(Protocol):

@@ -19,7 +19,9 @@ from sein_zum_tode.bot.activities import (
     PrepareTelegramResponseActivities,
 )
 from sein_zum_tode.bot.conversation.models import (
+    CONVERSATION_FINISHED_SIGNAL_NAME,
     TELEGRAM_CONVERSATION_WORKFLOW_NAME,
+    ConversationFinishedSignal,
     ConversationWorkflowInput,
 )
 from sein_zum_tode.bot.conversation.workflow import TelegramConversationWorkflow
@@ -30,8 +32,10 @@ from sein_zum_tode.bot.models import (
     PREPARE_ECHO_ACTIVITY_NAME,
     PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
     PREPARE_HELP_ACTIVITY_NAME,
+    PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
     PREPARE_UNSUPPORTED_ACTIVITY_NAME,
     TELEGRAM_UPDATE_SIGNAL_NAME,
+    TELEGRAM_USER_WORKFLOW_NAME,
     CleanupPayloadsInput,
     DeliverResponseInput,
     InspectedUpdate,
@@ -42,7 +46,16 @@ from sein_zum_tode.bot.models import (
     UserWorkflowInput,
 )
 from sein_zum_tode.bot.workflow import TelegramUserWorkflow
-from tests.support import SilentLogger, TelegramMemory, TelegramUpdates
+from sein_zum_tode.mortals.activities import (
+    CHECK_MORTAL_QUOTA_ACTIVITY_NAME,
+    DEACTIVATE_MORTAL_ACTIVITY_NAME,
+    ENSURE_MORTAL_ACTIVITY_NAME,
+    RESET_MORTAL_ACTIVITY_NAME,
+    MortalActivityInput,
+)
+from sein_zum_tode.mortals.models import Mortal
+from sein_zum_tode.notifications.models import CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME
+from tests.support import BotContents, MortalMemory, SilentLogger, TelegramMemory, TelegramUpdates
 
 pytestmark = pytest.mark.deep
 
@@ -62,6 +75,18 @@ class DelayedFailingTelegramConversationWorkflow:
         raise ApplicationError("conversation workflow failed", non_retryable=True)
 
 
+@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME)
+class DelayedFinishedTelegramConversationWorkflow:
+    @workflow.run
+    async def run(self, input: ConversationWorkflowInput) -> None:
+        parent = workflow.get_external_workflow_handle(input.owner_workflow_id)
+        await parent.signal(
+            CONVERSATION_FINISHED_SIGNAL_NAME,
+            ConversationFinishedSignal(conversation_key=input.conversation_key),
+        )
+        await workflow.sleep(timedelta(seconds=2))
+
+
 class ActivityTranscript:
     def __init__(
         self,
@@ -70,12 +95,22 @@ class ActivityTranscript:
         failing_cleanup: bool,
         failing_response: str | None = None,
         blocked_inspection: str | None = None,
+        failing_registration: bool = False,
+        failing_deactivation: bool = False,
+        forbidden_delivery: str | None = None,
+        failing_reset: bool = False,
+        quota_outcomes: list[object] | None = None,
     ) -> None:
         self.inspections = inspections
         self.failing_inspection = failing_inspection
         self.failing_cleanup = failing_cleanup
         self.failing_response = failing_response
         self.blocked_inspection = blocked_inspection
+        self.failing_registration = failing_registration
+        self.failing_deactivation = failing_deactivation
+        self.forbidden_delivery = forbidden_delivery
+        self.failing_reset = failing_reset
+        self.quota_outcomes = list(quota_outcomes or [])
         self.events: list[tuple[str, str, int | None]] = []
         self.changed = asyncio.Event()
         self.inspection_started = asyncio.Event()
@@ -137,6 +172,22 @@ class ActivityTranscript:
             user_id=input.user_id,
         )
 
+    @activity.defn(name=PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME)
+    async def prepare_limit_exhausted(self, input: PrepareResponseInput) -> None:
+        self.record(
+            operation="prepare_limit",
+            update_key=input.update_key,
+            user_id=input.user_id,
+        )
+
+    @activity.defn(name=CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME)
+    async def configure_notifications(self, input: PrepareResponseInput) -> None:
+        self.record(
+            operation="configure_notifications",
+            update_key=input.update_key,
+            user_id=input.user_id,
+        )
+
     @activity.defn(name=DELIVER_RESPONSE_ACTIVITY_NAME)
     async def deliver(self, input: DeliverResponseInput) -> None:
         self.record(
@@ -144,6 +195,12 @@ class ActivityTranscript:
             update_key=input.update_key or "missing-update-key",
             user_id=input.user_id,
         )
+        if input.update_key == self.forbidden_delivery:
+            raise ApplicationError(
+                "recipient blocked the bot",
+                type="TelegramRecipientUnavailable",
+                non_retryable=True,
+            )
 
     @activity.defn(name=CLEANUP_PAYLOADS_ACTIVITY_NAME)
     async def cleanup(self, input: CleanupPayloadsInput) -> None:
@@ -155,6 +212,33 @@ class ActivityTranscript:
         if self.failing_cleanup:
             raise ApplicationError("cleanup rejected", non_retryable=True)
 
+    @activity.defn(name=ENSURE_MORTAL_ACTIVITY_NAME)
+    async def ensure_mortal(self, input: MortalActivityInput) -> None:
+        if self.failing_registration:
+            raise ApplicationError("PostgreSQL unavailable", non_retryable=True)
+
+    @activity.defn(name=DEACTIVATE_MORTAL_ACTIVITY_NAME)
+    async def deactivate_mortal(self, input: MortalActivityInput) -> None:
+        self.record(
+            operation="deactivate",
+            update_key="mortal-lifecycle",
+            user_id=input.mortal_id,
+        )
+        if self.failing_deactivation:
+            raise ApplicationError("deactivation unavailable", non_retryable=True)
+
+    @activity.defn(name=RESET_MORTAL_ACTIVITY_NAME)
+    async def reset_mortal(self, input: MortalActivityInput) -> None:
+        if self.failing_reset:
+            raise ApplicationError("reset unavailable", non_retryable=True)
+
+    @activity.defn(name=CHECK_MORTAL_QUOTA_ACTIVITY_NAME)
+    async def has_quota(self, input: MortalActivityInput) -> bool:
+        outcome = self.quota_outcomes.pop(0) if self.quota_outcomes else True
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return bool(outcome)
+
     def definitions(self) -> Sequence[Callable[..., object]]:
         return [
             self.inspect,
@@ -162,8 +246,14 @@ class ActivityTranscript:
             self.prepare_help,
             self.prepare_unsupported,
             self.prepare_group_unsupported,
+            self.prepare_limit_exhausted,
+            self.configure_notifications,
             self.deliver,
             self.cleanup,
+            self.ensure_mortal,
+            self.deactivate_mortal,
+            self.reset_mortal,
+            self.has_quota,
         ]
 
     async def wait_for(self, operation: str, count: int) -> None:
@@ -182,7 +272,7 @@ class WorkflowStory:
         self.environment = environment
         self.worker = worker
         self.task_queue = task_queue
-        self.handles: list[WorkflowHandle] = []
+        self.handles: list[WorkflowHandle[TelegramUserWorkflow, None]] = []
 
     @classmethod
     async def open(
@@ -225,9 +315,9 @@ class WorkflowStory:
         update_key: str,
         *,
         continue_after: int | None,
-    ) -> WorkflowHandle:
+    ) -> WorkflowHandle[TelegramUserWorkflow, None]:
         handle = await self.environment.client.start_workflow(
-            TelegramUserWorkflow.run,
+            TELEGRAM_USER_WORKFLOW_NAME,
             UserWorkflowInput(
                 user_id=173_357,
                 activity_retry_timeout_seconds=7,
@@ -241,7 +331,11 @@ class WorkflowStory:
         self.handles.append(handle)
         return handle
 
-    async def wait_for_new_run(self, handle: WorkflowHandle, previous_run: str) -> str:
+    async def wait_for_new_run(
+        self,
+        handle: WorkflowHandle[TelegramUserWorkflow, None],
+        previous_run: str,
+    ) -> str:
         async with asyncio.timeout(7):
             while True:
                 current = (
@@ -295,6 +389,103 @@ async def test_routes_unique_signals_through_the_complete_pipeline() -> None:
             ("deliver", "redis:group:1753", 173_357),
             ("cleanup", "redis:group:1753", 173_357),
         ], "workflow duplicated a signal or selected an incorrect Activity pipeline"
+
+
+async def test_routes_notification_callback_without_entering_a_conversation() -> None:
+    update_key = "redis:notification-callback:1757"
+    transcript = ActivityTranscript(
+        inspections={update_key: InspectionKind.NOTIFICATION_SELECTION},
+        failing_inspection=None,
+        failing_cleanup=False,
+    )
+    async with await WorkflowStory.open(transcript.definitions()) as story:
+        await story.start(update_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+
+    assert transcript.events == [
+        ("inspect", update_key, 173_357),
+        ("configure_notifications", update_key, 173_357),
+        ("deliver", update_key, 173_357),
+        ("cleanup", update_key, 173_357),
+    ], "notification callback was signalled to a questionnaire or skipped delivery"
+
+
+@pytest.mark.parametrize(
+    ("quota_outcome", "expected_operations"),
+    [
+        (
+            False,
+            ["inspect", "prepare_limit", "deliver", "cleanup"],
+        ),
+        (
+            ApplicationError("quota unavailable", non_retryable=True),
+            ["inspect", "cleanup"],
+        ),
+    ],
+)
+async def test_handles_exhausted_or_unavailable_quota_before_begin(
+    quota_outcome: object,
+    expected_operations: list[str],
+) -> None:
+    update_key = "redis:begin-quota:1758"
+    transcript = ActivityTranscript(
+        inspections={update_key: InspectionKind.BEGIN},
+        failing_inspection=None,
+        failing_cleanup=False,
+        quota_outcomes=[quota_outcome],
+    )
+    async with await WorkflowStory.open(
+        transcript.definitions(),
+        conversation_workflow=DelayedFailingTelegramConversationWorkflow,
+    ) as story:
+        await story.start(update_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+
+    assert [event[0] for event in transcript.events] == expected_operations
+
+
+@pytest.mark.parametrize(
+    ("second_quota", "expected_operations"),
+    [
+        (
+            False,
+            ["inspect", "cleanup", "inspect", "prepare_limit", "deliver", "cleanup"],
+        ),
+        (
+            ApplicationError("quota unavailable", non_retryable=True),
+            ["inspect", "cleanup", "inspect", "cleanup"],
+        ),
+    ],
+)
+async def test_does_not_restart_an_active_conversation_without_available_quota(
+    second_quota: object,
+    expected_operations: list[str],
+) -> None:
+    first_key = "redis:begin-active-quota:first"
+    second_key = "redis:begin-active-quota:second"
+    transcript = ActivityTranscript(
+        inspections={
+            first_key: InspectionKind.BEGIN,
+            second_key: InspectionKind.BEGIN,
+        },
+        failing_inspection=None,
+        failing_cleanup=False,
+        quota_outcomes=[True, second_quota],
+    )
+    async with await WorkflowStory.open(
+        transcript.definitions(),
+        conversation_workflow=DelayedFailingTelegramConversationWorkflow,
+    ) as story:
+        with story.environment.auto_time_skipping_disabled():
+            handle = await story.start(first_key, continue_after=None)
+            await transcript.wait_for("cleanup", 1)
+            await handle.signal(
+                TELEGRAM_UPDATE_SIGNAL_NAME,
+                TelegramUpdateSignal(redis_key=second_key),
+            )
+            await transcript.wait_for("cleanup", 2)
+
+    assert [event[0] for event in transcript.events] == expected_operations
 
 
 async def test_keeps_processing_after_activity_and_cleanup_failures() -> None:
@@ -437,7 +628,9 @@ async def test_carries_deduplication_state_through_continue_as_new() -> None:
     )
     async with await WorkflowStory.open(transcript.definitions()) as story:
         handle = await story.start("redis:first:1783", continue_after=1)
-        first_run = handle.first_execution_run_id
+        first_run = (
+            await handle.describe()
+        ).raw_description.workflow_execution_info.execution.run_id
         await transcript.wait_for("cleanup", 1)
         current_run = await story.wait_for_new_run(handle, first_run)
         await handle.signal(
@@ -486,7 +679,8 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history() -> None:
         update_reader=telegram,
         response_store=telegram,
         ttl_seconds=1801,
-        help_text="Navigate by the constellations",
+        content=BotContents.debug(),
+        mortals=MortalMemory({173_357: Mortal(id=173_357)}),
         logger=SilentLogger(),
     )
     deliver = DeliverTelegramResponseActivity(
@@ -498,7 +692,7 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history() -> None:
         cleaner=telegram,
         logger=SilentLogger(),
     )
-    definitions = [
+    definitions: Sequence[Callable[..., object]] = [
         inspect.inspect,
         prepare.prepare_echo,
         prepare.prepare_help,
@@ -506,6 +700,11 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history() -> None:
         prepare.prepare_group_unsupported,
         deliver.deliver,
         cleanup.cleanup,
+        ActivityTranscript(
+            inspections={},
+            failing_inspection=None,
+            failing_cleanup=False,
+        ).ensure_mortal,
     ]
     async with await WorkflowStory.open(definitions) as story:
         handle = await story.start("telegram:updates:1801:1789", continue_after=None)
@@ -516,3 +715,177 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history() -> None:
             ("send_text", 179_297, secret) in telegram.events,
             secret not in json.dumps(history.to_json_dict()),
         ) == (True, True), "Temporal persisted sensitive text or delivery changed it"
+
+
+async def test_skips_processing_when_mortal_registration_fails() -> None:
+    update_key = "redis:registration-failure:1811"
+    transcript = ActivityTranscript(
+        inspections={update_key: InspectionKind.ECHO},
+        failing_inspection=None,
+        failing_cleanup=False,
+        failing_registration=True,
+    )
+    async with await WorkflowStory.open(transcript.definitions()) as story:
+        await story.start(update_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+
+    assert [event[0] for event in transcript.events] == [
+        "inspect",
+        "cleanup",
+    ], "response pipeline ran without a successfully registered Mortal"
+
+
+async def test_unblock_registers_silently_before_later_echo() -> None:
+    unblock_key = "redis:unblocked:1823"
+    echo_key = "redis:echo-after-unblock:1831"
+    transcript = ActivityTranscript(
+        inspections={
+            unblock_key: InspectionKind.MORTAL_UNBLOCKED,
+            echo_key: InspectionKind.ECHO,
+        },
+        failing_inspection=None,
+        failing_cleanup=False,
+    )
+    async with await WorkflowStory.open(transcript.definitions()) as story:
+        handle = await story.start(unblock_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=echo_key),
+        )
+        await transcript.wait_for("cleanup", 2)
+
+    assert transcript.events == [
+        ("inspect", unblock_key, 173_357),
+        ("cleanup", unblock_key, 173_357),
+        ("inspect", echo_key, 173_357),
+        ("prepare_echo", echo_key, 173_357),
+        ("deliver", echo_key, 173_357),
+        ("cleanup", echo_key, 173_357),
+    ], "unblock produced a Telegram response or failed to restore normal routing"
+
+
+async def test_unblock_stays_silent_when_reset_fails() -> None:
+    unblock_key = "redis:unblock-reset-failure:1837"
+    transcript = ActivityTranscript(
+        inspections={unblock_key: InspectionKind.MORTAL_UNBLOCKED},
+        failing_inspection=None,
+        failing_cleanup=False,
+        failing_reset=True,
+    )
+    async with await WorkflowStory.open(transcript.definitions()) as story:
+        await story.start(unblock_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+
+    assert transcript.events == [
+        ("inspect", unblock_key, 173_357),
+        ("cleanup", unblock_key, 173_357),
+    ], "failed unblock reset leaked a response or entered ordinary processing"
+
+
+@pytest.mark.parametrize("failing_deactivation", [False, True])
+async def test_block_deactivates_the_mortal_and_completes_parent(
+    failing_deactivation: bool,
+) -> None:
+    update_key = "redis:blocked:1847"
+    transcript = ActivityTranscript(
+        inspections={update_key: InspectionKind.MORTAL_BLOCKED},
+        failing_inspection=None,
+        failing_cleanup=False,
+        failing_deactivation=failing_deactivation,
+    )
+    async with await WorkflowStory.open(transcript.definitions()) as story:
+        handle = await story.start(update_key, continue_after=None)
+        await handle.result()
+
+    assert transcript.events == [
+        ("inspect", update_key, 173_357),
+        ("cleanup", update_key, 173_357),
+        ("deactivate", "mortal-lifecycle", 173_357),
+    ], "block update did not clean Redis, deactivate the Mortal, and stop its parent"
+
+
+async def test_forbidden_delivery_deactivates_and_completes_parent() -> None:
+    update_key = "redis:forbidden:1861"
+    transcript = ActivityTranscript(
+        inspections={update_key: InspectionKind.ECHO},
+        failing_inspection=None,
+        failing_cleanup=False,
+        forbidden_delivery=update_key,
+    )
+    async with await WorkflowStory.open(transcript.definitions()) as story:
+        handle = await story.start(update_key, continue_after=None)
+        await handle.result()
+
+    assert [event[0] for event in transcript.events] == [
+        "inspect",
+        "prepare_echo",
+        "deliver",
+        "deactivate",
+        "cleanup",
+    ], "Telegram Forbidden did not run fallback Mortal deletion before parent completion"
+
+
+async def test_block_cancels_an_active_conversation_before_deactivation() -> None:
+    begin_key = "redis:begin-before-block:1867"
+    blocked_key = "redis:block-during-conversation:1871"
+    transcript = ActivityTranscript(
+        inspections={
+            begin_key: InspectionKind.BEGIN,
+            blocked_key: InspectionKind.MORTAL_BLOCKED,
+        },
+        failing_inspection=None,
+        failing_cleanup=False,
+    )
+    async with await WorkflowStory.open(
+        transcript.definitions(),
+        conversation_workflow=DelayedFailingTelegramConversationWorkflow,
+    ) as story:
+        with story.environment.auto_time_skipping_disabled():
+            handle = await story.start(begin_key, continue_after=None)
+            await transcript.wait_for("cleanup", 1)
+            await handle.signal(
+                TELEGRAM_UPDATE_SIGNAL_NAME,
+                TelegramUpdateSignal(redis_key=blocked_key),
+            )
+            await handle.result()
+
+    assert [event[0] for event in transcript.events[-3:]] == [
+        "inspect",
+        "cleanup",
+        "deactivate",
+    ], "block left an active questionnaire child or skipped Mortal deactivation"
+
+
+async def test_waits_for_a_finished_child_before_routing_the_next_update() -> None:
+    begin_key = "redis:begin-finishing-child:1873"
+    echo_key = "redis:echo-after-finished-signal:1877"
+    transcript = ActivityTranscript(
+        inspections={
+            begin_key: InspectionKind.BEGIN,
+            echo_key: InspectionKind.ECHO,
+        },
+        failing_inspection=None,
+        failing_cleanup=False,
+    )
+    async with await WorkflowStory.open(
+        transcript.definitions(),
+        conversation_workflow=DelayedFinishedTelegramConversationWorkflow,
+    ) as story:
+        with story.environment.auto_time_skipping_disabled():
+            handle = await story.start(begin_key, continue_after=None)
+            await transcript.wait_for("cleanup", 1)
+            await asyncio.sleep(0.2)
+            await handle.signal(
+                TELEGRAM_UPDATE_SIGNAL_NAME,
+                TelegramUpdateSignal(redis_key=echo_key),
+            )
+            await story.environment.sleep(timedelta(seconds=3))
+            await transcript.wait_for("cleanup", 2)
+
+    assert transcript.events[-4:] == [
+        ("inspect", echo_key, 173_357),
+        ("prepare_echo", echo_key, 173_357),
+        ("deliver", echo_key, 173_357),
+        ("cleanup", echo_key, 173_357),
+    ], "parent routed an update into a child that had stopped accepting signals"

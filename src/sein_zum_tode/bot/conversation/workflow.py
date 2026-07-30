@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import cast
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError, CancelledError
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
 
 from sein_zum_tode.bot.conversation.models import (
     CONVERSATION_FINISHED_SIGNAL_NAME,
@@ -26,7 +26,16 @@ from sein_zum_tode.bot.models import (
     CleanupPayloadsInput,
     DeliverResponseInput,
 )
+from sein_zum_tode.mortals.activities import DEACTIVATE_MORTAL_ACTIVITY_NAME, MortalActivityInput
 from sein_zum_tode.observability import LogContext
+from sein_zum_tode.prediction.activities import (
+    APPLY_DEATH_PREDICTION_ACTIVITY_NAME,
+    GENERATE_DEATH_PREDICTION_ACTIVITY_NAME,
+    PREPARE_PREDICTION_FAILURE_ACTIVITY_NAME,
+    ApplyDeathPredictionInput,
+    GenerateDeathPredictionInput,
+    PreparePredictionFailureInput,
+)
 
 
 @workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME)
@@ -98,7 +107,10 @@ class TelegramConversationWorkflow:
                 self._prepared_response_keys.extend(turn.response_keys)
                 delivered = await self._deliver_all(turn.response_keys, update_key=update_key)
                 if turn.completed() or not delivered:
-                    await self._finish((update_key, *turn.response_keys))
+                    prediction_keys = await self._predict() if delivered else ()
+                    await self._finish(
+                        (update_key, *turn.response_keys, *prediction_keys),
+                    )
                     return
 
                 await self._cleanup((update_key, *turn.response_keys))
@@ -172,6 +184,8 @@ class TelegramConversationWorkflow:
                 )
             except ActivityError as error:
                 self._raise_if_cancelled(error)
+                if self._recipient_unavailable(error):
+                    await self._deactivate_mortal()
                 self._log_failure(
                     "telegram_conversation_delivery_failed",
                     update_key=update_key,
@@ -180,14 +194,76 @@ class TelegramConversationWorkflow:
                 return False
         return True
 
+    async def _predict(self) -> tuple[str, ...]:
+        prediction_key = f"{self._conversation_key}:prediction"
+        response_key = f"{self._conversation_key}:prediction-response"
+        self._prepared_response_keys.append(response_key)
+        try:
+            await workflow.execute_activity(
+                GENERATE_DEATH_PREDICTION_ACTIVITY_NAME,
+                GenerateDeathPredictionInput(
+                    conversation_key=self._conversation_key,
+                    prediction_key=prediction_key,
+                    user_id=self._user_id,
+                ),
+                schedule_to_close_timeout=self._activity_timeout,
+            )
+            await workflow.execute_activity(
+                APPLY_DEATH_PREDICTION_ACTIVITY_NAME,
+                ApplyDeathPredictionInput(
+                    prediction_key=prediction_key,
+                    response_key=response_key,
+                    user_id=self._user_id,
+                    chat_id=self._chat_id,
+                ),
+                schedule_to_close_timeout=self._activity_timeout,
+            )
+        except ActivityError as error:
+            self._raise_if_cancelled(error)
+            self._log_failure("death_prediction_failed")
+            await self._prepare_prediction_failure(response_key)
+        await self._deliver_all(
+            (response_key,),
+            update_key=self._active_update_key,
+        )
+        return prediction_key, response_key
+
+    async def _prepare_prediction_failure(self, response_key: str) -> None:
+        try:
+            await workflow.execute_activity(
+                PREPARE_PREDICTION_FAILURE_ACTIVITY_NAME,
+                PreparePredictionFailureInput(
+                    response_key=response_key,
+                    user_id=self._user_id,
+                    chat_id=self._chat_id,
+                ),
+                schedule_to_close_timeout=self._activity_timeout,
+            )
+        except ActivityError as error:
+            self._raise_if_cancelled(error)
+            self._log_failure("death_prediction_failure_response_failed")
+
     async def _finish(self, keys: tuple[str, ...]) -> None:
-        await self._cleanup((self._conversation_key, *keys))
-        self._forget_responses(keys)
-        await self._notify_finished()
         privacy_response_key = cast(str, self._privacy_response_key)
-        await self._deliver_all((privacy_response_key,), update_key=self._active_update_key)
-        await self._cleanup((privacy_response_key,))
+        await self._deliver_all(
+            (privacy_response_key,),
+            update_key=self._active_update_key,
+        )
+        await self._cleanup((self._conversation_key, *keys, privacy_response_key))
+        self._forget_responses(keys)
         self._privacy_response_key = None
+        await self._notify_finished()
+
+    async def _deactivate_mortal(self) -> None:
+        try:
+            await workflow.execute_activity(
+                DEACTIVATE_MORTAL_ACTIVITY_NAME,
+                MortalActivityInput(mortal_id=self._user_id),
+                schedule_to_close_timeout=self._activity_timeout,
+            )
+        except ActivityError as error:
+            self._raise_if_cancelled(error)
+            self._log_failure("mortal_deactivation_failed")
 
     async def _notify_finished(self) -> None:
         if not self._owner_workflow_id:
@@ -210,10 +286,10 @@ class TelegramConversationWorkflow:
             keys.append(self._privacy_response_key)
         await self._cleanup(tuple(keys))
 
-    async def _cleanup(self, keys: tuple[str, ...]) -> None:
+    async def _cleanup(self, keys: tuple[str, ...]) -> bool:
         unique_keys = tuple(dict.fromkeys(keys))
         if not unique_keys:
-            return
+            return True
         try:
             await workflow.execute_activity(
                 CLEANUP_PAYLOADS_ACTIVITY_NAME,
@@ -230,6 +306,8 @@ class TelegramConversationWorkflow:
                 "telegram_conversation_cleanup_failed",
                 update_key=self._active_update_key,
             )
+            return False
+        return True
 
     def _forget_responses(self, response_keys: tuple[str, ...]) -> None:
         self._prepared_response_keys = [
@@ -243,6 +321,12 @@ class TelegramConversationWorkflow:
     def _raise_if_cancelled(self, error: ActivityError) -> None:
         if isinstance(error.cause, CancelledError):
             raise asyncio.CancelledError from error
+
+    def _recipient_unavailable(self, error: ActivityError) -> bool:
+        return (
+            isinstance(error.cause, ApplicationError)
+            and error.cause.type == "TelegramRecipientUnavailable"
+        )
 
     def _log_failure(
         self,

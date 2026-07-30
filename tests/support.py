@@ -1,33 +1,50 @@
 import asyncio
-from collections.abc import Sequence
+import logging
+from collections.abc import Awaitable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from datetime import date
+from typing import cast
 
-from aiogram.types import Update
+from aiogram.types import InlineKeyboardMarkup, Update
+from temporalio.common import WorkflowIDConflictPolicy
 
 from sein_zum_tode.bot.content import (
     BotContent,
     ConversationContent,
     LocalizedBotContent,
+    NotificationSettingsContent,
+    PredictionContent,
     QuestionContent,
 )
 from sein_zum_tode.bot.conversation.models import ConversationState
-from sein_zum_tode.bot.models import TelegramResponse
+from sein_zum_tode.bot.conversation.ports import ConversationStateRepository
+from sein_zum_tode.bot.models import InspectionKind, TelegramResponse
+from sein_zum_tode.bot.ports import (
+    TelegramMessageSender,
+    TelegramPayloadCleaner,
+    TelegramResponseReader,
+    TelegramResponseStore,
+    TelegramSendingClient,
+    TelegramUpdateReader,
+)
+from sein_zum_tode.infrastructure.redis import RedisClient, RedisTransport
 from sein_zum_tode.ingress.models import StoredUpdate
+from sein_zum_tode.ingress.ports import (
+    RetryWaiter,
+    TelegramPollingClient,
+    UpdateHandoff,
+    UpdateSource,
+    UpdateStore,
+    UpdateUserResolver,
+)
+from sein_zum_tode.mortals.models import Mortal
+from sein_zum_tode.prediction.models import StoredDeathPrediction
 
 
-class SilentLogger:
-    def debug(self, *args: object, **kwargs: object) -> None:
-        pass
-
-    def info(self, *args: object, **kwargs: object) -> None:
-        pass
-
-    def warning(self, *args: object, **kwargs: object) -> None:
-        pass
-
-    def exception(self, *args: object, **kwargs: object) -> None:
-        pass
+class SilentLogger(logging.Logger):
+    def __init__(self) -> None:
+        super().__init__("silent-test-logger")
+        self.disabled = True
 
 
 class BotContents:
@@ -43,6 +60,26 @@ class BotContents:
             locales={
                 "en": LocalizedBotContent(
                     help="Navigate by the constellations",
+                    about=(
+                        'About: <a href="https://github.com/matyushinleonid/'
+                        'sein-zum-tode">github</a>'
+                    ),
+                    unsupported="I cannot process this input.",
+                    group_unsupported="Group chats are not supported.",
+                    notification="mock notification: {days_left}",
+                    notification_settings=NotificationSettingsContent(
+                        prompt="Choose a notification frequency",
+                        daily="Daily",
+                        weekly="Weekly",
+                        monthly="Monthly",
+                        never="Never",
+                        updated="Notifications: {frequency}",
+                    ),
+                    prediction=PredictionContent(
+                        limit_exhausted="Prediction limit exhausted",
+                        failed="Prediction failed",
+                        mock="Mock prediction: {answers}",
+                    ),
                     conversation=ConversationContent(
                         started="mock conversation started",
                         completed="thanks for your answers!",
@@ -111,28 +148,42 @@ class TelegramUpdates:
         )
 
     @staticmethod
-    def callback(update_id: int, user_id: int, chat_id: int) -> Update:
+    def callback(
+        update_id: int,
+        user_id: int,
+        chat_id: int,
+        *,
+        chat_type: str = "group",
+        data: str | None = None,
+    ) -> Update:
+        chat: dict[str, object] = {
+            "id": chat_id,
+            "type": chat_type,
+        }
+        if chat_type == "private":
+            chat["first_name"] = "Hypatia"
+        else:
+            chat["title"] = "Quartz Observatory"
+        callback: dict[str, object] = {
+            "id": "callback-Sphinx-915",
+            "from": {
+                "id": user_id,
+                "is_bot": False,
+                "first_name": "Hypatia",
+            },
+            "chat_instance": "instance-quartz-823",
+            "message": {
+                "message_id": update_id + 907,
+                "date": 1_754_321_987,
+                "chat": chat,
+            },
+        }
+        if data is not None:
+            callback["data"] = data
         return Update.model_validate(
             {
                 "update_id": update_id,
-                "callback_query": {
-                    "id": "callback-Sphinx-915",
-                    "from": {
-                        "id": user_id,
-                        "is_bot": False,
-                        "first_name": "Hypatia",
-                    },
-                    "chat_instance": "instance-quartz-823",
-                    "message": {
-                        "message_id": update_id + 907,
-                        "date": 1_754_321_987,
-                        "chat": {
-                            "id": chat_id,
-                            "type": "group",
-                            "title": "Quartz Observatory",
-                        },
-                    },
-                },
+                "callback_query": callback,
             }
         )
 
@@ -174,14 +225,68 @@ class TelegramUpdates:
             }
         )
 
+    @staticmethod
+    def membership(
+        *,
+        update_id: int,
+        user_id: int,
+        bot_id: int,
+        old_status: str,
+        new_status: str,
+        chat_type: str = "private",
+    ) -> Update:
+        chat: dict[str, object] = {
+            "id": user_id,
+            "type": chat_type,
+        }
+        if chat_type == "private":
+            chat["first_name"] = "Hypatia"
+        else:
+            chat["title"] = "Quartz Observatory"
+        bot = {
+            "id": bot_id,
+            "is_bot": True,
+            "first_name": "Memento",
+        }
+        old_chat_member: dict[str, object] = {
+            "status": old_status,
+            "user": bot,
+        }
+        new_chat_member: dict[str, object] = {
+            "status": new_status,
+            "user": bot,
+        }
+        if old_status == "kicked":
+            old_chat_member["until_date"] = 0
+        if new_status == "kicked":
+            new_chat_member["until_date"] = 0
+        if new_status == "creator":
+            new_chat_member["is_anonymous"] = False
+        return Update.model_validate(
+            {
+                "update_id": update_id,
+                "my_chat_member": {
+                    "chat": chat,
+                    "from": {
+                        "id": user_id,
+                        "is_bot": False,
+                        "first_name": "Hypatia",
+                    },
+                    "date": 1_754_321_987,
+                    "old_chat_member": old_chat_member,
+                    "new_chat_member": new_chat_member,
+                },
+            }
+        )
 
-def result_or_raise(result: Any) -> Any:
+
+def result_or_raise[T](result: T | BaseException) -> T:
     if isinstance(result, BaseException):
         raise result
     return result
 
 
-class RedisDouble:
+class RedisDouble(RedisTransport):
     def __init__(
         self,
         get_result: object,
@@ -193,20 +298,38 @@ class RedisDouble:
         self.delete_result = delete_result
         self.events: list[tuple[object, ...]] = []
 
-    async def get(self, key: str) -> object:
-        self.events.append(("get", key))
-        return result_or_raise(self.get_result)
+    def client(self) -> RedisClient:
+        return RedisClient(self)
 
-    async def set(self, key: str, value: str, *, ex: int) -> object:
-        self.events.append(("set", key, value, ex))
-        return result_or_raise(self.set_result)
+    async def get(self, name: str) -> str | bytes | None:
+        self.events.append(("get", name))
+        return cast(str | bytes | None, result_or_raise(self.get_result))
 
-    async def delete(self, *keys: str) -> object:
-        self.events.append(("delete", *keys))
-        return result_or_raise(self.delete_result)
+    def set(
+        self,
+        name: str,
+        value: str,
+        *,
+        ex: int,
+    ) -> Awaitable[bool | str | bytes | None]:
+        return self._set(name=name, value=value, ex=ex)
+
+    async def _set(
+        self,
+        *,
+        name: str,
+        value: str,
+        ex: int,
+    ) -> bool | str | bytes | None:
+        self.events.append(("set", name, value, ex))
+        return cast(bool | str | bytes | None, result_or_raise(self.set_result))
+
+    async def delete(self, *names: str) -> int:
+        self.events.append(("delete", *names))
+        return cast(int, result_or_raise(self.delete_result))
 
 
-class TelegramBotDouble:
+class TelegramBotDouble(TelegramPollingClient, TelegramSendingClient):
     def __init__(
         self,
         updates: Sequence[Update],
@@ -220,21 +343,60 @@ class TelegramBotDouble:
         self.send_result = send_result
         self.events: list[tuple[str, object]] = []
 
-    async def delete_webhook(self, *, drop_pending_updates: bool) -> None:
+    async def delete_webhook(
+        self,
+        drop_pending_updates: bool | None = None,
+        request_timeout: int | None = None,
+    ) -> object:
         self.events.append(("delete_webhook", drop_pending_updates))
-        result_or_raise(self.delete_result)
+        return result_or_raise(self.delete_result)
 
-    async def get_updates(self, **arguments: object) -> Sequence[Update]:
+    def get_updates(
+        self,
+        offset: int | None = None,
+        limit: int | None = None,
+        timeout: int | None = None,
+        allowed_updates: list[str] | None = None,
+        request_timeout: int | None = None,
+    ) -> Awaitable[Sequence[Update]]:
+        arguments: dict[str, object] = {
+            "offset": offset,
+            "timeout": timeout,
+            "allowed_updates": allowed_updates,
+            "request_timeout": request_timeout,
+        }
+        if limit is not None:
+            arguments["limit"] = limit
+        return self._get_updates(arguments)
+
+    async def _get_updates(self, arguments: dict[str, object]) -> Sequence[Update]:
         self.events.append(("get_updates", arguments))
         result = result_or_raise(self.receive_result)
-        return self.updates if result is None else result
+        return self.updates if result is None else cast(Sequence[Update], result)
 
-    async def send_message(self, *, chat_id: int, text: str) -> None:
-        self.events.append(("send_message", (chat_id, text)))
-        result_or_raise(self.send_result)
+    async def send_message(
+        self,
+        *,
+        chat_id: int,
+        text: str,
+        parse_mode: str | None = None,
+        reply_markup: InlineKeyboardMarkup | None = None,
+    ) -> object:
+        self.events.append(("send_message", (chat_id, text, parse_mode, reply_markup)))
+        return result_or_raise(self.send_result)
+
+    async def answer_callback_query(self, callback_query_id: str) -> object:
+        self.events.append(("answer_callback_query", callback_query_id))
+        return result_or_raise(self.send_result)
 
 
-class TelegramMemory:
+class TelegramMemory(
+    TelegramUpdateReader,
+    TelegramResponseStore,
+    TelegramResponseReader,
+    TelegramPayloadCleaner,
+    TelegramMessageSender,
+):
     def __init__(
         self,
         update_result: object,
@@ -254,7 +416,7 @@ class TelegramMemory:
 
     async def load_update(self, key: str) -> Update | None:
         self.events.append(("load_update", key))
-        return result_or_raise(self.update_result)
+        return cast(Update | None, result_or_raise(self.update_result))
 
     async def store_response(
         self,
@@ -271,7 +433,7 @@ class TelegramMemory:
         result = result_or_raise(self.response_result)
         if result is None:
             return self.responses.get(key)
-        return result
+        return cast(TelegramResponse, result)
 
     async def delete(self, keys: tuple[str, ...]) -> None:
         self.events.append(("delete", keys))
@@ -279,13 +441,20 @@ class TelegramMemory:
         for key in keys:
             self.responses.pop(key, None)
 
-    async def send_text(self, chat_id: int, text: str) -> None:
-        self.events.append(("send_text", chat_id, text))
+    async def send(self, response: TelegramResponse) -> None:
+        self.events.append(("send_text", response.chat_id, response.text))
         result_or_raise(self.send_result)
         self.sent.set()
 
 
-class ConversationMemory:
+class ConversationMemory(
+    TelegramUpdateReader,
+    ConversationStateRepository,
+    TelegramResponseStore,
+    TelegramResponseReader,
+    TelegramPayloadCleaner,
+    TelegramMessageSender,
+):
     def __init__(
         self,
         *,
@@ -295,6 +464,7 @@ class ConversationMemory:
         self.updates = dict(updates or {})
         self.conversations = dict(conversations or {})
         self.responses: dict[str, TelegramResponse] = {}
+        self.predictions: dict[str, StoredDeathPrediction] = {}
         self.events: list[tuple[object, ...]] = []
         self.messages: list[tuple[int, str]] = []
         self.changed = asyncio.Event()
@@ -335,11 +505,25 @@ class ConversationMemory:
             self.updates.pop(key, None)
             self.conversations.pop(key, None)
             self.responses.pop(key, None)
+            self.predictions.pop(key, None)
         self.changed.set()
 
-    async def send_text(self, chat_id: int, text: str) -> None:
-        self.events.append(("send_text", chat_id, text))
-        self.messages.append((chat_id, text))
+    async def load(self, key: str) -> StoredDeathPrediction | None:
+        self.events.append(("load_prediction", key))
+        return self.predictions.get(key)
+
+    async def store(
+        self,
+        key: str,
+        prediction: StoredDeathPrediction,
+        ttl_seconds: int,
+    ) -> None:
+        self.events.append(("store_prediction", key, prediction, ttl_seconds))
+        self.predictions[key] = prediction
+
+    async def send(self, response: TelegramResponse) -> None:
+        self.events.append(("send_text", response.chat_id, response.text))
+        self.messages.append((response.chat_id, response.text))
         self.changed.set()
 
     async def wait_for_messages(self, count: int) -> None:
@@ -353,7 +537,7 @@ class ConversationMemory:
             await asyncio.wait_for(self.changed.wait(), timeout=7)
 
 
-class ConversationRepositoryDouble:
+class ConversationRepositoryDouble(ConversationStateRepository):
     def __init__(
         self,
         *,
@@ -366,7 +550,7 @@ class ConversationRepositoryDouble:
 
     async def load_conversation(self, key: str) -> ConversationState | None:
         self.events.append(("load_conversation", key))
-        return result_or_raise(self.load_result)
+        return cast(ConversationState | None, result_or_raise(self.load_result))
 
     async def store_conversation(
         self,
@@ -378,7 +562,81 @@ class ConversationRepositoryDouble:
         result_or_raise(self.store_result)
 
 
-class UserResolverDouble:
+class MortalMemory:
+    def __init__(self, mortals: dict[int, Mortal] | None = None) -> None:
+        self.mortals = dict(mortals or {})
+        self.consumed_request_ids: set[str] = set()
+        self.events: list[tuple[object, ...]] = []
+
+    async def ensure(self, mortal_id: int) -> Mortal:
+        self.events.append(("ensure", mortal_id))
+        mortal = self.mortals.setdefault(mortal_id, Mortal(id=mortal_id))
+        return mortal
+
+    async def get(self, mortal_id: int) -> Mortal | None:
+        self.events.append(("get", mortal_id))
+        return self.mortals.get(mortal_id)
+
+    async def reset(self, mortal_id: int) -> Mortal:
+        self.events.append(("reset", mortal_id))
+        mortal = Mortal(id=mortal_id)
+        self.mortals[mortal_id] = mortal
+        return mortal
+
+    async def set_death_date(self, mortal_id: int, death_date: date) -> Mortal:
+        self.events.append(("set_death_date", mortal_id, death_date))
+        mortal = self.mortals.get(mortal_id, Mortal(id=mortal_id)).model_copy(
+            update={"death_date": death_date}
+        )
+        self.mortals[mortal_id] = mortal
+        return mortal
+
+    async def set_notification_cron(
+        self,
+        mortal_id: int,
+        cron: str | None,
+    ) -> Mortal:
+        self.events.append(("set_notification_cron", mortal_id, cron))
+        mortal = self.mortals.get(mortal_id, Mortal(id=mortal_id)).model_copy(
+            update={"notification_cron": cron}
+        )
+        self.mortals[mortal_id] = mortal
+        return mortal
+
+    async def consume_llm_request(self, mortal_id: int, request_id: str) -> Mortal:
+        self.events.append(("consume_llm_request", mortal_id, request_id))
+        mortal = self.mortals[mortal_id]
+        if request_id in self.consumed_request_ids:
+            return mortal
+        self.consumed_request_ids.add(request_id)
+        updated = mortal.model_copy(
+            update={
+                "llm_requests_remaining": max(
+                    0,
+                    mortal.llm_requests_remaining - 1,
+                )
+            }
+        )
+        self.mortals[mortal_id] = updated
+        return updated
+
+    async def delete(self, mortal_id: int) -> None:
+        self.events.append(("delete", mortal_id))
+        self.mortals.pop(mortal_id, None)
+
+
+class MortalScheduleMemory:
+    def __init__(self) -> None:
+        self.events: list[tuple[object, ...]] = []
+
+    async def ensure(self, mortal: Mortal) -> None:
+        self.events.append(("ensure", mortal))
+
+    async def delete(self, mortal_id: int) -> None:
+        self.events.append(("delete", mortal_id))
+
+
+class UserResolverDouble(UpdateUserResolver):
     def __init__(self, user_id: int | None) -> None:
         self.user_id = user_id
         self.events: list[int] = []
@@ -388,25 +646,15 @@ class UserResolverDouble:
         return self.user_id
 
 
-class KeyValueDouble:
-    def __init__(self, outcomes: list[object]) -> None:
-        self.outcomes = outcomes
-        self.events: list[tuple[str, str, int]] = []
-
-    async def set(self, name: str, value: str, *, ex: int) -> object:
-        self.events.append((name, value, ex))
-        return result_or_raise(self.outcomes.pop(0))
-
-
-class SourceDouble:
+class SourceDouble(UpdateSource):
     def __init__(
         self,
-        prepare_outcomes: list[object],
-        receive_outcomes: list[object],
+        prepare_outcomes: Sequence[object],
+        receive_outcomes: Sequence[object],
         stop_event: asyncio.Event,
     ) -> None:
-        self.prepare_outcomes = prepare_outcomes
-        self.receive_outcomes = receive_outcomes
+        self.prepare_outcomes = list(prepare_outcomes)
+        self.receive_outcomes = list(receive_outcomes)
         self.stop_event = stop_event
         self.events: list[tuple[str, object]] = []
 
@@ -419,22 +667,22 @@ class SourceDouble:
         outcome = result_or_raise(self.receive_outcomes.pop(0))
         if not self.receive_outcomes:
             self.stop_event.set()
-        return outcome
+        return cast(Sequence[Update], outcome)
 
 
-class StoreDouble:
-    def __init__(self, outcomes: list[object]) -> None:
-        self.outcomes = outcomes
+class StoreDouble(UpdateStore):
+    def __init__(self, outcomes: Sequence[object]) -> None:
+        self.outcomes = list(outcomes)
         self.events: list[int] = []
 
     async def store(self, update: Update) -> StoredUpdate:
         self.events.append(update.update_id)
-        return result_or_raise(self.outcomes.pop(0))
+        return cast(StoredUpdate, result_or_raise(self.outcomes.pop(0)))
 
 
-class HandoffDouble:
-    def __init__(self, outcomes: list[object]) -> None:
-        self.outcomes = outcomes
+class HandoffDouble(UpdateHandoff):
+    def __init__(self, outcomes: Sequence[object]) -> None:
+        self.outcomes = list(outcomes)
         self.events: list[StoredUpdate] = []
 
     async def handoff(self, update: StoredUpdate) -> None:
@@ -442,7 +690,7 @@ class HandoffDouble:
         result_or_raise(self.outcomes.pop(0))
 
 
-class RetryWaiterDouble:
+class RetryWaiterDouble(RetryWaiter):
     def __init__(self, stop: bool) -> None:
         self.stop = stop
         self.events: list[int] = []
@@ -468,13 +716,36 @@ class TemporalClientDouble:
         self.outcome = outcome
         self.events: list[tuple[object, ...]] = []
 
-    async def start_workflow(self, *arguments: object, **options: object) -> object:
-        self.events.append((*arguments, options))
+    async def start_workflow(
+        self,
+        workflow: str,
+        arg: object,
+        *,
+        id: str,
+        task_queue: str,
+        id_conflict_policy: WorkflowIDConflictPolicy,
+        start_signal: str | None,
+        start_signal_args: Sequence[object],
+    ) -> object:
+        self.events.append(
+            (
+                workflow,
+                arg,
+                {
+                    "id": id,
+                    "task_queue": task_queue,
+                    "id_conflict_policy": id_conflict_policy,
+                    "start_signal": start_signal,
+                    "start_signal_args": start_signal_args,
+                },
+            )
+        )
         return result_or_raise(self.outcome)
 
 
 @dataclass(frozen=True, slots=True)
 class ActivityCase:
     update: Update
-    expected_kind: object
+    expected_kind: InspectionKind
     expected_chat_id: int
+    expected_callback_query_id: str | None = None

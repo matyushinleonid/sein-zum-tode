@@ -1,30 +1,34 @@
 import logging
 
-from aiogram.enums import ChatType
+from aiogram.enums import ChatMemberStatus, ChatType
 from aiogram.types import Chat, Update
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from sein_zum_tode.bot.content import BotContent, LocalizedBotContent
 from sein_zum_tode.bot.errors import (
     InvalidStoredPayloadError,
     PermanentTelegramDeliveryError,
+    TelegramRecipientUnavailableError,
 )
 from sein_zum_tode.bot.models import (
     CLEANUP_PAYLOADS_ACTIVITY_NAME,
     DELIVER_RESPONSE_ACTIVITY_NAME,
-    GROUP_UNSUPPORTED_RESPONSE_TEXT,
     INSPECT_UPDATE_ACTIVITY_NAME,
+    PREPARE_ABOUT_ACTIVITY_NAME,
     PREPARE_ECHO_ACTIVITY_NAME,
     PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
     PREPARE_HELP_ACTIVITY_NAME,
+    PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
+    PREPARE_NOTIFICATIONS_ACTIVITY_NAME,
     PREPARE_UNSUPPORTED_ACTIVITY_NAME,
-    UNSUPPORTED_RESPONSE_TEXT,
     CleanupPayloadsInput,
     DeliverResponseInput,
     InspectedUpdate,
     InspectionKind,
     InspectUpdateInput,
     PrepareResponseInput,
+    TelegramButton,
     TelegramResponse,
 )
 from sein_zum_tode.bot.ports import (
@@ -34,6 +38,8 @@ from sein_zum_tode.bot.ports import (
     TelegramResponseStore,
     TelegramUpdateReader,
 )
+from sein_zum_tode.mortals.ports import MortalRepository
+from sein_zum_tode.notifications.models import NotificationFrequency
 from sein_zum_tode.observability import LogContext
 
 
@@ -72,11 +78,44 @@ class InspectTelegramUpdateActivity:
 
     def _classify(self, input: InspectUpdateInput, update: Update) -> InspectedUpdate:
         chat = self._find_chat(update)
+        callback_query_id = update.callback_query.id if update.callback_query is not None else None
         if chat is not None and chat.type != ChatType.PRIVATE:
             return InspectedUpdate(
                 kind=InspectionKind.GROUP_UNSUPPORTED,
                 update_key=input.update_key,
                 chat_id=chat.id,
+                callback_query_id=callback_query_id,
+            )
+
+        membership = update.my_chat_member
+        if membership is not None:
+            if membership.new_chat_member.status in {
+                ChatMemberStatus.KICKED,
+                ChatMemberStatus.LEFT,
+            }:
+                kind = InspectionKind.MORTAL_BLOCKED
+            elif membership.new_chat_member.status == ChatMemberStatus.MEMBER:
+                kind = InspectionKind.MORTAL_UNBLOCKED
+            else:
+                kind = InspectionKind.UNSUPPORTED
+            return InspectedUpdate(
+                kind=kind,
+                update_key=input.update_key,
+                chat_id=membership.chat.id,
+            )
+
+        callback = update.callback_query
+        if callback is not None:
+            frequency = NotificationFrequency.from_callback_data(callback.data)
+            return InspectedUpdate(
+                kind=(
+                    InspectionKind.NOTIFICATION_SELECTION
+                    if frequency is not None
+                    else InspectionKind.UNSUPPORTED
+                ),
+                update_key=input.update_key,
+                chat_id=chat.id if chat is not None else input.user_id,
+                callback_query_id=callback.id,
             )
 
         message = update.message
@@ -90,6 +129,10 @@ class InspectTelegramUpdateActivity:
             kind = InspectionKind.BEGIN
         elif message.text == "/help":
             kind = InspectionKind.HELP
+        elif message.text == "/about":
+            kind = InspectionKind.ABOUT
+        elif message.text == "/notifications":
+            kind = InspectionKind.NOTIFICATIONS
         elif message.text is not None:
             kind = InspectionKind.ECHO
         else:
@@ -126,18 +169,21 @@ class PrepareTelegramResponseActivities:
         update_reader: TelegramUpdateReader,
         response_store: TelegramResponseStore,
         ttl_seconds: int,
-        help_text: str,
+        content: BotContent,
+        mortals: MortalRepository,
         logger: logging.Logger | None = None,
     ) -> None:
         self._update_reader = update_reader
         self._response_store = response_store
         self._ttl_seconds = ttl_seconds
-        self._help_text = help_text
+        self._content = content
+        self._mortals = mortals
         self._logger = logger or logging.getLogger(__name__)
 
     @activity.defn(name=PREPARE_ECHO_ACTIVITY_NAME)
     async def prepare_echo(self, input: PrepareResponseInput) -> None:
-        text = UNSUPPORTED_RESPONSE_TEXT
+        localized = await self._localized(input.user_id)
+        text = localized.unsupported
         try:
             update = await self._update_reader.load_update(input.update_key)
         except InvalidStoredPayloadError:
@@ -149,23 +195,72 @@ class PrepareTelegramResponseActivities:
 
     @activity.defn(name=PREPARE_HELP_ACTIVITY_NAME)
     async def prepare_help(self, input: PrepareResponseInput) -> None:
-        await self._prepare_static(input, InspectionKind.HELP, self._help_text)
+        await self._prepare_localized(input, InspectionKind.HELP, "help")
+
+    @activity.defn(name=PREPARE_ABOUT_ACTIVITY_NAME)
+    async def prepare_about(self, input: PrepareResponseInput) -> None:
+        localized = await self._localized(input.user_id)
+        await self._store(input, localized.about, parse_mode="HTML")
+        self._log_prepared(input, InspectionKind.ABOUT)
+
+    @activity.defn(name=PREPARE_NOTIFICATIONS_ACTIVITY_NAME)
+    async def prepare_notifications(self, input: PrepareResponseInput) -> None:
+        localized = await self._localized(input.user_id)
+        settings = localized.notification_settings
+        keyboard = (
+            (
+                TelegramButton(
+                    text=settings.daily,
+                    callback_data=NotificationFrequency.DAILY.callback_data(),
+                ),
+                TelegramButton(
+                    text=settings.weekly,
+                    callback_data=NotificationFrequency.WEEKLY.callback_data(),
+                ),
+            ),
+            (
+                TelegramButton(
+                    text=settings.monthly,
+                    callback_data=NotificationFrequency.MONTHLY.callback_data(),
+                ),
+                TelegramButton(
+                    text=settings.never,
+                    callback_data=NotificationFrequency.NEVER.callback_data(),
+                ),
+            ),
+        )
+        await self._store(input, settings.prompt, keyboard=keyboard)
+        self._log_prepared(input, InspectionKind.NOTIFICATIONS)
+
+    @activity.defn(name=PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME)
+    async def prepare_limit_exhausted(self, input: PrepareResponseInput) -> None:
+        localized = await self._localized(input.user_id)
+        await self._prepare_static(
+            input,
+            InspectionKind.LIMIT_EXHAUSTED,
+            localized.prediction.limit_exhausted,
+        )
 
     @activity.defn(name=PREPARE_UNSUPPORTED_ACTIVITY_NAME)
     async def prepare_unsupported(self, input: PrepareResponseInput) -> None:
-        await self._prepare_static(
-            input,
-            InspectionKind.UNSUPPORTED,
-            UNSUPPORTED_RESPONSE_TEXT,
-        )
+        await self._prepare_localized(input, InspectionKind.UNSUPPORTED, "unsupported")
 
     @activity.defn(name=PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME)
     async def prepare_group_unsupported(self, input: PrepareResponseInput) -> None:
-        await self._prepare_static(
+        await self._prepare_localized(
             input,
             InspectionKind.GROUP_UNSUPPORTED,
-            GROUP_UNSUPPORTED_RESPONSE_TEXT,
+            "group_unsupported",
         )
+
+    async def _prepare_localized(
+        self,
+        input: PrepareResponseInput,
+        kind: InspectionKind,
+        field: str,
+    ) -> None:
+        localized = await self._localized(input.user_id)
+        await self._prepare_static(input, kind, getattr(localized, field))
 
     async def _prepare_static(
         self,
@@ -176,12 +271,30 @@ class PrepareTelegramResponseActivities:
         await self._store(input, text)
         self._log_prepared(input, kind)
 
-    async def _store(self, input: PrepareResponseInput, text: str) -> None:
+    async def _store(
+        self,
+        input: PrepareResponseInput,
+        text: str,
+        *,
+        parse_mode: str | None = None,
+        keyboard: tuple[tuple[TelegramButton, ...], ...] = (),
+    ) -> None:
         await self._response_store.store_response(
             input.response_key,
-            TelegramResponse(chat_id=input.chat_id, text=text),
+            TelegramResponse(
+                chat_id=input.chat_id,
+                text=text,
+                parse_mode=parse_mode,
+                keyboard=keyboard,
+                callback_query_id=input.callback_query_id,
+            ),
             self._ttl_seconds,
         )
+
+    async def _localized(self, user_id: int | None) -> LocalizedBotContent:
+        mortal = await self._mortals.get(user_id) if user_id is not None else None
+        locale = mortal.locale if mortal is not None else self._content.default_locale
+        return self._content.localized(locale)
 
     def _log_prepared(
         self,
@@ -230,7 +343,13 @@ class DeliverTelegramResponseActivity:
                 non_retryable=True,
             )
         try:
-            await self._sender.send_text(response.chat_id, response.text)
+            await self._sender.send(response)
+        except TelegramRecipientUnavailableError as error:
+            raise ApplicationError(
+                f"Telegram recipient {response.chat_id} is unavailable",
+                type="TelegramRecipientUnavailable",
+                non_retryable=True,
+            ) from error
         except PermanentTelegramDeliveryError as error:
             raise ApplicationError(
                 f"Telegram permanently rejected response for chat {response.chat_id}",

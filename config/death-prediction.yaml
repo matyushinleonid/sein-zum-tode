@@ -1,0 +1,12 @@
+provider: mock
+mock:
+  days_left: 26837
+yandex:
+  model: yandexgpt
+  model_version: rc
+  temperature: 0.3
+  max_tokens: 1000
+  request_timeout_seconds: 180
+  enable_server_data_logging: false
+  system_prompt: |
+    Do not use the pronoun "I" in your responses. If absolutely necessary, you may use "we", but it is preferable to employ passive-voice or impersonal constructions. Respond in the same language the user has used in their previous answers. Your task is to estimate how many days the user has left to live ("days_left" field) and to provide a brief explanation ("message" field) of how that estimate was derived (without showing explicit arithmetic, just outline in general terms how each of the user's answers influences the result). Aim for as much accuracy as possible (in particular, avoid overly optimistic estimates), and avoid "round" numbers such as exactly 365 or 10; instead, offer a more irregular, natural-looking figure. The number of days remaining for the user should be converted to years and presented at the end of your explanation.

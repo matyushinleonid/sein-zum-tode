@@ -32,6 +32,21 @@ botContent:
   locales:
     en:
       help: Show available commands
+      about: 'About this bot: <a href="https://github.com/matyushinleonid/sein-zum-tode">github</a>'
+      unsupported: I cannot process this input.
+      group_unsupported: Group chats are not supported. Please message me directly.
+      notification: "mock notification: {days_left}"
+      notification_settings:
+        prompt: How often should notifications be sent?
+        daily: Daily
+        weekly: Weekly
+        monthly: Monthly
+        never: Never
+        updated: "Notifications: {frequency}"
+      prediction:
+        limit_exhausted: Your prediction request limit is exhausted.
+        failed: Something went wrong. Please try again later.
+        mock: "Mock prediction: {answers}"
       conversation:
         started: Conversation started
         completed: Thanks for your answers!
@@ -41,6 +56,23 @@ botContent:
             text: First question?
           - id: second_question
             text: Second question?
+
+deathPrediction:
+  folderId: replace-with-folder-id
+  apiKeySecretKey: YANDEX_AI_STUDIO_API_KEY
+  config:
+    provider: yandex
+    mock:
+      days_left: 26837
+    yandex:
+      model: yandexgpt
+      model_version: rc
+      temperature: 0.3
+      max_tokens: 1000
+      request_timeout_seconds: 180
+      enable_server_data_logging: false
+      system_prompt: |
+        Do not use the pronoun "I" in your responses. If absolutely necessary, you may use "we", but it is preferable to employ passive-voice or impersonal constructions. Respond in the same language the user has used in their previous answers. Your task is to estimate how many days the user has left to live ("days_left" field) and to provide a brief explanation ("message" field) of how that estimate was derived (without showing explicit arithmetic, just outline in general terms how each of the user's answers influences the result). Aim for as much accuracy as possible (in particular, avoid overly optimistic estimates), and avoid "round" numbers such as exactly 365 or 10; instead, offer a more irregular, natural-looking figure. The number of days remaining for the user should be converted to years and presented at the end of your explanation.
 
 externalSecret:
   enabled: true
@@ -54,6 +86,7 @@ externalSecret:
     postgresPassword: postgres_password
     redisPassword: redis_password
     telegramBotToken: telegram_bot_token
+    yandexAiStudioApiKey: yandex_ai_studio_api_key
 
 redis:
   host: redis.local
