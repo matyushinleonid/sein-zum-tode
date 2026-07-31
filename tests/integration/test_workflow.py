@@ -905,6 +905,7 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
     secret = "The five boxing wizards jump quickly over history 1789"
+    stop_key = "telegram:updates:1801:stop-after-history-check"
     update = TelegramUpdates.message(
         update_id=1789,
         user_id=173_357,
@@ -940,6 +941,11 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
         cleaner=telegram,
         logger=SilentLogger(),
     )
+    lifecycle = ActivityTranscript(
+        inspections={},
+        failing_inspection=None,
+        failing_cleanup=False,
+    )
     definitions: Sequence[Callable[..., object]] = [
         inspect.inspect,
         prepare.prepare_echo,
@@ -948,11 +954,8 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
         prepare.prepare_group_unsupported,
         deliver.deliver,
         cleanup.cleanup,
-        ActivityTranscript(
-            inspections={},
-            failing_inspection=None,
-            failing_cleanup=False,
-        ).ensure_mortal,
+        lifecycle.ensure_mortal,
+        lifecycle.deactivate_mortal,
     ]
     async with await WorkflowStory.open(
         pool=workflow_worker_pool,
@@ -964,11 +967,23 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
             timeout=TEST_TIMEOUT_SECONDS,
         )
         history = await handle.fetch_history()
+        telegram.update_result = TelegramUpdates.membership(
+            update_id=1801,
+            user_id=173_357,
+            bot_id=180_107,
+            old_status="member",
+            new_status="kicked",
+        )
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=stop_key),
+        )
+        await handle.result()
 
-        assert (
-            ("send_text", 179_297, secret) in telegram.events,
-            secret not in json.dumps(history.to_json_dict()),
-        ) == (True, True), "Temporal persisted sensitive text or delivery changed it"
+    assert (
+        ("send_text", 179_297, secret) in telegram.events,
+        secret not in json.dumps(history.to_json_dict()),
+    ) == (True, True), "Temporal persisted sensitive text or delivery changed it"
 
 
 async def test_skips_processing_when_mortal_registration_fails(
