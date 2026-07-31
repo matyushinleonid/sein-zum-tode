@@ -72,14 +72,14 @@ pytestmark = [
 ]
 
 
-@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME)
+@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME, sandboxed=False)
 class FailingTelegramConversationWorkflow:
     @workflow.run
     async def run(self, input: ConversationWorkflowInput) -> None:
         raise ApplicationError("conversation workflow failed", non_retryable=True)
 
 
-@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME)
+@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME, sandboxed=False)
 class DelayedFailingTelegramConversationWorkflow:
     def __init__(self) -> None:
         self._released = False
@@ -94,7 +94,7 @@ class DelayedFailingTelegramConversationWorkflow:
         raise ApplicationError("conversation workflow failed", non_retryable=True)
 
 
-@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME)
+@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME, sandboxed=False)
 class DelayedFinishedTelegramConversationWorkflow:
     def __init__(self) -> None:
         self._finished_signal_sent = False
@@ -744,34 +744,44 @@ async def test_keeps_processing_after_activity_and_cleanup_failures(
 async def test_keeps_processing_after_response_preparation_failure(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
+    failed_key = "redis:response-failure:1779"
+    survivor_key = "redis:response-survivor:1781"
+    stop_key = "redis:stop-after-response-survivor:1782"
     transcript = ActivityTranscript(
         inspections={
-            "redis:response-failure:1779": InspectionKind.ECHO,
-            "redis:response-survivor:1781": InspectionKind.HELP,
+            failed_key: InspectionKind.ECHO,
+            survivor_key: InspectionKind.HELP,
+            stop_key: InspectionKind.MORTAL_BLOCKED,
         },
         failing_inspection=None,
         failing_cleanup=False,
-        failing_response="redis:response-failure:1779",
+        failing_response=failed_key,
     )
     async with await WorkflowStory.open(
         pool=workflow_worker_pool,
         activities=transcript.definitions(),
     ) as story:
-        handle = await story.start("redis:response-failure:1779", continue_after=None)
+        handle = await story.start(failed_key, continue_after=None)
         await transcript.wait_for("cleanup", 1)
         await handle.signal(
             TELEGRAM_UPDATE_SIGNAL_NAME,
-            TelegramUpdateSignal(redis_key="redis:response-survivor:1781"),
+            TelegramUpdateSignal(redis_key=survivor_key),
         )
         await transcript.wait_for("cleanup", 2)
+        events = transcript.events[:5]
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=stop_key),
+        )
+        await handle.result()
 
-        assert transcript.events[:5] == [
-            ("inspect", "redis:response-failure:1779", 173_357),
-            ("prepare_echo", "redis:response-failure:1779", 173_357),
-            ("cleanup", "redis:response-failure:1779", 173_357),
-            ("inspect", "redis:response-survivor:1781", 173_357),
-            ("prepare_help", "redis:response-survivor:1781", 173_357),
-        ], "failed response preparation terminated the per-user workflow"
+    assert events == [
+        ("inspect", failed_key, 173_357),
+        ("prepare_echo", failed_key, 173_357),
+        ("cleanup", failed_key, 173_357),
+        ("inspect", survivor_key, 173_357),
+        ("prepare_help", survivor_key, 173_357),
+    ], "failed response preparation terminated the per-user workflow"
 
 
 async def test_recovers_when_a_child_conversation_workflow_fails(
@@ -1024,10 +1034,12 @@ async def test_unblock_registers_silently_before_later_echo(
 ) -> None:
     unblock_key = "redis:unblocked:1823"
     echo_key = "redis:echo-after-unblock:1831"
+    stop_key = "redis:stop-after-unblock:1832"
     transcript = ActivityTranscript(
         inspections={
             unblock_key: InspectionKind.MORTAL_UNBLOCKED,
             echo_key: InspectionKind.ECHO,
+            stop_key: InspectionKind.MORTAL_BLOCKED,
         },
         failing_inspection=None,
         failing_cleanup=False,
@@ -1043,8 +1055,14 @@ async def test_unblock_registers_silently_before_later_echo(
             TelegramUpdateSignal(redis_key=echo_key),
         )
         await transcript.wait_for("cleanup", 2)
+        events = list(transcript.events)
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=stop_key),
+        )
+        await handle.result()
 
-    assert transcript.events == [
+    assert events == [
         ("inspect", unblock_key, 173_357),
         ("cleanup", unblock_key, 173_357),
         ("inspect", echo_key, 173_357),
@@ -1058,8 +1076,12 @@ async def test_unblock_stays_silent_when_reset_fails(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
     unblock_key = "redis:unblock-reset-failure:1837"
+    stop_key = "redis:stop-after-unblock-reset-failure:1838"
     transcript = ActivityTranscript(
-        inspections={unblock_key: InspectionKind.MORTAL_UNBLOCKED},
+        inspections={
+            unblock_key: InspectionKind.MORTAL_UNBLOCKED,
+            stop_key: InspectionKind.MORTAL_BLOCKED,
+        },
         failing_inspection=None,
         failing_cleanup=False,
         failing_reset=True,
@@ -1068,10 +1090,16 @@ async def test_unblock_stays_silent_when_reset_fails(
         pool=workflow_worker_pool,
         activities=transcript.definitions(),
     ) as story:
-        await story.start(unblock_key, continue_after=None)
+        handle = await story.start(unblock_key, continue_after=None)
         await transcript.wait_for("cleanup", 1)
+        events = list(transcript.events)
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=stop_key),
+        )
+        await handle.result()
 
-    assert transcript.events == [
+    assert events == [
         ("inspect", unblock_key, 173_357),
         ("cleanup", unblock_key, 173_357),
     ], "failed unblock reset leaked a response or entered ordinary processing"
