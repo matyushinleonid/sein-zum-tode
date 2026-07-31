@@ -72,14 +72,14 @@ pytestmark = [
 ]
 
 
-@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME)
+@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME, sandboxed=False)
 class FailingTelegramConversationWorkflow:
     @workflow.run
     async def run(self, input: ConversationWorkflowInput) -> None:
         raise ApplicationError("conversation workflow failed", non_retryable=True)
 
 
-@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME)
+@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME, sandboxed=False)
 class DelayedFailingTelegramConversationWorkflow:
     def __init__(self) -> None:
         self._released = False
@@ -94,7 +94,7 @@ class DelayedFailingTelegramConversationWorkflow:
         raise ApplicationError("conversation workflow failed", non_retryable=True)
 
 
-@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME)
+@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME, sandboxed=False)
 class DelayedFinishedTelegramConversationWorkflow:
     def __init__(self) -> None:
         self._finished_signal_sent = False
