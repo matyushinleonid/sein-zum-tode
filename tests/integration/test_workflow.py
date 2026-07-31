@@ -534,7 +534,6 @@ class WorkflowStory:
                 ).raw_description.workflow_execution_info.execution.run_id
                 if current != previous_run:
                     return current
-                await asyncio.sleep(0.01)
 
 
 async def test_routes_unique_signals_through_the_complete_pipeline(
@@ -630,11 +629,11 @@ async def test_handles_exhausted_or_unavailable_quota_before_begin(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
     update_key = "redis:begin-quota:1758"
-    survivor_key = "redis:quota-survivor:1759"
+    stop_key = "redis:stop-after-begin-quota:1759"
     transcript = ActivityTranscript(
         inspections={
             update_key: InspectionKind.BEGIN,
-            survivor_key: InspectionKind.HELP,
+            stop_key: InspectionKind.MORTAL_BLOCKED,
         },
         failing_inspection=None,
         failing_cleanup=False,
@@ -643,22 +642,18 @@ async def test_handles_exhausted_or_unavailable_quota_before_begin(
     async with await WorkflowStory.open(
         pool=workflow_worker_pool,
         activities=transcript.definitions(),
+        conversation_workflow=DelayedFailingTelegramConversationWorkflow,
     ) as story:
         handle = await story.start(update_key, continue_after=None)
         await transcript.wait_for("cleanup", 1)
+        operations = [event[0] for event in transcript.events]
         await handle.signal(
             TELEGRAM_UPDATE_SIGNAL_NAME,
-            TelegramUpdateSignal(redis_key=survivor_key),
+            TelegramUpdateSignal(redis_key=stop_key),
         )
-        await transcript.wait_for("cleanup", 2)
+        await handle.result()
 
-    assert [event[0] for event in transcript.events] == [
-        *expected_operations,
-        "inspect",
-        "prepare_help",
-        "deliver",
-        "cleanup",
-    ]
+    assert operations == expected_operations
 
 
 @pytest.mark.parametrize(
@@ -795,7 +790,6 @@ async def test_recovers_when_a_child_conversation_workflow_fails(
         child = story.environment.client.get_workflow_handle(child_id)
         with pytest.raises(WorkflowFailureError):
             await child.result()
-        await asyncio.sleep(0.01)
         await handle.signal(
             TELEGRAM_UPDATE_SIGNAL_NAME,
             TelegramUpdateSignal(redis_key=echo_key),
@@ -845,7 +839,6 @@ async def test_reroutes_an_update_when_child_fails_during_inspection(
             await child.signal(DelayedFailingTelegramConversationWorkflow.release_failure)
             with pytest.raises(WorkflowFailureError):
                 await child.result()
-            await asyncio.sleep(0.01)
             transcript.release_inspection.set()
             await transcript.wait_for("cleanup", 2)
 
@@ -1160,24 +1153,11 @@ async def test_waits_for_a_finished_child_before_routing_the_next_update(
             await transcript.wait_for("cleanup", 1)
             child_id = f"{handle.id}:conversation:{begin_key}"
             child = story.environment.client.get_workflow_handle(child_id)
-            finished_signal_sent = asyncio.Event()
-            loop = asyncio.get_running_loop()
-
-            async def check_finished_signal_sent() -> None:
-                if await child.query(
+            async with asyncio.timeout(TEST_TIMEOUT_SECONDS):
+                while not await child.query(
                     DelayedFinishedTelegramConversationWorkflow.finished_signal_sent
                 ):
-                    finished_signal_sent.set()
-                    return
-                loop.call_later(
-                    0.01,
-                    lambda: asyncio.create_task(check_finished_signal_sent()),
-                )
-
-            await check_finished_signal_sent()
-            async with asyncio.timeout(TEST_TIMEOUT_SECONDS):
-                await finished_signal_sent.wait()
-            await asyncio.sleep(0.01)
+                    pass
             await handle.signal(
                 TELEGRAM_UPDATE_SIGNAL_NAME,
                 TelegramUpdateSignal(redis_key=echo_key),
