@@ -22,7 +22,9 @@ class SignalLoop:
         callback()
 
 
-def test_converts_both_process_signals_into_an_async_stop_event(monkeypatch) -> None:
+def test_converts_both_process_signals_into_an_async_stop_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     loop = SignalLoop()
     stop = asyncio.Event()
     monkeypatch.setattr(asyncio, "get_running_loop", lambda: loop)

@@ -41,6 +41,9 @@ services:
       TELEGRAM_UPDATE_TTL_SECONDS: ${TELEGRAM_UPDATE_TTL_SECONDS:-3600}
       CONVERSATION_TTL_SECONDS: ${CONVERSATION_TTL_SECONDS:-3600}
       BOT_CONTENT_PATH: ${BOT_CONTENT_PATH:-config/bot-content.yaml}
+      DEATH_PREDICTION_CONFIG_PATH: ${DEATH_PREDICTION_CONFIG_PATH:-config/death-prediction.yaml}
+      YANDEX_AI_STUDIO_API_KEY: ${YANDEX_AI_STUDIO_API_KEY:-}
+      YANDEX_AI_STUDIO_FOLDER_ID: ${YANDEX_AI_STUDIO_FOLDER_ID:-}
       TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:?set TEMPORAL_ADDRESS in .env}
       TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-sein-zum-tode}
@@ -50,9 +53,35 @@ services:
       REDIS_PORT: 6379
       REDIS_DATABASE: ${REDIS_DATABASE:-0}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DATABASE: ${POSTGRES_DATABASE:-sein_zum_tode}
+      POSTGRES_USER: ${POSTGRES_USER:-sein_zum_tode}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_SSL: ${POSTGRES_SSL:-false}
+      POSTGRES_PGBOUNCER: ${POSTGRES_PGBOUNCER:-false}
     restart: unless-stopped
     depends_on:
       redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DATABASE: ${POSTGRES_DATABASE:-sein_zum_tode}
+      POSTGRES_USER: ${POSTGRES_USER:-sein_zum_tode}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_SSL: ${POSTGRES_SSL:-false}
+      POSTGRES_PGBOUNCER: ${POSTGRES_PGBOUNCER:-false}
+    depends_on:
+      postgres:
         condition: service_healthy
 
   postgres:

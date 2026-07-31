@@ -8,3 +8,5 @@ metadata:
 data:
   bot-content.yaml: |
     {{- toYaml .Values.botContent | nindent 4 }}
+  death-prediction.yaml: |
+    {{- toYaml .Values.deathPrediction.config | nindent 4 }}

@@ -10,12 +10,16 @@ from sein_zum_tode.bot.conversation.models import (
     RecordConversationAnswerInput,
     StartConversationInput,
 )
+from sein_zum_tode.bot.conversation.ports import ConversationStateRepository
 from sein_zum_tode.bot.errors import InvalidStoredPayloadError
 from sein_zum_tode.bot.models import TelegramResponse
+from sein_zum_tode.bot.ports import TelegramResponseStore, TelegramUpdateReader
+from sein_zum_tode.mortals.models import Mortal
 from tests.support import (
     BotContents,
     ConversationMemory,
     ConversationRepositoryDouble,
+    MortalMemory,
     SilentLogger,
     TelegramMemory,
     TelegramUpdates,
@@ -29,6 +33,7 @@ def conversation_state() -> ConversationState:
     return ConversationState.begin(
         content=content,
         localized=content.default(),
+        locale="en",
         user_id=223_721,
         chat_id=223_727,
     )
@@ -36,9 +41,9 @@ def conversation_state() -> ConversationState:
 
 def record_activity(
     *,
-    updates: object,
-    conversations: object,
-    responses: object,
+    updates: TelegramUpdateReader,
+    conversations: ConversationStateRepository,
+    responses: TelegramResponseStore,
 ) -> RecordTelegramConversationAnswerActivity:
     return RecordTelegramConversationAnswerActivity(
         updates=updates,
@@ -56,6 +61,7 @@ async def test_starts_with_a_redis_snapshot_and_two_prepared_messages() -> None:
     memory = ConversationMemory()
     subject = StartTelegramConversationActivity(
         content=content,
+        mortals=MortalMemory({226_973: Mortal(id=226_973)}),
         conversations=memory,
         responses=memory,
         conversation_ttl_seconds=2243,
@@ -171,7 +177,7 @@ async def test_records_text_and_refreshes_only_conversation_privacy_data() -> No
     ], "accepted text failed to restart inactivity and privacy response TTLs"
 
 
-async def test_splits_a_large_final_summary_into_deliverable_messages() -> None:
+async def test_prepares_only_the_completion_message_after_the_last_answer() -> None:
     first = conversation_state().apply_answer(
         update_key="telegram:answer:2281",
         text="Deneb",
@@ -206,15 +212,11 @@ async def test_splits_a_large_final_summary_into_deliverable_messages() -> None:
     response_parts = tuple(memory.responses[key].text for key in actual.response_keys)
     assert (
         actual.kind,
-        len(actual.response_keys),
-        all(len(part) <= 4096 for part in response_parts),
         "".join(response_parts),
     ) == (
         ConversationTurnKind.COMPLETED,
-        2,
-        True,
-        memory.conversations["telegram:conversation:2287"].summary(),
-    ), "completed conversation lost or oversized its temporary summary"
+        "thanks for your answers!",
+    ), "completed conversation exposed answers instead of the completion message"
 
 
 @pytest.mark.parametrize(

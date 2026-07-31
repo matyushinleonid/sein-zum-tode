@@ -1,17 +1,17 @@
 from collections.abc import Sequence
 
-from aiogram import Bot
 from aiogram.enums import UpdateType
 from aiogram.exceptions import AiogramError
 from aiogram.types import Update
 
 from sein_zum_tode.ingress.errors import UpdateSourceError
+from sein_zum_tode.ingress.ports import TelegramPollingClient
 
 
 class AiogramUpdateSource:
     def __init__(
         self,
-        bot: Bot,
+        bot: TelegramPollingClient,
         polling_timeout_seconds: int,
         request_timeout_seconds: int,
     ) -> None:

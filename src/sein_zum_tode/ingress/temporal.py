@@ -1,19 +1,18 @@
-from temporalio.client import Client
 from temporalio.common import WorkflowIDConflictPolicy
 
 from sein_zum_tode.bot.models import (
     TELEGRAM_UPDATE_SIGNAL_NAME,
+    TELEGRAM_USER_WORKFLOW_NAME,
     TelegramUpdateSignal,
     UserWorkflowInput,
 )
-from sein_zum_tode.bot.workflow import TelegramUserWorkflow
-from sein_zum_tode.ingress.ports import UserWorkflowStarter
+from sein_zum_tode.ingress.ports import TemporalWorkflowClient
 
 
-class TemporalUserWorkflowStarter(UserWorkflowStarter):
+class TemporalUserWorkflowStarter:
     def __init__(
         self,
-        client: Client,
+        client: TemporalWorkflowClient,
         bot_id: int,
         task_queue: str,
         activity_retry_timeout_seconds: int,
@@ -32,7 +31,7 @@ class TemporalUserWorkflowStarter(UserWorkflowStarter):
         update_key: str,
     ) -> None:
         await self._client.start_workflow(
-            TelegramUserWorkflow.run,
+            TELEGRAM_USER_WORKFLOW_NAME,
             UserWorkflowInput(
                 user_id=user_id,
                 activity_retry_timeout_seconds=self._activity_retry_timeout_seconds,

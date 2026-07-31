@@ -1,0 +1,1 @@
+"""Death prediction domain."""

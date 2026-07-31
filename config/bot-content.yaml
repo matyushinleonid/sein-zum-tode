@@ -3,6 +3,21 @@ default_locale: en
 locales:
   en:
     help: Mock help response
+    about: 'About this bot: <a href="https://github.com/matyushinleonid/sein-zum-tode">github</a>'
+    unsupported: I cannot process this input.
+    group_unsupported: Group chats are not supported. Please message me directly.
+    notification: "mock notification: {days_left}"
+    notification_settings:
+      prompt: How often should notifications be sent?
+      daily: Daily
+      weekly: Weekly
+      monthly: Monthly
+      never: Never
+      updated: "Notifications: {frequency}"
+    prediction:
+      limit_exhausted: Your prediction request limit is exhausted.
+      failed: Something went wrong. Please try again later.
+      mock: "Mock prediction: {answers}"
     conversation:
       started: mock conversation started
       completed: thanks for your answers!

@@ -15,6 +15,7 @@ def started_state() -> ConversationState:
     return ConversationState.begin(
         content=content,
         localized=content.default(),
+        locale="en",
         user_id=201_107,
         chat_id=201_113,
     )
@@ -75,7 +76,7 @@ def test_replays_the_same_answer_idempotently() -> None:
     )
 
 
-def test_completes_with_a_summary_of_every_question_and_answer() -> None:
+def test_completes_with_the_configured_completion_message() -> None:
     first = started_state().apply_answer(
         update_key="telegram:answer:2029",
         text="Rigel",
@@ -93,10 +94,8 @@ def test_completes_with_a_summary_of_every_question_and_answer() -> None:
     ) == (
         True,
         2,
-        "thanks for your answers! "
-        "[{'question_id': 'q1', 'question': 'q1?', 'answer': 'Rigel'}, "
-        "{'question_id': 'q2', 'question': 'q2?', 'answer': '/help'}]",
-    ), "final answer did not produce the temporary complete summary"
+        "thanks for your answers!",
+    ), "final answer did not produce the configured completion message"
 
 
 def test_keeps_a_completed_conversation_completed() -> None:
@@ -116,7 +115,7 @@ def test_keeps_a_completed_conversation_completed() -> None:
     ) == (
         state,
         True,
-        state.summary(),
+        state.completed_message,
     ), "completed state accepted an additional answer"
 
 

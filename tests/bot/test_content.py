@@ -7,12 +7,43 @@ from sein_zum_tode.bot.content import (
     BotContent,
     ConversationContent,
     LocalizedBotContent,
+    NotificationSettingsContent,
+    PredictionContent,
     QuestionContent,
     YamlBotContentLoader,
 )
 from sein_zum_tode.bot.errors import ContentConfigurationError
 
 pytestmark = pytest.mark.fast
+
+
+def localized_content(notification: str = "Days left: {days_left}") -> LocalizedBotContent:
+    return LocalizedBotContent(
+        help="Navigate",
+        about="About",
+        unsupported="Unsupported",
+        group_unsupported="Groups unsupported",
+        notification=notification,
+        notification_settings=NotificationSettingsContent(
+            prompt="Frequency?",
+            daily="Daily",
+            weekly="Weekly",
+            monthly="Monthly",
+            never="Never",
+            updated="Notifications: {frequency}",
+        ),
+        prediction=PredictionContent(
+            limit_exhausted="Limit exhausted",
+            failed="Failed",
+            mock="Mock: {answers}",
+        ),
+        conversation=ConversationContent(
+            started="Started",
+            completed="Completed",
+            deleted="Deleted",
+            questions=(QuestionContent(id="q1", text="Question?"),),
+        ),
+    )
 
 
 def test_loads_versioned_localized_bot_content_from_yaml(tmp_path: Path) -> None:
@@ -24,6 +55,21 @@ default_locale: en
 locales:
   en:
     help: Navigate by the constellations
+    about: About the constellations
+    unsupported: Unsupported
+    group_unsupported: Groups unsupported
+    notification: "Days left: {days_left}"
+    notification_settings:
+      prompt: Frequency?
+      daily: Daily
+      weekly: Weekly
+      monthly: Monthly
+      never: Never
+      updated: "Notifications: {frequency}"
+    prediction:
+      limit_exhausted: Limit exhausted
+      failed: Failed
+      mock: "Mock: {answers}"
     conversation:
       started: The survey has started
       completed: Survey complete
@@ -40,10 +86,12 @@ locales:
     assert (
         actual.version,
         actual.default().help,
+        actual.default().notification_text(17),
         actual.default().conversation.questions,
     ) == (
         "stellar-v7",
         "Navigate by the constellations",
+        "Days left: 17",
         (QuestionContent(id="star", text="Which star?"),),
     ), "YAML loading changed the configured version, locale, or questions"
 
@@ -69,15 +117,7 @@ def test_rejects_a_missing_content_file(tmp_path: Path) -> None:
 
 
 def test_rejects_a_default_locale_without_content() -> None:
-    localized = LocalizedBotContent(
-        help="Navigate",
-        conversation=ConversationContent(
-            started="Started",
-            completed="Completed",
-            deleted="Deleted",
-            questions=(QuestionContent(id="q1", text="Question?"),),
-        ),
-    )
+    localized = localized_content()
 
     with pytest.raises(ValidationError):
         BotContent(
@@ -98,3 +138,45 @@ def test_rejects_duplicate_question_ids() -> None:
                 QuestionContent(id="duplicate", text="Second?"),
             ),
         )
+
+
+@pytest.mark.parametrize(
+    "notification",
+    [
+        "No placeholder",
+        "{days_left} {locale}",
+    ],
+)
+def test_rejects_an_invalid_notification_template(notification: str) -> None:
+    with pytest.raises(ValidationError):
+        localized_content(notification)
+
+
+def test_rejects_invalid_notification_settings_and_mock_templates() -> None:
+    with pytest.raises(ValidationError):
+        NotificationSettingsContent(
+            prompt="Frequency?",
+            daily="Daily",
+            weekly="Weekly",
+            monthly="Monthly",
+            never="Never",
+            updated="No placeholder",
+        )
+    with pytest.raises(ValidationError):
+        PredictionContent(
+            limit_exhausted="Limit",
+            failed="Failed",
+            mock="{answers} {locale}",
+        )
+
+
+def test_falls_back_to_default_content_for_an_unknown_locale() -> None:
+    content = BotContent(
+        version="stellar-v13",
+        default_locale="en",
+        locales={"en": localized_content()},
+    )
+
+    assert content.localized("unknown") is content.default(), (
+        "unknown Mortal locale did not use configured default content"
+    )

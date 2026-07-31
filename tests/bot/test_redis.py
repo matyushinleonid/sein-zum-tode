@@ -26,7 +26,7 @@ async def test_loads_a_telegram_update_from_each_redis_representation(
         set_result=True,
         delete_result=0,
     )
-    repository = RedisTelegramPayloadRepository(redis)
+    repository = RedisTelegramPayloadRepository(redis.client())
 
     actual = await repository.load_update("telegram:squid:1559")
 
@@ -35,7 +35,7 @@ async def test_loads_a_telegram_update_from_each_redis_representation(
 
 async def test_returns_no_update_for_an_expired_redis_key() -> None:
     redis = RedisDouble(get_result=None, set_result=True, delete_result=0)
-    repository = RedisTelegramPayloadRepository(redis)
+    repository = RedisTelegramPayloadRepository(redis.client())
 
     actual = await repository.load_update("telegram:expired:1567")
 
@@ -44,7 +44,7 @@ async def test_returns_no_update_for_an_expired_redis_key() -> None:
 
 async def test_rejects_a_malformed_telegram_update() -> None:
     redis = RedisDouble(get_result="{}", set_result=True, delete_result=0)
-    repository = RedisTelegramPayloadRepository(redis)
+    repository = RedisTelegramPayloadRepository(redis.client())
 
     with pytest.raises(InvalidStoredPayloadError):
         await repository.load_update("telegram:broken:1571")
@@ -52,7 +52,7 @@ async def test_rejects_a_malformed_telegram_update() -> None:
 
 async def test_stores_a_response_as_json_with_its_ttl() -> None:
     redis = RedisDouble(get_result=None, set_result=b"STORED-1579", delete_result=0)
-    repository = RedisTelegramPayloadRepository(redis)
+    repository = RedisTelegramPayloadRepository(redis.client())
     response = TelegramResponse(chat_id=158_357, text="A very bad quack might jinx zippy fowls")
 
     await repository.store_response(
@@ -72,7 +72,7 @@ async def test_stores_a_response_as_json_with_its_ttl() -> None:
 )
 async def test_rejects_every_unsuccessful_response_write(redis_outcome: object) -> None:
     redis = RedisDouble(get_result=None, set_result=redis_outcome, delete_result=0)
-    repository = RedisTelegramPayloadRepository(redis)
+    repository = RedisTelegramPayloadRepository(redis.client())
     response = TelegramResponse(chat_id=160_163, text="Big fjords vex quick waltz nymph")
 
     with pytest.raises(PayloadRepositoryError):
@@ -90,7 +90,7 @@ async def test_loads_a_telegram_response_from_redis() -> None:
         set_result=True,
         delete_result=0,
     )
-    repository = RedisTelegramPayloadRepository(redis)
+    repository = RedisTelegramPayloadRepository(redis.client())
 
     actual = await repository.load_response("telegram:response:1613")
 
@@ -99,7 +99,7 @@ async def test_loads_a_telegram_response_from_redis() -> None:
 
 async def test_returns_no_response_for_an_expired_redis_key() -> None:
     redis = RedisDouble(get_result=None, set_result=True, delete_result=0)
-    repository = RedisTelegramPayloadRepository(redis)
+    repository = RedisTelegramPayloadRepository(redis.client())
 
     actual = await repository.load_response("telegram:expired-response:1619")
 
@@ -112,7 +112,7 @@ async def test_rejects_a_malformed_telegram_response() -> None:
         set_result=True,
         delete_result=0,
     )
-    repository = RedisTelegramPayloadRepository(redis)
+    repository = RedisTelegramPayloadRepository(redis.client())
 
     with pytest.raises(InvalidStoredPayloadError):
         await repository.load_response("telegram:broken-response:1621")
@@ -120,7 +120,7 @@ async def test_rejects_a_malformed_telegram_response() -> None:
 
 async def test_deletes_all_ephemeral_payload_keys_together() -> None:
     redis = RedisDouble(get_result=None, set_result=True, delete_result=2)
-    repository = RedisTelegramPayloadRepository(redis)
+    repository = RedisTelegramPayloadRepository(redis.client())
 
     await repository.delete(("telegram:update:1627", "telegram:response:1637"))
 
@@ -135,7 +135,7 @@ async def test_translates_a_redis_delete_failure() -> None:
         set_result=True,
         delete_result=ConnectionError("delete orbit failed 1657"),
     )
-    repository = RedisTelegramPayloadRepository(redis)
+    repository = RedisTelegramPayloadRepository(redis.client())
 
     with pytest.raises(PayloadRepositoryError):
         await repository.delete(("telegram:update:1663", "telegram:response:1667"))
@@ -147,15 +147,15 @@ async def test_translates_a_redis_read_failure() -> None:
         set_result=True,
         delete_result=0,
     )
-    repository = RedisTelegramPayloadRepository(redis)
+    repository = RedisTelegramPayloadRepository(redis.client())
 
     with pytest.raises(PayloadRepositoryError):
         await repository.load_update("telegram:update:1693")
 
 
-async def test_rejects_an_undocumented_redis_get_response() -> None:
+async def test_translates_an_undocumented_redis_get_response() -> None:
     redis = RedisDouble(get_result=object(), set_result=True, delete_result=0)
-    repository = RedisTelegramPayloadRepository(redis)
+    repository = RedisTelegramPayloadRepository(redis.client())
 
-    with pytest.raises(TypeError):
+    with pytest.raises(PayloadRepositoryError):
         await repository.load_update("telegram:update:1697")

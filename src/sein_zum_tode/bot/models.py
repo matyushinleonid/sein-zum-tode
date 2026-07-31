@@ -8,21 +8,27 @@ TELEGRAM_UPDATE_SIGNAL_NAME = "accept_update"
 INSPECT_UPDATE_ACTIVITY_NAME = "inspect_telegram_update"
 PREPARE_ECHO_ACTIVITY_NAME = "prepare_echo_response"
 PREPARE_HELP_ACTIVITY_NAME = "prepare_help_response"
+PREPARE_ABOUT_ACTIVITY_NAME = "prepare_about_response"
+PREPARE_NOTIFICATIONS_ACTIVITY_NAME = "prepare_notifications_response"
+PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME = "prepare_limit_exhausted_response"
 PREPARE_UNSUPPORTED_ACTIVITY_NAME = "prepare_unsupported_response"
 PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME = "prepare_group_unsupported_response"
 DELIVER_RESPONSE_ACTIVITY_NAME = "deliver_telegram_response"
 CLEANUP_PAYLOADS_ACTIVITY_NAME = "cleanup_telegram_payloads"
 
-UNSUPPORTED_RESPONSE_TEXT = "I cannot process this input."
-GROUP_UNSUPPORTED_RESPONSE_TEXT = "Group chats are not supported. Please message me directly."
-
 
 class InspectionKind(StrEnum):
     ECHO = "echo"
     HELP = "help"
+    ABOUT = "about"
+    NOTIFICATIONS = "notifications"
+    NOTIFICATION_SELECTION = "notification_selection"
     BEGIN = "begin"
     UNSUPPORTED = "unsupported"
     GROUP_UNSUPPORTED = "group_unsupported"
+    LIMIT_EXHAUSTED = "limit_exhausted"
+    MORTAL_BLOCKED = "mortal_blocked"
+    MORTAL_UNBLOCKED = "mortal_unblocked"
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +57,7 @@ class InspectedUpdate:
     kind: InspectionKind
     update_key: str
     chat_id: int
+    callback_query_id: str | None = None
 
     def response_key(self) -> str:
         return f"{self.update_key}:response"
@@ -62,6 +69,7 @@ class PrepareResponseInput:
     response_key: str
     chat_id: int
     user_id: int | None = None
+    callback_query_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,8 +86,18 @@ class CleanupPayloadsInput:
     user_id: int | None = None
 
 
+class TelegramButton(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    text: str
+    callback_data: str
+
+
 class TelegramResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     chat_id: int
     text: str
+    parse_mode: str | None = None
+    keyboard: tuple[tuple[TelegramButton, ...], ...] = ()
+    callback_query_id: str | None = None

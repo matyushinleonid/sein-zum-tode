@@ -21,6 +21,7 @@ from sein_zum_tode.bot.ports import (
     TelegramResponseStore,
     TelegramUpdateReader,
 )
+from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.observability import LogContext
 
 
@@ -29,6 +30,7 @@ class StartTelegramConversationActivity:
         self,
         *,
         content: BotContent,
+        mortals: MortalRepository,
         conversations: ConversationStateRepository,
         responses: TelegramResponseStore,
         conversation_ttl_seconds: int,
@@ -37,6 +39,7 @@ class StartTelegramConversationActivity:
         logger: logging.Logger | None = None,
     ) -> None:
         self._content = content
+        self._mortals = mortals
         self._conversations = conversations
         self._responses = responses
         self._conversation_ttl_seconds = conversation_ttl_seconds
@@ -46,9 +49,12 @@ class StartTelegramConversationActivity:
 
     @activity.defn(name=START_CONVERSATION_ACTIVITY_NAME)
     async def start(self, input: StartConversationInput) -> ConversationStarted:
+        mortal = await self._mortals.get(input.user_id)
+        locale = mortal.locale if mortal is not None else self._content.default_locale
         state = ConversationState.begin(
             content=self._content,
-            localized=self._content.default(),
+            localized=self._content.localized(locale),
+            locale=locale,
             user_id=input.user_id,
             chat_id=input.chat_id,
         )

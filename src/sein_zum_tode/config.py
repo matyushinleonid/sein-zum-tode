@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -12,6 +12,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    def __init__(self, **values: Any) -> None:
+        super().__init__(**values)
+
     app_name: str = "sein-zum-tode-telegram-ingress"
     log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"] = "INFO"
     log_format: Literal["console", "json"] = "console"
@@ -22,6 +25,7 @@ class Settings(BaseSettings):
     telegram_update_ttl_seconds: int = Field(default=3600, ge=1)
     conversation_ttl_seconds: int = Field(default=3600, ge=1)
     bot_content_path: Path = Path("config/bot-content.yaml")
+    death_prediction_config_path: Path = Path("config/death-prediction.yaml")
 
     retry_initial_delay_seconds: float = Field(default=1.0, gt=0)
     retry_max_delay_seconds: float = Field(default=30.0, gt=0)
@@ -49,3 +53,15 @@ class Settings(BaseSettings):
                 "TELEGRAM_UPDATE_TTL_SECONDS and CONVERSATION_TTL_SECONDS"
             )
         return self
+
+
+class WorkerSettings(Settings):
+    postgres_host: str = "localhost"
+    postgres_port: int = Field(default=5432, ge=1, le=65535)
+    postgres_database: str = "sein_zum_tode"
+    postgres_user: str = "sein_zum_tode"
+    postgres_password: SecretStr
+    postgres_ssl: bool = False
+    postgres_pgbouncer: bool = False
+    yandex_ai_studio_api_key: SecretStr | None = None
+    yandex_ai_studio_folder_id: str | None = None

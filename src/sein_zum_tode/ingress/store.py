@@ -1,15 +1,15 @@
 from aiogram.types import Update
-from redis.exceptions import RedisError
 
+from sein_zum_tode.infrastructure.redis import RedisClient, RedisClientError
 from sein_zum_tode.ingress.errors import UpdateStoreError
 from sein_zum_tode.ingress.models import StoredUpdate
-from sein_zum_tode.ingress.ports import KeyValueClient, UpdateUserResolver
+from sein_zum_tode.ingress.ports import UpdateUserResolver
 
 
 class RedisUpdateStore:
     def __init__(
         self,
-        redis: KeyValueClient,
+        redis: RedisClient,
         user_resolver: UpdateUserResolver,
         bot_id: int,
         ttl_seconds: int,
@@ -25,11 +25,9 @@ class RedisUpdateStore:
         key = f"{self._key_prefix}:{self._bot_id}:{update.update_id}"
         payload = update.model_dump_json(by_alias=True, exclude_none=True)
         try:
-            stored = await self._redis.set(key, payload, ex=self._ttl_seconds)
-        except RedisError as error:
+            await self._redis.set(key, payload, self._ttl_seconds)
+        except RedisClientError as error:
             raise UpdateStoreError(f"Failed to store Telegram update {update.update_id}") from error
-        if not stored:
-            raise UpdateStoreError(f"Redis did not store Telegram update {update.update_id}")
         return StoredUpdate(
             update_id=update.update_id,
             key=key,

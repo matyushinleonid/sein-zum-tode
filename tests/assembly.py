@@ -1,15 +1,16 @@
 import asyncio
+from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from pydantic import SecretStr
 
-from sein_zum_tode.config import Settings
+from sein_zum_tode.config import Settings, WorkerSettings
 
 
-def explicit_settings() -> Settings:
-    return Settings.model_construct(
+def explicit_settings() -> WorkerSettings:
+    return WorkerSettings.model_construct(
         app_name="telegram-cosmos-1811",
         log_level="WARNING",
         log_format="json",
@@ -30,6 +31,13 @@ def explicit_settings() -> Settings:
         redis_port=1861,
         redis_database=13,
         redis_password=SecretStr("redis-irregular-1867"),
+        postgres_host="postgres-orbit.internal",
+        postgres_port=1871,
+        postgres_database="mortals_1873",
+        postgres_user="mortal_1877",
+        postgres_password=SecretStr("postgres-irregular-1879"),
+        postgres_ssl=True,
+        postgres_pgbouncer=True,
     )
 
 
@@ -54,6 +62,14 @@ class RedisResource:
 
     async def aclose(self) -> None:
         self.events.append(("redis.close",))
+
+
+class PostgresResource:
+    def __init__(self, events: list[tuple[object, ...]]) -> None:
+        self.events = events
+
+    async def close(self) -> None:
+        self.events.append(("postgres.close",))
 
 
 class PollerResource:
@@ -93,7 +109,7 @@ class IngressAssembly:
         monkeypatch.setattr(module, "Redis", self.create_redis)
         monkeypatch.setattr(module, "Client", SimpleNamespace(connect=self.connect_temporal))
         monkeypatch.setattr(module, "AiogramUpdateSource", self.create_source)
-        monkeypatch.setattr(module, "RedisKeyValueClient", self.create_redis_client)
+        monkeypatch.setattr(module, "RedisClient", self.create_redis_client)
         monkeypatch.setattr(module, "AiogramUpdateUserResolver", self.create_resolver)
         monkeypatch.setattr(module, "RedisUpdateStore", self.create_store)
         monkeypatch.setattr(module, "TemporalUserWorkflowStarter", self.create_starter)
@@ -195,29 +211,69 @@ class ContentLoaderResource:
         return self.content
 
 
+class PredictionConfigLoaderResource:
+    def __init__(self, events: list[tuple[object, ...]], config: object) -> None:
+        self.events = events
+        self.config = config
+
+    def load(self) -> object:
+        self.events.append(("prediction_config.load",))
+        return self.config
+
+
 class WorkerAssembly:
     def __init__(self) -> None:
         self.events: list[tuple[object, ...]] = []
         self.bot = BotResource(self.events)
         self.redis = RedisResource(self.events)
+        self.redis_client = object()
+        self.postgres = PostgresResource(self.events)
         self.temporal = object()
         self.payloads = object()
         self.conversations = object()
+        self.predictions = object()
+        self.mortals = object()
+        self.schedules = object()
         self.sender = object()
         self.content = ContentResource()
+        self.prediction_config = SimpleNamespace(
+            provider="mock",
+            mock=object(),
+            yandex=object(),
+        )
+        self.predictor = object()
 
     def install(self, monkeypatch: Any, module: Any) -> None:
         monkeypatch.setattr(module, "Bot", self.create_bot)
         monkeypatch.setattr(module, "Redis", self.create_redis)
+        monkeypatch.setattr(module, "RedisClient", self.create_redis_client)
+        monkeypatch.setattr(
+            module,
+            "PostgresClient",
+            SimpleNamespace(create=self.create_postgres),
+        )
         monkeypatch.setattr(module, "Client", SimpleNamespace(connect=self.connect_temporal))
         monkeypatch.setattr(module, "YamlBotContentLoader", self.create_content_loader)
+        monkeypatch.setattr(
+            module,
+            "YamlDeathPredictionConfigLoader",
+            self.create_prediction_config_loader,
+        )
         monkeypatch.setattr(module, "RedisTelegramPayloadRepository", self.create_payloads)
         monkeypatch.setattr(
             module,
             "RedisConversationStateRepository",
             self.create_conversations,
         )
+        monkeypatch.setattr(
+            module,
+            "RedisDeathPredictionRepository",
+            self.create_predictions,
+        )
+        monkeypatch.setattr(module, "PostgresMortalRepository", self.create_mortals)
+        monkeypatch.setattr(module, "TemporalMortalSchedule", self.create_schedules)
         monkeypatch.setattr(module, "AiogramTelegramMessageSender", self.create_sender)
+        monkeypatch.setattr(module, "MockDeathPredictor", self.create_predictor)
         monkeypatch.setattr(module, "InspectTelegramUpdateActivity", self.create_inspect)
         monkeypatch.setattr(module, "PrepareTelegramResponseActivities", self.create_prepare)
         monkeypatch.setattr(
@@ -232,6 +288,32 @@ class WorkerAssembly:
         )
         monkeypatch.setattr(module, "DeliverTelegramResponseActivity", self.create_delivery)
         monkeypatch.setattr(module, "CleanupTelegramPayloadsActivity", self.create_cleanup)
+        monkeypatch.setattr(module, "MortalActivities", self.create_mortal_activities)
+        monkeypatch.setattr(
+            module,
+            "PrepareMortalNotificationActivity",
+            self.create_prepare_notification,
+        )
+        monkeypatch.setattr(
+            module,
+            "ConfigureMortalNotificationsActivity",
+            self.create_configure_notifications,
+        )
+        monkeypatch.setattr(
+            module,
+            "GenerateDeathPredictionActivity",
+            self.create_generate_prediction,
+        )
+        monkeypatch.setattr(
+            module,
+            "ApplyDeathPredictionActivity",
+            self.create_apply_prediction,
+        )
+        monkeypatch.setattr(
+            module,
+            "PreparePredictionFailureActivity",
+            self.create_prediction_failure,
+        )
         monkeypatch.setattr(module, "Worker", self.create_worker)
         monkeypatch.setattr(module, "install_signal_handlers", self.install_signals)
 
@@ -243,6 +325,14 @@ class WorkerAssembly:
         self.events.append(("redis", options))
         return self.redis
 
+    def create_redis_client(self, redis: object) -> object:
+        self.events.append(("redis_client", redis is self.redis))
+        return self.redis_client
+
+    def create_postgres(self, **options: object) -> PostgresResource:
+        self.events.append(("postgres", options))
+        return self.postgres
+
     async def connect_temporal(self, address: str, **options: object) -> object:
         self.events.append(("temporal", address, options))
         return self.temporal
@@ -251,17 +341,54 @@ class WorkerAssembly:
         self.events.append(("content_loader", path))
         return ContentLoaderResource(self.events, self.content)
 
+    def create_prediction_config_loader(
+        self,
+        path: Path,
+    ) -> PredictionConfigLoaderResource:
+        self.events.append(("prediction_config_loader", path))
+        return PredictionConfigLoaderResource(self.events, self.prediction_config)
+
     def create_payloads(self, redis: object) -> object:
-        self.events.append(("payloads", redis is self.redis))
+        self.events.append(("payloads", redis is self.redis_client))
         return self.payloads
 
     def create_conversations(self, redis: object) -> object:
-        self.events.append(("conversations", redis is self.redis))
+        self.events.append(("conversations", redis is self.redis_client))
         return self.conversations
+
+    def create_predictions(self, redis: object) -> object:
+        self.events.append(("predictions", redis is self.redis_client))
+        return self.predictions
+
+    def create_mortals(self, postgres: object) -> object:
+        self.events.append(("mortals", postgres is self.postgres))
+        return self.mortals
+
+    def create_schedules(self, **options: object) -> object:
+        self.events.append(
+            (
+                "schedules",
+                options["client"] is self.temporal,
+                options["bot_id"],
+                options["task_queue"],
+                options["activity_retry_timeout_seconds"],
+            )
+        )
+        return self.schedules
 
     def create_sender(self, bot: object) -> object:
         self.events.append(("sender", bot is self.bot))
         return self.sender
+
+    def create_predictor(self, **options: object) -> object:
+        self.events.append(
+            (
+                "predictor",
+                options["config"] is self.prediction_config.mock,
+                options["content"] is self.content,
+            )
+        )
+        return self.predictor
 
     def create_inspect(self, payloads: object) -> ActivityDefinitions:
         self.events.append(("inspect", payloads is self.payloads))
@@ -272,13 +399,17 @@ class WorkerAssembly:
             (
                 "prepare",
                 options["ttl_seconds"],
-                options["help_text"],
+                options["content"] is self.content,
+                options["mortals"] is self.mortals,
             )
         )
         return ActivityDefinitions(
             (
                 "prepare_echo",
                 "prepare_help",
+                "prepare_about",
+                "prepare_notifications",
+                "prepare_limit_exhausted",
                 "prepare_unsupported",
                 "prepare_group_unsupported",
             )
@@ -289,6 +420,7 @@ class WorkerAssembly:
             (
                 "start_conversation",
                 options["content"] is self.content,
+                options["mortals"] is self.mortals,
                 options["conversations"] is self.conversations,
                 options["responses"] is self.payloads,
                 options["conversation_ttl_seconds"],
@@ -326,14 +458,61 @@ class WorkerAssembly:
         self.events.append(("cleanup", options["cleaner"] is self.payloads))
         return ActivityDefinitions(("cleanup",))
 
-    def create_worker(self, client: object, **options: object) -> WorkerResource:
+    def create_mortal_activities(self, **options: object) -> ActivityDefinitions:
+        self.events.append(
+            (
+                "mortal_activities",
+                options["mortals"] is self.mortals,
+                options["schedules"] is self.schedules,
+            )
+        )
+        return ActivityDefinitions(
+            ("ensure", "reset", "has_quota", "deactivate", "delete_schedule")
+        )
+
+    def create_prepare_notification(self, **options: object) -> ActivityDefinitions:
+        self.events.append(
+            (
+                "prepare_notification",
+                options["mortals"] is self.mortals,
+                options["responses"] is self.payloads,
+                options["content"] is self.content,
+                options["response_ttl_seconds"],
+            )
+        )
+        return ActivityDefinitions(("prepare",))
+
+    def create_configure_notifications(self, **options: object) -> ActivityDefinitions:
+        self.events.append(("configure_notifications", tuple(options)))
+        return ActivityDefinitions(("configure",))
+
+    def create_generate_prediction(self, **options: object) -> ActivityDefinitions:
+        self.events.append(("generate_prediction", tuple(options)))
+        return ActivityDefinitions(("generate",))
+
+    def create_apply_prediction(self, **options: object) -> ActivityDefinitions:
+        self.events.append(("apply_prediction", tuple(options)))
+        return ActivityDefinitions(("apply",))
+
+    def create_prediction_failure(self, **options: object) -> ActivityDefinitions:
+        self.events.append(("prediction_failure", tuple(options)))
+        return ActivityDefinitions(("prepare",))
+
+    def create_worker(
+        self,
+        client: object,
+        *,
+        task_queue: str,
+        workflows: Sequence[type[object]],
+        activities: Sequence[object],
+    ) -> WorkerResource:
         self.events.append(
             (
                 "worker",
                 client is self.temporal,
-                options["task_queue"],
-                tuple(workflow.__name__ for workflow in options["workflows"]),
-                tuple(options["activities"]),
+                task_queue,
+                tuple(workflow.__name__ for workflow in workflows),
+                tuple(activities),
             )
         )
         return WorkerResource(self.events)
@@ -349,7 +528,8 @@ class EntrypointAssembly:
         self.events: list[tuple[object, ...]] = []
 
     def install(self, monkeypatch: Any, module: Any) -> None:
-        monkeypatch.setattr(module, "Settings", self.create_settings)
+        settings_name = "WorkerSettings" if hasattr(module, "WorkerSettings") else "Settings"
+        monkeypatch.setattr(module, settings_name, self.create_settings)
         monkeypatch.setattr(module, "configure_logging", self.configure_logging)
         monkeypatch.setattr(module, "run", self.run)
 

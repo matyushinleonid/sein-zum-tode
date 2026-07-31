@@ -16,3 +16,7 @@ class TelegramDeliveryError(Exception):
 
 class PermanentTelegramDeliveryError(TelegramDeliveryError):
     pass
+
+
+class TelegramRecipientUnavailableError(PermanentTelegramDeliveryError):
+    pass

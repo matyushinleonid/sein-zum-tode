@@ -5,9 +5,9 @@ from redis.asyncio import Redis
 from temporalio.client import Client
 
 from sein_zum_tode.config import Settings
+from sein_zum_tode.infrastructure.redis import RedisClient
 from sein_zum_tode.ingress.handoff import TemporalUpdateHandoff
 from sein_zum_tode.ingress.poller import ExponentialRetryWaiter, TelegramPoller
-from sein_zum_tode.ingress.redis import RedisKeyValueClient
 from sein_zum_tode.ingress.routing import AiogramUpdateUserResolver
 from sein_zum_tode.ingress.source import AiogramUpdateSource
 from sein_zum_tode.ingress.store import RedisUpdateStore
@@ -20,12 +20,13 @@ async def run(settings: Settings) -> None:
     stop_event = asyncio.Event()
     install_signal_handlers(stop_event)
     bot = Bot(token=settings.telegram_bot_token.get_secret_value())
-    redis = Redis(
+    redis_connection = Redis(
         host=settings.redis_host,
         port=settings.redis_port,
         db=settings.redis_database,
         password=settings.redis_password.get_secret_value(),
     )
+    redis = RedisClient(redis_connection)
     temporal = await Client.connect(
         settings.temporal_address,
         namespace=settings.temporal_namespace,
@@ -37,7 +38,7 @@ async def run(settings: Settings) -> None:
         request_timeout_seconds=settings.telegram_request_timeout_seconds,
     )
     store = RedisUpdateStore(
-        redis=RedisKeyValueClient(redis),
+        redis=redis,
         user_resolver=AiogramUpdateUserResolver(),
         bot_id=bot.id,
         ttl_seconds=settings.telegram_update_ttl_seconds,
@@ -62,7 +63,7 @@ async def run(settings: Settings) -> None:
         await poller.run(stop_event)
     finally:
         await bot.session.close()
-        await redis.aclose()
+        await redis_connection.aclose()
 
 
 def main() -> None:
