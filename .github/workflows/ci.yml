@@ -29,7 +29,7 @@ jobs:
         run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
 
       - name: Run all checks
-        run: make check PYTHON=python VERBOSE=1
+        run: make check PYTHON=python VERBOSE=1 USE_WORKERS=0
 
   publish-image:
     name: Build and push image
