@@ -629,8 +629,12 @@ async def test_handles_exhausted_or_unavailable_quota_before_begin(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
     update_key = "redis:begin-quota:1758"
+    stop_key = "redis:stop-after-begin-quota:1759"
     transcript = ActivityTranscript(
-        inspections={update_key: InspectionKind.BEGIN},
+        inspections={
+            update_key: InspectionKind.BEGIN,
+            stop_key: InspectionKind.MORTAL_BLOCKED,
+        },
         failing_inspection=None,
         failing_cleanup=False,
         quota_outcomes=[quota_outcome],
@@ -640,10 +644,16 @@ async def test_handles_exhausted_or_unavailable_quota_before_begin(
         activities=transcript.definitions(),
         conversation_workflow=DelayedFailingTelegramConversationWorkflow,
     ) as story:
-        await story.start(update_key, continue_after=None)
+        handle = await story.start(update_key, continue_after=None)
         await transcript.wait_for("cleanup", 1)
+        operations = [event[0] for event in transcript.events]
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=stop_key),
+        )
+        await handle.result()
 
-    assert [event[0] for event in transcript.events] == expected_operations
+    assert operations == expected_operations
 
 
 @pytest.mark.parametrize(
