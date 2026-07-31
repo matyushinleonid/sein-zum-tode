@@ -676,10 +676,12 @@ async def test_does_not_restart_an_active_conversation_without_available_quota(
 ) -> None:
     first_key = "redis:begin-active-quota:first"
     second_key = "redis:begin-active-quota:second"
+    stop_key = "redis:stop-after-active-quota:second"
     transcript = ActivityTranscript(
         inspections={
             first_key: InspectionKind.BEGIN,
             second_key: InspectionKind.BEGIN,
+            stop_key: InspectionKind.MORTAL_BLOCKED,
         },
         failing_inspection=None,
         failing_cleanup=False,
@@ -698,8 +700,14 @@ async def test_does_not_restart_an_active_conversation_without_available_quota(
                 TelegramUpdateSignal(redis_key=second_key),
             )
             await transcript.wait_for("cleanup", 2)
+            operations = [event[0] for event in transcript.events]
+            await handle.signal(
+                TELEGRAM_UPDATE_SIGNAL_NAME,
+                TelegramUpdateSignal(redis_key=stop_key),
+            )
+            await handle.result()
 
-    assert [event[0] for event in transcript.events] == expected_operations
+    assert operations == expected_operations
 
 
 async def test_keeps_processing_after_activity_and_cleanup_failures(
@@ -967,8 +975,12 @@ async def test_skips_processing_when_mortal_registration_fails(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
     update_key = "redis:registration-failure:1811"
+    stop_key = "redis:stop-after-registration-failure:1812"
     transcript = ActivityTranscript(
-        inspections={update_key: InspectionKind.ECHO},
+        inspections={
+            update_key: InspectionKind.ECHO,
+            stop_key: InspectionKind.MORTAL_BLOCKED,
+        },
         failing_inspection=None,
         failing_cleanup=False,
         failing_registration=True,
@@ -977,10 +989,16 @@ async def test_skips_processing_when_mortal_registration_fails(
         pool=workflow_worker_pool,
         activities=transcript.definitions(),
     ) as story:
-        await story.start(update_key, continue_after=None)
+        handle = await story.start(update_key, continue_after=None)
         await transcript.wait_for("cleanup", 1)
+        operations = [event[0] for event in transcript.events]
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=stop_key),
+        )
+        await handle.result()
 
-    assert [event[0] for event in transcript.events] == [
+    assert operations == [
         "inspect",
         "cleanup",
     ], "response pipeline ran without a successfully registered Mortal"
