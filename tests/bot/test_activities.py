@@ -24,6 +24,8 @@ from sein_zum_tode.bot.models import (
     PrepareResponseInput,
     TelegramResponse,
 )
+from sein_zum_tode.broadcasts.models import ScreamRequest
+from sein_zum_tode.mortals.models import Mortal
 from tests.support import (
     ActivityCase,
     BotContents,
@@ -35,8 +37,80 @@ from tests.support import (
 
 pytestmark = pytest.mark.fast
 HELP_TEXT = "Navigate by the constellations"
-UNSUPPORTED_RESPONSE_TEXT = "I cannot process this input."
+UNSUPPORTED_RESPONSE_TEXT = "Use /help to learn how to use the bot"
 GROUP_UNSUPPORTED_RESPONSE_TEXT = "Group chats are not supported."
+SCREAM_DENIED_TEXT = "You can't scream 🤷‍♂️"
+
+SCREAM_MEDIA: tuple[dict[str, object], ...] = (
+    {
+        "photo": [
+            {
+                "file_id": "photo-sphinx-1",
+                "file_unique_id": "photo-unique-sphinx-1",
+                "width": 317,
+                "height": 509,
+            }
+        ],
+        "caption": "Bright vixens",
+    },
+    {
+        "video": {
+            "file_id": "video-sphinx-2",
+            "file_unique_id": "video-unique-sphinx-2",
+            "width": 317,
+            "height": 509,
+            "duration": 3,
+        }
+    },
+    {
+        "animation": {
+            "file_id": "animation-sphinx-3",
+            "file_unique_id": "animation-unique-sphinx-3",
+            "width": 317,
+            "height": 509,
+            "duration": 5,
+        }
+    },
+    {
+        "audio": {
+            "file_id": "audio-sphinx-5",
+            "file_unique_id": "audio-unique-sphinx-5",
+            "duration": 7,
+        }
+    },
+    {
+        "document": {
+            "file_id": "document-sphinx-7",
+            "file_unique_id": "document-unique-sphinx-7",
+        }
+    },
+    {
+        "voice": {
+            "file_id": "voice-sphinx-11",
+            "file_unique_id": "voice-unique-sphinx-11",
+            "duration": 13,
+        }
+    },
+    {
+        "video_note": {
+            "file_id": "note-sphinx-13",
+            "file_unique_id": "note-unique-sphinx-13",
+            "length": 317,
+            "duration": 17,
+        }
+    },
+    {
+        "sticker": {
+            "file_id": "sticker-sphinx-17",
+            "file_unique_id": "sticker-unique-sphinx-17",
+            "type": "regular",
+            "width": 317,
+            "height": 509,
+            "is_animated": False,
+            "is_video": False,
+        }
+    },
+)
 
 
 def memory(update: object, response: object = None) -> TelegramMemory:
@@ -60,7 +134,7 @@ def memory(update: object, response: object = None) -> TelegramMemory:
                 text="Bawds jog, flick quartz",
                 chat_type="private",
             ),
-            expected_kind=InspectionKind.ECHO,
+            expected_kind=InspectionKind.TEXT,
             expected_chat_id=125_969,
         ),
         ActivityCase(
@@ -117,6 +191,28 @@ def memory(update: object, response: object = None) -> TelegramMemory:
             ),
             expected_kind=InspectionKind.BEGIN,
             expected_chat_id=127_987,
+        ),
+        ActivityCase(
+            update=TelegramUpdates.message(
+                update_id=1282,
+                user_id=128_283,
+                chat_id=128_287,
+                text="/unknown",
+                chat_type="private",
+            ),
+            expected_kind=InspectionKind.UNSUPPORTED,
+            expected_chat_id=128_287,
+        ),
+        ActivityCase(
+            update=TelegramUpdates.message(
+                update_id=1284,
+                user_id=128_489,
+                chat_id=128_491,
+                text="/help@mortality_bot",
+                chat_type="private",
+            ),
+            expected_kind=InspectionKind.UNSUPPORTED,
+            expected_chat_id=128_491,
         ),
         ActivityCase(
             update=TelegramUpdates.message(
@@ -246,6 +342,110 @@ async def test_classifies_each_supported_update_story(case: ActivityCase) -> Non
     ), "inspection selected the wrong response strategy or Telegram chat"
 
 
+@pytest.mark.parametrize("replied_content", ({"text": "Pack my red box"}, *SCREAM_MEDIA))
+async def test_accepts_each_copyable_scream_message(replied_content: dict[str, object]) -> None:
+    update = TelegramUpdates.reply_command(
+        update_id=1329,
+        user_id=162573173,
+        text="/scream ru",
+        replied_content=replied_content,
+    )
+    subject = InspectTelegramUpdateActivity(
+        update_reader=memory(update).update_documents,
+        admin_user_ids=frozenset({162573173}),
+        logger=SilentLogger(),
+    )
+
+    actual = await subject.inspect(
+        InspectUpdateInput(update_key="telegram:scream:1329", user_id=162573173)
+    )
+
+    assert actual == InspectedUpdate(
+        kind=InspectionKind.SCREAM,
+        update_key="telegram:scream:1329",
+        chat_id=162573173,
+        scream_request=ScreamRequest(
+            locale="ru",
+            source_chat_id=162573173,
+            source_message_id=1838,
+        ),
+    ), "an admin reply lost its target locale or Telegram copy source"
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        TelegramUpdates.reply_command(
+            update_id=1363,
+            user_id=162573173,
+            text="/scream",
+            replied_content={"text": "Missing locale"},
+        ),
+        TelegramUpdates.reply_command(
+            update_id=1365,
+            user_id=162573173,
+            text="/scream de",
+            replied_content={"text": "Unknown locale"},
+        ),
+        TelegramUpdates.reply_command(
+            update_id=1369,
+            user_id=162573173,
+            text="/scream en",
+            replied_content=None,
+        ),
+        TelegramUpdates.reply_command(
+            update_id=1371,
+            user_id=162573173,
+            text="/scream en",
+            replied_content={"text": "Album member"},
+            media_group_id="album-sphinx-1371",
+        ),
+        TelegramUpdates.reply_command(
+            update_id=1375,
+            user_id=162573173,
+            text="/scream en",
+            replied_content={"location": {"latitude": 47.1, "longitude": 39.7}},
+        ),
+    ],
+)
+async def test_rejects_a_malformed_or_unsupported_admin_scream(update: Update) -> None:
+    subject = InspectTelegramUpdateActivity(
+        update_reader=memory(update).update_documents,
+        admin_user_ids=frozenset({162573173}),
+        logger=SilentLogger(),
+    )
+
+    actual = await subject.inspect(
+        InspectUpdateInput(update_key="telegram:scream:unsupported", user_id=162573173)
+    )
+
+    assert actual.kind == InspectionKind.SCREAM_UNSUPPORTED, (
+        "an invalid locale, absent reply, album, or unsupported message started a scream"
+    )
+
+
+async def test_denies_a_non_admin_before_validating_the_scream_shape() -> None:
+    update = TelegramUpdates.reply_command(
+        update_id=1377,
+        user_id=137_779,
+        text="/scream unknown",
+        replied_content=None,
+    )
+    subject = InspectTelegramUpdateActivity(
+        update_reader=memory(update).update_documents,
+        admin_user_ids=frozenset({162573173}),
+        logger=SilentLogger(),
+    )
+
+    actual = await subject.inspect(
+        InspectUpdateInput(update_key="telegram:scream:denied", user_id=137_779)
+    )
+
+    assert actual.kind == InspectionKind.SCREAM_DENIED, (
+        "a non-admin learned scream validation details or bypassed authorization"
+    )
+
+
 @pytest.mark.parametrize(
     "update_outcome",
     [
@@ -273,66 +473,6 @@ async def test_falls_back_to_the_user_when_update_cannot_be_inspected(
 
 
 @pytest.mark.parametrize(
-    ("update_outcome", "expected_text"),
-    [
-        (
-            TelegramUpdates.message(
-                update_id=1373,
-                user_id=137_377,
-                chat_id=137_383,
-                text="Sympathizing would fix Quaker objectives",
-                chat_type="private",
-            ),
-            "Sympathizing would fix Quaker objectives",
-        ),
-        (None, UNSUPPORTED_RESPONSE_TEXT),
-        (
-            TelegramUpdates.message(
-                update_id=1381,
-                user_id=138_191,
-                chat_id=138_197,
-                text=None,
-                chat_type="private",
-            ),
-            UNSUPPORTED_RESPONSE_TEXT,
-        ),
-        (InvalidStoredPayloadError("fractured payload 1399"), UNSUPPORTED_RESPONSE_TEXT),
-    ],
-)
-async def test_prepares_echo_or_safe_fallback(
-    update_outcome: object,
-    expected_text: str,
-) -> None:
-    payloads = memory(update_outcome)
-    subject = PrepareTelegramResponseActivities(
-        update_reader=payloads.update_documents,
-        response_store=payloads.response_documents,
-        ttl_seconds=1409,
-        content=BotContents.debug(),
-        mortals=MortalMemory(),
-        logger=SilentLogger(),
-    )
-    input = PrepareResponseInput(
-        update_key="telegram:echo:1423",
-        response_key="telegram:response:1427",
-        chat_id=142_751,
-        user_id=142_757,
-    )
-
-    await subject.prepare_echo(input)
-
-    assert payloads.events == [
-        ("load_update", "telegram:echo:1423"),
-        (
-            "store_response",
-            "telegram:response:1427",
-            TelegramResponse(chat_id=142_751, text=expected_text),
-            1409,
-        ),
-    ], "echo preparation stored the wrong response or Redis TTL"
-
-
-@pytest.mark.parametrize(
     ("prepare", "expected_text"),
     [
         (
@@ -346,6 +486,10 @@ async def test_prepares_echo_or_safe_fallback(
         (
             lambda subject, input: subject.prepare_group_unsupported(input),
             GROUP_UNSUPPORTED_RESPONSE_TEXT,
+        ),
+        (
+            lambda subject, input: subject.prepare_scream_denied(input),
+            SCREAM_DENIED_TEXT,
         ),
         (
             lambda subject, input: subject.prepare_limit_exhausted(input),
@@ -362,7 +506,6 @@ async def test_prepares_each_static_response(
 ) -> None:
     payloads = memory(None)
     subject = PrepareTelegramResponseActivities(
-        update_reader=payloads.update_documents,
         response_store=payloads.response_documents,
         ttl_seconds=1433,
         content=BotContents.debug(),
@@ -388,10 +531,32 @@ async def test_prepares_each_static_response(
     ], "static response activity stored an unexpected Telegram message"
 
 
+async def test_localizes_scream_denial_for_a_russian_mortal() -> None:
+    payloads = memory(None)
+    subject = PrepareTelegramResponseActivities(
+        response_store=payloads.response_documents,
+        ttl_seconds=1441,
+        content=BotContents.debug(),
+        mortals=MortalMemory({144_149: Mortal(id=144_149, locale="ru")}),
+        logger=SilentLogger(),
+    )
+    input = PrepareResponseInput(
+        update_key="telegram:scream-denied:1441",
+        response_key="telegram:scream-denied:1441:response",
+        chat_id=144_149,
+        user_id=144_149,
+    )
+
+    await subject.prepare_scream_denied(input)
+
+    assert payloads.responses[input.response_key].text == "Ты не можешь кричать 🤷‍♂️", (
+        "Russian Mortal received the English admin-only denial"
+    )
+
+
 async def test_prepares_html_about_and_callback_keyboards() -> None:
     payloads = memory(None)
     subject = PrepareTelegramResponseActivities(
-        update_reader=payloads.update_documents,
         response_store=payloads.response_documents,
         ttl_seconds=1451,
         content=BotContents.debug(),

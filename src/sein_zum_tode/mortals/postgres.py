@@ -130,6 +130,28 @@ class PostgresMortalRepository:
         except PostgresClientError as error:
             raise MortalRepositoryError(f"Failed to load Mortal {mortal_id}") from error
 
+    async def list_ids(
+        self,
+        *,
+        locale: str,
+        after_mortal_id: int | None,
+        limit: int,
+    ) -> tuple[int, ...]:
+        statement = (
+            select(mortal_id_column)
+            .where(
+                mortal_locale_column == locale,
+                mortal_id_column > (after_mortal_id or 0),
+            )
+            .order_by(mortal_id_column)
+            .limit(limit)
+        )
+        try:
+            rows = await self._postgres.fetch_all(statement)
+        except PostgresClientError as error:
+            raise MortalRepositoryError(f"Failed to list Mortals for locale {locale}") from error
+        return tuple(int(row["id"]) for row in rows)
+
     async def reset(self, mortal_id: int) -> Mortal:
         defaults = {
             "locale": None,

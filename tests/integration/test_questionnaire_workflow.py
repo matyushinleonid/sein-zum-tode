@@ -378,7 +378,6 @@ class QuestionnaireWorkflowStory:
             logger=SilentLogger(),
         )
         prepare = PrepareTelegramResponseActivities(
-            update_reader=memory.update_documents,
             response_store=memory.response_documents,
             ttl_seconds=211,
             content=content,
@@ -444,7 +443,6 @@ class QuestionnaireWorkflowStory:
             workflows=[TelegramUserWorkflow, TelegramQuestionnaireWorkflow],
             activities=[
                 inspect.inspect,
-                prepare.prepare_echo,
                 prepare.prepare_help,
                 prepare.prepare_unsupported,
                 prepare.prepare_group_unsupported,
@@ -517,7 +515,7 @@ async def test_runs_the_complete_private_questionnaire_without_persisting_answer
     begin_key = "telegram:update:begin:2411"
     first_answer_key = "telegram:update:answer:2417"
     second_answer_key = "telegram:update:answer:2423"
-    echo_key = "telegram:update:echo:2437"
+    text_key = "telegram:update:text:2437"
     first_secret = "Sensitive first answer 2417"
     second_secret = "Sensitive second answer 2423"
     memory = QuestionnaireMemory(
@@ -525,7 +523,7 @@ async def test_runs_the_complete_private_questionnaire_without_persisting_answer
             begin_key: private_message(update_id=2411, text="/begin"),
             first_answer_key: private_message(update_id=2417, text=first_secret),
             second_answer_key: private_message(update_id=2423, text=second_secret),
-            echo_key: private_message(update_id=2437, text="Echo after completion"),
+            text_key: private_message(update_id=2437, text="Text after completion"),
         }
     )
     async with await QuestionnaireWorkflowStory.open(
@@ -549,10 +547,10 @@ async def test_runs_the_complete_private_questionnaire_without_persisting_answer
             await memory.wait_until_absent(f"{begin_key}:questionnaire:privacy")
             await handle.signal(
                 TELEGRAM_UPDATE_SIGNAL_NAME,
-                TelegramUpdateSignal(redis_key=echo_key),
+                TelegramUpdateSignal(redis_key=text_key),
             )
             await memory.wait_for_messages(7)
-            await memory.wait_until_absent(f"{echo_key}:response")
+            await memory.wait_until_absent(f"{text_key}:response")
             child_id = f"{handle.id}:questionnaire:{begin_key}"
             parent_history = await handle.fetch_history()
             child_history = await story.environment.client.get_workflow_handle(
@@ -575,7 +573,7 @@ async def test_runs_the_complete_private_questionnaire_without_persisting_answer
                 f"Mock prediction: q1-{first_secret}, q2-{second_secret}",
             ),
             (241_109, "your answers were deleted from our system"),
-            (241_109, "Echo after completion"),
+            (241_109, "Use /help to learn how to use the bot"),
         ], "parent and child Workflows did not execute the configured questionnaire in order"
         assert (
             memory.questionnaires,
@@ -583,7 +581,7 @@ async def test_runs_the_complete_private_questionnaire_without_persisting_answer
             memory.predictions,
             first_answer_key in memory.updates,
             second_answer_key in memory.updates,
-            echo_key in memory.updates,
+            text_key in memory.updates,
             first_secret not in histories,
             second_secret not in histories,
         ) == (

@@ -17,6 +17,12 @@ from sein_zum_tode.bot.content import BotContent, YamlBotContentLoader
 from sein_zum_tode.bot.models import TelegramResponse
 from sein_zum_tode.bot.sender import AiogramTelegramMessageSender
 from sein_zum_tode.bot.workflow import TelegramUserWorkflow
+from sein_zum_tode.broadcasts.activities import (
+    DeliverScreamActivity,
+    ListScreamRecipientsActivity,
+    PrepareScreamReportActivity,
+)
+from sein_zum_tode.broadcasts.workflow import TelegramScreamWorkflow
 from sein_zum_tode.config import WorkerSettings
 from sein_zum_tode.infrastructure.postgres import PostgresClient
 from sein_zum_tode.infrastructure.redis import RedisClient
@@ -164,9 +170,11 @@ async def run(settings: WorkerSettings) -> None:
         activity_retry_timeout_seconds=settings.temporal_activity_retry_timeout_seconds,
     )
     sender = AiogramTelegramMessageSender(bot)
-    inspect = InspectTelegramUpdateActivity(update_documents)
-    prepare = PrepareTelegramResponseActivities(
+    inspect = InspectTelegramUpdateActivity(
         update_reader=update_documents,
+        admin_user_ids=settings.telegram_admin_user_ids,
+    )
+    prepare = PrepareTelegramResponseActivities(
         response_store=response_documents,
         ttl_seconds=settings.telegram_update_ttl_seconds,
         content=content,
@@ -198,6 +206,12 @@ async def run(settings: WorkerSettings) -> None:
         sender=sender,
     )
     cleanup = CleanupTelegramPayloadsActivity(cleaner=cleaner)
+    list_scream_recipients = ListScreamRecipientsActivity(mortals=mortals)
+    deliver_scream = DeliverScreamActivity(copier=sender)
+    prepare_scream_report = PrepareScreamReportActivity(
+        responses=response_documents,
+        ttl_seconds=settings.telegram_update_ttl_seconds,
+    )
     mortal_activities = MortalActivities(
         mortals=mortals,
         schedules=schedules,
@@ -250,10 +264,10 @@ async def run(settings: WorkerSettings) -> None:
             TelegramUserWorkflow,
             TelegramQuestionnaireWorkflow,
             MortalNotificationWorkflow,
+            TelegramScreamWorkflow,
         ],
         activities=[
             inspect.inspect,
-            prepare.prepare_echo,
             prepare.prepare_help,
             prepare.prepare_about,
             prepare.prepare_localization,
@@ -261,10 +275,14 @@ async def run(settings: WorkerSettings) -> None:
             prepare.prepare_limit_exhausted,
             prepare.prepare_unsupported,
             prepare.prepare_group_unsupported,
+            prepare.prepare_scream_denied,
             start_questionnaire.start,
             record_answer.record,
             deliver.deliver,
             cleanup.cleanup,
+            list_scream_recipients.list,
+            deliver_scream.deliver,
+            prepare_scream_report.prepare,
             mortal_activities.ensure,
             mortal_activities.reset,
             mortal_activities.has_quota,

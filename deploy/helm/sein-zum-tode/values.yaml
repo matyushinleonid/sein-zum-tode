@@ -38,6 +38,8 @@ application:
   retryMaxDelaySeconds: 30
   temporalActivityRetryTimeoutSeconds: 300
   telegramBotTokenSecretKey: TELEGRAM_BOT_TOKEN
+  telegramAdminUserIds:
+    - 162573173
 
 botContent:
   version: production-v2
@@ -46,8 +48,9 @@ botContent:
     en:
       help: Mock help response. Use /localization to change language.
       about: 'About this bot: <a href="https://github.com/matyushinleonid/sein-zum-tode">github</a>'
-      unsupported: I cannot process this input.
+      unsupported: Use /help to learn how to use the bot
       group_unsupported: Group chats are not supported. Please message me directly.
+      scream_denied: You can't scream 🤷‍♂️
       notification: "mock notification: {days_left}"
       localization:
         prompt: Choose your language / Выберите язык
@@ -77,8 +80,9 @@ botContent:
     ru:
       help: Тестовая справка. Используйте /localization, чтобы изменить язык.
       about: 'О боте: <a href="https://github.com/matyushinleonid/sein-zum-tode">github</a>'
-      unsupported: Не получается обработать это сообщение.
+      unsupported: Нажмите /help, чтобы узнать, как пользоваться ботом
       group_unsupported: Групповые чаты не поддерживаются. Напишите боту напрямую.
+      scream_denied: Ты не можешь кричать 🤷‍♂️
       notification: "Тестовое уведомление: осталось дней — {days_left}"
       localization:
         prompt: Выберите язык.

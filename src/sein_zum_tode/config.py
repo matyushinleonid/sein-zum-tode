@@ -53,6 +53,7 @@ class Settings(BaseSettings):
 
 
 class WorkerSettings(Settings):
+    telegram_admin_user_ids: frozenset[int] = frozenset({162573173})
     postgres_host: str = "localhost"
     postgres_port: int = Field(default=5432, ge=1, le=65535)
     postgres_database: str = "sein_zum_tode"

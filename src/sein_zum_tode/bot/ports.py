@@ -24,3 +24,11 @@ class TelegramSendingClient(Protocol):
     ) -> object: ...
 
     async def answer_callback_query(self, callback_query_id: str) -> object: ...
+
+    async def copy_message(
+        self,
+        *,
+        chat_id: int,
+        from_chat_id: int,
+        message_id: int,
+    ) -> object: ...

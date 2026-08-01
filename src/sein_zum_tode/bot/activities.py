@@ -1,7 +1,7 @@
 import logging
 
-from aiogram.enums import ChatMemberStatus, ChatType
-from aiogram.types import Chat, Update
+from aiogram.enums import ChatMemberStatus, ChatType, ContentType
+from aiogram.types import Chat, Message, Update
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -16,12 +16,12 @@ from sein_zum_tode.bot.models import (
     DELIVER_RESPONSE_ACTIVITY_NAME,
     INSPECT_UPDATE_ACTIVITY_NAME,
     PREPARE_ABOUT_ACTIVITY_NAME,
-    PREPARE_ECHO_ACTIVITY_NAME,
     PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
     PREPARE_HELP_ACTIVITY_NAME,
     PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
     PREPARE_LOCALIZATION_ACTIVITY_NAME,
     PREPARE_NOTIFICATIONS_ACTIVITY_NAME,
+    PREPARE_SCREAM_DENIED_ACTIVITY_NAME,
     PREPARE_UNSUPPORTED_ACTIVITY_NAME,
     CleanupPayloadsInput,
     DeliverResponseInput,
@@ -36,6 +36,7 @@ from sein_zum_tode.bot.ports import (
     EphemeralPayloadCleaner,
     TelegramMessageSender,
 )
+from sein_zum_tode.broadcasts.models import ScreamRequest
 from sein_zum_tode.localization.models import SupportedLocale
 from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.notifications.models import NotificationFrequency
@@ -48,8 +49,11 @@ class InspectTelegramUpdateActivity:
         self,
         update_reader: DocumentReader[Update],
         logger: logging.Logger | None = None,
+        *,
+        admin_user_ids: frozenset[int] = frozenset(),
     ) -> None:
         self._update_reader = update_reader
+        self._admin_user_ids = admin_user_ids
         self._logger = logger or logging.getLogger(__name__)
 
     @activity.defn(name=INSPECT_UPDATE_ACTIVITY_NAME)
@@ -130,6 +134,8 @@ class InspectTelegramUpdateActivity:
                 update_key=input.update_key,
                 chat_id=chat.id if chat is not None else input.user_id,
             )
+        if self._is_scream_command(message.text):
+            return self._scream(input, message)
         if message.text == "/begin":
             kind = InspectionKind.BEGIN
         elif message.text == "/help":
@@ -140,14 +146,76 @@ class InspectTelegramUpdateActivity:
             kind = InspectionKind.LOCALIZATION
         elif message.text == "/notifications":
             kind = InspectionKind.NOTIFICATIONS
+        elif message.text is not None and message.text.startswith("/"):
+            kind = InspectionKind.UNSUPPORTED
         elif message.text is not None:
-            kind = InspectionKind.ECHO
+            kind = InspectionKind.TEXT
         else:
             kind = InspectionKind.UNSUPPORTED
         return InspectedUpdate(
             kind=kind,
             update_key=input.update_key,
             chat_id=message.chat.id,
+        )
+
+    def _scream(self, input: InspectUpdateInput, message: Message) -> InspectedUpdate:
+        author = message.from_user
+        if author is None or author.id not in self._admin_user_ids:
+            return InspectedUpdate(
+                kind=InspectionKind.SCREAM_DENIED,
+                update_key=input.update_key,
+                chat_id=message.chat.id,
+            )
+        request = self._scream_request(message)
+        return InspectedUpdate(
+            kind=(
+                InspectionKind.SCREAM if request is not None else InspectionKind.SCREAM_UNSUPPORTED
+            ),
+            update_key=input.update_key,
+            chat_id=message.chat.id,
+            scream_request=request,
+        )
+
+    def _scream_request(self, message: Message) -> ScreamRequest | None:
+        parts = message.text.split() if message.text is not None else []
+        if len(parts) != 2:
+            return None
+        try:
+            locale = SupportedLocale(parts[1])
+        except ValueError:
+            return None
+        source = message.reply_to_message
+        if (
+            source is None
+            or source.media_group_id is not None
+            or source.content_type not in self._scream_content_types()
+        ):
+            return None
+        return ScreamRequest(
+            locale=locale.value,
+            source_chat_id=source.chat.id,
+            source_message_id=source.message_id,
+        )
+
+    def _is_scream_command(self, text: str | None) -> bool:
+        if text is None:
+            return False
+        command = text.split(maxsplit=1)[0]
+        return command == "/scream"
+
+    def _scream_content_types(self) -> frozenset[ContentType]:
+        return frozenset(
+            {
+                ContentType.TEXT,
+                ContentType.PHOTO,
+                ContentType.VIDEO,
+                ContentType.ANIMATION,
+                ContentType.AUDIO,
+                ContentType.DOCUMENT,
+                ContentType.VOICE,
+                ContentType.VIDEO_NOTE,
+                ContentType.STICKER,
+            }
         )
 
     def _unsupported(self, input: InspectUpdateInput) -> InspectedUpdate:
@@ -173,32 +241,17 @@ class InspectTelegramUpdateActivity:
 class PrepareTelegramResponseActivities:
     def __init__(
         self,
-        update_reader: DocumentReader[Update],
         response_store: DocumentWriter[TelegramResponse],
         ttl_seconds: int,
         content: BotContent,
         mortals: MortalRepository,
         logger: logging.Logger | None = None,
     ) -> None:
-        self._update_reader = update_reader
         self._response_store = response_store
         self._ttl_seconds = ttl_seconds
         self._content = content
         self._mortals = mortals
         self._logger = logger or logging.getLogger(__name__)
-
-    @activity.defn(name=PREPARE_ECHO_ACTIVITY_NAME)
-    async def prepare_echo(self, input: PrepareResponseInput) -> None:
-        localized = await self._localized(input.user_id)
-        text = localized.unsupported
-        try:
-            update = await self._update_reader.load(input.update_key)
-        except InvalidStoredPayloadError:
-            update = None
-        if update is not None and update.message is not None and update.message.text is not None:
-            text = update.message.text
-        await self._store(input, text)
-        self._log_prepared(input, InspectionKind.ECHO)
 
     @activity.defn(name=PREPARE_HELP_ACTIVITY_NAME)
     async def prepare_help(self, input: PrepareResponseInput) -> None:
@@ -277,6 +330,14 @@ class PrepareTelegramResponseActivities:
             input,
             InspectionKind.GROUP_UNSUPPORTED,
             "group_unsupported",
+        )
+
+    @activity.defn(name=PREPARE_SCREAM_DENIED_ACTIVITY_NAME)
+    async def prepare_scream_denied(self, input: PrepareResponseInput) -> None:
+        await self._prepare_localized(
+            input,
+            InspectionKind.SCREAM_DENIED,
+            "scream_denied",
         )
 
     async def _prepare_localized(

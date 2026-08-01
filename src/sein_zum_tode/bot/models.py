@@ -3,10 +3,11 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
+from sein_zum_tode.broadcasts.models import ScreamRequest
+
 TELEGRAM_USER_WORKFLOW_NAME = "TelegramUserWorkflow"
 TELEGRAM_UPDATE_SIGNAL_NAME = "accept_update"
 INSPECT_UPDATE_ACTIVITY_NAME = "inspect_telegram_update"
-PREPARE_ECHO_ACTIVITY_NAME = "prepare_echo_response"
 PREPARE_HELP_ACTIVITY_NAME = "prepare_help_response"
 PREPARE_ABOUT_ACTIVITY_NAME = "prepare_about_response"
 PREPARE_LOCALIZATION_ACTIVITY_NAME = "prepare_localization_response"
@@ -14,12 +15,13 @@ PREPARE_NOTIFICATIONS_ACTIVITY_NAME = "prepare_notifications_response"
 PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME = "prepare_limit_exhausted_response"
 PREPARE_UNSUPPORTED_ACTIVITY_NAME = "prepare_unsupported_response"
 PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME = "prepare_group_unsupported_response"
+PREPARE_SCREAM_DENIED_ACTIVITY_NAME = "prepare_scream_denied_response"
 DELIVER_RESPONSE_ACTIVITY_NAME = "deliver_telegram_response"
 CLEANUP_PAYLOADS_ACTIVITY_NAME = "cleanup_telegram_payloads"
 
 
 class InspectionKind(StrEnum):
-    ECHO = "echo"
+    TEXT = "text"
     HELP = "help"
     ABOUT = "about"
     LOCALIZATION = "localization"
@@ -27,6 +29,9 @@ class InspectionKind(StrEnum):
     NOTIFICATIONS = "notifications"
     NOTIFICATION_SELECTION = "notification_selection"
     BEGIN = "begin"
+    SCREAM = "scream"
+    SCREAM_DENIED = "scream_denied"
+    SCREAM_UNSUPPORTED = "scream_unsupported"
     UNSUPPORTED = "unsupported"
     GROUP_UNSUPPORTED = "group_unsupported"
     LIMIT_EXHAUSTED = "limit_exhausted"
@@ -61,6 +66,7 @@ class InspectedUpdate:
     update_key: str
     chat_id: int
     callback_query_id: str | None = None
+    scream_request: ScreamRequest | None = None
 
     def response_key(self) -> str:
         return f"{self.update_key}:response"

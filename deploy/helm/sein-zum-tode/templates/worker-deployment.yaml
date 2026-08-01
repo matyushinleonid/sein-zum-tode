@@ -51,6 +51,8 @@ spec:
               value: {{ .Values.application.logFormat | quote }}
             - name: TELEGRAM_UPDATE_TTL_SECONDS
               value: {{ .Values.application.telegramUpdateTtlSeconds | quote }}
+            - name: TELEGRAM_ADMIN_USER_IDS
+              value: {{ .Values.application.telegramAdminUserIds | toJson | quote }}
             - name: QUESTIONNAIRE_TTL_SECONDS
               value: {{ .Values.application.questionnaireTtlSeconds | quote }}
             - name: BOT_CONTENT_PATH

@@ -55,8 +55,9 @@ class BotContents:
                         'About: <a href="https://github.com/matyushinleonid/'
                         'sein-zum-tode">github</a>'
                     ),
-                    unsupported="I cannot process this input.",
+                    unsupported="Use /help to learn how to use the bot",
                     group_unsupported="Group chats are not supported.",
+                    scream_denied="You can't scream 🤷‍♂️",
                     notification="mock notification: {days_left}",
                     localization=LocalizationContent(
                         prompt="Choose your language / Выберите язык",
@@ -93,8 +94,9 @@ class BotContents:
                         'О боте: <a href="https://github.com/matyushinleonid/'
                         'sein-zum-tode">github</a>'
                     ),
-                    unsupported="Не получается обработать это сообщение.",
+                    unsupported="Нажмите /help, чтобы узнать, как пользоваться ботом",
                     group_unsupported="Групповые чаты не поддерживаются.",
+                    scream_denied="Ты не можешь кричать 🤷‍♂️",
                     notification="Осталось дней: {days_left}",
                     localization=LocalizationContent(
                         prompt="Выберите язык.",
@@ -160,6 +162,44 @@ class TelegramUpdates:
             }
         else:
             message["text"] = text
+        return Update.model_validate({"update_id": update_id, "message": message})
+
+    @staticmethod
+    def reply_command(
+        *,
+        update_id: int,
+        user_id: int,
+        text: str,
+        replied_content: dict[str, object] | None,
+        media_group_id: str | None = None,
+    ) -> Update:
+        chat = {"id": user_id, "type": "private", "first_name": "Hypatia"}
+        message: dict[str, object] = {
+            "message_id": update_id + 701,
+            "date": 1_754_321_987,
+            "chat": chat,
+            "from": {
+                "id": user_id,
+                "is_bot": False,
+                "first_name": "Hypatia",
+            },
+            "text": text,
+        }
+        if replied_content is not None:
+            replied: dict[str, object] = {
+                "message_id": update_id + 509,
+                "date": 1_754_321_901,
+                "chat": chat,
+                "from": {
+                    "id": user_id,
+                    "is_bot": False,
+                    "first_name": "Hypatia",
+                },
+                **replied_content,
+            }
+            if media_group_id is not None:
+                replied["media_group_id"] = media_group_id
+            message["reply_to_message"] = replied
         return Update.model_validate({"update_id": update_id, "message": message})
 
     @staticmethod
@@ -410,6 +450,16 @@ class TelegramBotDouble:
 
     async def answer_callback_query(self, callback_query_id: str) -> object:
         self.events.append(("answer_callback_query", callback_query_id))
+        return result_or_raise(self.send_result)
+
+    async def copy_message(
+        self,
+        *,
+        chat_id: int,
+        from_chat_id: int,
+        message_id: int,
+    ) -> object:
+        self.events.append(("copy_message", (chat_id, from_chat_id, message_id)))
         return result_or_raise(self.send_result)
 
 
@@ -669,6 +719,20 @@ class MortalMemory:
     async def get(self, mortal_id: int) -> Mortal | None:
         self.events.append(("get", mortal_id))
         return self.mortals.get(mortal_id)
+
+    async def list_ids(
+        self,
+        *,
+        locale: str,
+        after_mortal_id: int | None,
+        limit: int,
+    ) -> tuple[int, ...]:
+        self.events.append(("list_ids", locale, after_mortal_id, limit))
+        return tuple(
+            mortal.id
+            for mortal in sorted(self.mortals.values(), key=lambda current: current.id)
+            if mortal.locale == locale and (after_mortal_id is None or mortal.id > after_mortal_id)
+        )[:limit]
 
     async def reset(self, mortal_id: int) -> Mortal:
         self.events.append(("reset", mortal_id))
