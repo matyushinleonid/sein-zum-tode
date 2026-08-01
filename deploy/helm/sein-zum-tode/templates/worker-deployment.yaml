@@ -70,6 +70,24 @@ spec:
             - name: YANDEX_AI_STUDIO_ENABLE_SERVER_DATA_LOGGING
               value: {{ .Values.yandexAiStudio.enableServerDataLogging | quote }}
             {{- end }}
+            {{- if eq .Values.deathPrediction.config.provider "openai" }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sein-zum-tode.secretName" . }}
+                  key: {{ .Values.openai.apiKeySecretKey | quote }}
+            - name: SOCKS5_PROXY_HOST
+              value: {{ required "socks5Proxy.host is required" .Values.socks5Proxy.host | quote }}
+            - name: SOCKS5_PROXY_PORT
+              value: {{ required "socks5Proxy.port is required" .Values.socks5Proxy.port | quote }}
+            - name: SOCKS5_PROXY_USERNAME
+              value: {{ required "socks5Proxy.username is required" .Values.socks5Proxy.username | quote }}
+            - name: SOCKS5_PROXY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sein-zum-tode.secretName" . }}
+                  key: {{ .Values.socks5Proxy.passwordSecretKey | quote }}
+            {{- end }}
             - name: TEMPORAL_ADDRESS
               value: {{ .Values.temporal.address | quote }}
             - name: TEMPORAL_NAMESPACE

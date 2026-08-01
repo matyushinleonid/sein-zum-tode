@@ -60,6 +60,7 @@ async def test_enforces_the_adapter_schema_in_yandex_and_returns_a_typed_model()
     )
 
     actual = await client.complete(user_prompt="Current date and answers")
+    await client.close()
 
     configure = cast(dict[str, object], model.events[0][1])
     messages = model.events[1][1]

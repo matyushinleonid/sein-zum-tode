@@ -16,6 +16,7 @@ def test_loads_provider_and_structured_generation_settings(tmp_path: Path) -> No
     path.write_text(
         """
 provider: yandex
+system_prompt: Return structured mortality data
 mock:
   days_left: 17
 yandex:
@@ -24,7 +25,11 @@ yandex:
   temperature: 0.2
   max_tokens: 777
   request_timeout_seconds: 61
-  system_prompt: Return structured mortality data
+openai:
+  model: gpt-5.6-sol
+  reasoning_effort: high
+  max_output_tokens: 881
+  request_timeout_seconds: 67
 """.strip(),
         encoding="utf-8",
     )
@@ -36,12 +41,16 @@ yandex:
         actual.mock.days_left,
         actual.yandex.model,
         actual.yandex.max_tokens,
-        actual.yandex.system_prompt,
+        actual.openai.model,
+        actual.openai.reasoning_effort,
+        actual.system_prompt,
     ) == (
         PredictionProvider.YANDEX,
         17,
         "yandexgpt",
         777,
+        "gpt-5.6-sol",
+        "high",
         "Return structured mortality data",
     )
 

@@ -141,11 +141,10 @@ class ApplyDeathPredictionActivity:
                 type="DeathPredictionNotFound",
                 non_retryable=True,
             )
-        mortal = await self._mortals.set_death_date(
-            input.user_id,
-            stored.death_date(),
-        )
-        await self._schedules.ensure(mortal)
+        death_date = stored.death_date()
+        if death_date is not None:
+            mortal = await self._mortals.set_death_date(input.user_id, death_date)
+            await self._schedules.ensure(mortal)
         await self._responses.store(
             input.response_key,
             TelegramResponse(chat_id=input.chat_id, text=stored.prediction.message),
@@ -156,7 +155,8 @@ class ApplyDeathPredictionActivity:
             extra=LogContext(component="worker", user_id=input.user_id).event(
                 "death_prediction_applied",
                 provider=stored.provider,
-                death_date=stored.death_date().isoformat(),
+                prediction_possible=stored.prediction.prediction_possible,
+                death_date=death_date.isoformat() if death_date is not None else None,
             ),
         )
 

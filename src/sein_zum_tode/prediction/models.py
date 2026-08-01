@@ -1,6 +1,7 @@
 from datetime import date
+from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class PredictionAnswer(BaseModel):
@@ -37,8 +38,15 @@ class DeathPredictionRequest(BaseModel):
 class DeathPrediction(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    days_left: int = Field(ge=0)
+    prediction_possible: bool
+    days_left: int | None = Field(default=None, ge=0)
     message: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_days_left(self) -> Self:
+        if self.prediction_possible != (self.days_left is not None):
+            raise ValueError("days_left must be present exactly when prediction_possible is true")
+        return self
 
 
 class StoredDeathPrediction(BaseModel):
@@ -50,5 +58,7 @@ class StoredDeathPrediction(BaseModel):
     current_date: date
     prediction: DeathPrediction
 
-    def death_date(self) -> date:
+    def death_date(self) -> date | None:
+        if self.prediction.days_left is None:
+            return None
         return date.fromordinal(self.current_date.toordinal() + self.prediction.days_left)

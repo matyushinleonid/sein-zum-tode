@@ -20,3 +20,6 @@ class LLMDeathPredictor:
 
     async def predict(self, request: DeathPredictionRequest) -> DeathPrediction:
         return await self._client.complete(user_prompt=request.prompt())
+
+    async def close(self) -> None:
+        await self._client.close()

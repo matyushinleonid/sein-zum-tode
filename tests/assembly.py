@@ -74,6 +74,14 @@ class PostgresResource:
         self.events.append(("postgres.close",))
 
 
+class PredictorResource:
+    def __init__(self, events: list[tuple[object, ...]]) -> None:
+        self.events = events
+
+    async def close(self) -> None:
+        self.events.append(("predictor.close",))
+
+
 class PollerResource:
     def __init__(self, events: list[tuple[object, ...]]) -> None:
         self.events = events
@@ -275,10 +283,12 @@ class WorkerAssembly:
         self.content = ContentResource()
         self.prediction_config = SimpleNamespace(
             provider="mock",
+            system_prompt="Predict mortality",
             mock=object(),
             yandex=object(),
+            openai=object(),
         )
-        self.predictor = object()
+        self.predictor = PredictorResource(self.events)
 
     def install(self, monkeypatch: Any, module: Any) -> None:
         monkeypatch.setattr(module, "Bot", self.create_bot)

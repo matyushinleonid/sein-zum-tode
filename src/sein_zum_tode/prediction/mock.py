@@ -24,6 +24,10 @@ class MockDeathPredictor:
     async def predict(self, request: DeathPredictionRequest) -> DeathPrediction:
         localized = self._content.localized(request.locale)
         return DeathPrediction(
+            prediction_possible=True,
             days_left=self._config.days_left,
             message=localized.prediction.mock_text(request.answers_text()),
         )
+
+    async def close(self) -> None:
+        return None

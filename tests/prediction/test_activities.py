@@ -36,8 +36,14 @@ class FixedClock:
 
 
 class PredictorDouble:
-    def __init__(self, *, consumes_quota: bool) -> None:
+    def __init__(
+        self,
+        *,
+        consumes_quota: bool,
+        prediction_possible: bool = True,
+    ) -> None:
         self._consumes_quota = consumes_quota
+        self._prediction_possible = prediction_possible
         self.events: list[DeathPredictionRequest] = []
 
     @property
@@ -50,7 +56,18 @@ class PredictorDouble:
 
     async def predict(self, request: DeathPredictionRequest) -> DeathPrediction:
         self.events.append(request)
-        return DeathPrediction(days_left=17, message="Typed prediction")
+        return DeathPrediction(
+            prediction_possible=self._prediction_possible,
+            days_left=17 if self._prediction_possible else None,
+            message=(
+                "Typed prediction"
+                if self._prediction_possible
+                else "Please provide meaningful answers."
+            ),
+        )
+
+    async def close(self) -> None:
+        return None
 
 
 def completed_state() -> QuestionnaireState:
@@ -107,10 +124,50 @@ async def test_generates_once_and_replays_quota_consumption_idempotently(
         mortals.mortals[372_013].llm_requests_remaining,
     ) == (
         1,
-        DeathPrediction(days_left=17, message="Typed prediction"),
+        DeathPrediction(
+            prediction_possible=True,
+            days_left=17,
+            message="Typed prediction",
+        ),
         date(2026, 7, 30),
         remaining,
     ), "Activity retry repeated Yandex generation or double-decremented quota"
+
+
+async def test_consumes_quota_for_a_successful_model_rejection() -> None:
+    key = "questionnaire:3727"
+    prediction_key = f"{key}:prediction"
+    state = completed_state()
+    memory = QuestionnaireMemory(questionnaires={key: state})
+    mortals = MortalMemory({state.user_id: Mortal(id=state.user_id)})
+    subject = GenerateDeathPredictionActivity(
+        predictor=PredictorDouble(
+            consumes_quota=True,
+            prediction_possible=False,
+        ),
+        predictions=memory.prediction_repository,
+        questionnaires=memory.questionnaire_repository,
+        mortals=mortals,
+        ttl_seconds=3739,
+        clock=FixedClock(),
+        logger=SilentLogger(),
+    )
+
+    await subject.generate(
+        GenerateDeathPredictionInput(
+            questionnaire_key=key,
+            prediction_key=prediction_key,
+            user_id=state.user_id,
+        )
+    )
+
+    assert (
+        memory.predictions[prediction_key].prediction.prediction_possible,
+        mortals.mortals[state.user_id].llm_requests_remaining,
+    ) == (
+        False,
+        49,
+    ), "a valid structured rejection was treated as a failed, free API call"
 
 
 @pytest.mark.parametrize(
@@ -154,7 +211,11 @@ async def test_applies_death_date_schedule_and_response() -> None:
         provider="yandex",
         consumes_quota=True,
         current_date=date(2026, 7, 30),
-        prediction=DeathPrediction(days_left=17, message="Typed prediction"),
+        prediction=DeathPrediction(
+            prediction_possible=True,
+            days_left=17,
+            message="Typed prediction",
+        ),
     )
     memory.predictions["prediction:3761"] = stored
     mortals = MortalMemory({user_id: Mortal(id=user_id)})
@@ -186,6 +247,52 @@ async def test_applies_death_date_schedule_and_response() -> None:
         [("ensure", mortals.mortals[user_id])],
         "Typed prediction",
     ), "prediction application lost the calculated date, Schedule, or response"
+
+
+async def test_returns_rejection_without_changing_death_date_or_schedule() -> None:
+    user_id = 376_087
+    memory = QuestionnaireMemory()
+    memory.predictions["prediction:3769"] = StoredDeathPrediction(
+        request_id="request-3769",
+        provider="openai",
+        consumes_quota=True,
+        current_date=date(2026, 7, 30),
+        prediction=DeathPrediction(
+            prediction_possible=False,
+            days_left=None,
+            message="Please provide meaningful answers.",
+        ),
+    )
+    original = Mortal(id=user_id, death_date=date(2091, 11, 13))
+    mortals = MortalMemory({user_id: original})
+    schedules = MortalScheduleMemory()
+    subject = ApplyDeathPredictionActivity(
+        predictions=memory.prediction_repository,
+        mortals=mortals,
+        schedules=schedules,
+        responses=memory.response_documents,
+        response_ttl_seconds=3779,
+        logger=SilentLogger(),
+    )
+
+    await subject.apply(
+        ApplyDeathPredictionInput(
+            prediction_key="prediction:3769",
+            response_key="prediction:3769:response",
+            user_id=user_id,
+            chat_id=376_091,
+        )
+    )
+
+    assert (
+        mortals.mortals[user_id],
+        schedules.events,
+        memory.responses["prediction:3769:response"].text,
+    ) == (
+        original,
+        [],
+        "Please provide meaningful answers.",
+    ), "rejected prediction overwrote the prior date, Schedule, or explanatory response"
 
 
 async def test_rejects_an_expired_stored_prediction() -> None:
