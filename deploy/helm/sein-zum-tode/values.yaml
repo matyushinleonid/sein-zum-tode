@@ -40,15 +40,20 @@ application:
   telegramBotTokenSecretKey: TELEGRAM_BOT_TOKEN
 
 botContent:
-  version: production-v1
+  version: production-v2
   default_locale: en
   locales:
     en:
-      help: Mock help response
+      help: Mock help response. Use /localization to change language.
       about: 'About this bot: <a href="https://github.com/matyushinleonid/sein-zum-tode">github</a>'
       unsupported: I cannot process this input.
       group_unsupported: Group chats are not supported. Please message me directly.
       notification: "mock notification: {days_left}"
+      localization:
+        prompt: Choose your language / Выберите язык
+        russian: "🇷🇺 RU"
+        english: "🇺🇸 EN"
+        updated: Language changed to English.
       notification_settings:
         prompt: How often should notifications be sent?
         daily: Daily
@@ -69,6 +74,37 @@ botContent:
             text: q1?
           - id: q2
             text: q2?
+    ru:
+      help: Тестовая справка. Используйте /localization, чтобы изменить язык.
+      about: 'О боте: <a href="https://github.com/matyushinleonid/sein-zum-tode">github</a>'
+      unsupported: Не получается обработать это сообщение.
+      group_unsupported: Групповые чаты не поддерживаются. Напишите боту напрямую.
+      notification: "Тестовое уведомление: осталось дней — {days_left}"
+      localization:
+        prompt: Выберите язык.
+        russian: "🇷🇺 RU"
+        english: "🇺🇸 EN"
+        updated: Язык изменён на русский.
+      notification_settings:
+        prompt: Как часто присылать уведомления?
+        daily: Ежедневно
+        weekly: Еженедельно
+        monthly: Ежемесячно
+        never: Никогда
+        updated: "Уведомления: {frequency}"
+      prediction:
+        limit_exhausted: Лимит запросов на предсказание исчерпан.
+        failed: Что-то пошло не так. Попробуйте ещё раз позднее.
+        mock: "Тестовое предсказание: {answers}"
+      conversation:
+        started: Тестовая анкета начата.
+        completed: Спасибо за ваши ответы!
+        deleted: Ваши ответы удалены из нашей системы.
+        questions:
+          - id: q1
+            text: Ваш возраст и пол?
+          - id: q2
+            text: Кем вы работаете, где живёте? Есть ли у вас спорт или увлечения?
 
 deathPrediction:
   folderId: ""

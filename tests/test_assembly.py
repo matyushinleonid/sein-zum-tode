@@ -150,6 +150,16 @@ async def test_assembles_and_closes_the_temporal_worker(
             ),
         ),
         (
+            "configure_localization",
+            (
+                "updates",
+                "responses",
+                "mortals",
+                "content",
+                "response_ttl_seconds",
+            ),
+        ),
+        (
             "generate_prediction",
             ("predictor", "predictions", "conversations", "mortals", "ttl_seconds"),
         ),
@@ -182,6 +192,7 @@ async def test_assembles_and_closes_the_temporal_worker(
                 "activity:prepare_echo",
                 "activity:prepare_help",
                 "activity:prepare_about",
+                "activity:prepare_localization",
                 "activity:prepare_notifications",
                 "activity:prepare_limit_exhausted",
                 "activity:prepare_unsupported",
@@ -196,6 +207,7 @@ async def test_assembles_and_closes_the_temporal_worker(
                 "activity:deactivate",
                 "activity:delete_schedule",
                 "activity:prepare",
+                "activity:configure",
                 "activity:configure",
                 "activity:generate",
                 "activity:apply",

@@ -3,7 +3,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-DEFAULT_MORTAL_LOCALE = "en"
 DEFAULT_MORTAL_TIMEZONE = "Europe/Moscow"
 DEFAULT_MORTAL_NOTIFICATION_CRON = "0 9 * * *"
 DEFAULT_LLM_REQUESTS_REMAINING = 50
@@ -13,7 +12,7 @@ class Mortal(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     id: int
-    locale: str = Field(default=DEFAULT_MORTAL_LOCALE, min_length=2, max_length=16)
+    locale: str | None = Field(default=None, min_length=2, max_length=16)
     timezone: str = Field(default=DEFAULT_MORTAL_TIMEZONE, min_length=1, max_length=64)
     notification_cron: str | None = Field(
         default=DEFAULT_MORTAL_NOTIFICATION_CRON,

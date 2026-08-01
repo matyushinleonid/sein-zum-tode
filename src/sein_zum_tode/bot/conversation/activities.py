@@ -50,7 +50,11 @@ class StartTelegramConversationActivity:
     @activity.defn(name=START_CONVERSATION_ACTIVITY_NAME)
     async def start(self, input: StartConversationInput) -> ConversationStarted:
         mortal = await self._mortals.get(input.user_id)
-        locale = mortal.locale if mortal is not None else self._content.default_locale
+        locale = (
+            mortal.locale
+            if mortal is not None and mortal.locale is not None
+            else self._content.default_locale
+        )
         state = ConversationState.begin(
             content=self._content,
             localized=self._content.localized(locale),

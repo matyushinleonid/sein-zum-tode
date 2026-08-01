@@ -87,7 +87,7 @@ class GenerateDeathPredictionActivity:
                 )
             request = DeathPredictionRequest(
                 current_date=mortal.local_date(self._clock.now()),
-                locale=mortal.locale,
+                locale=state.locale,
                 answers=state.prediction_answers(),
             )
             prediction = await self._predictor.predict(request)
@@ -178,7 +178,11 @@ class PreparePredictionFailureActivity:
     @activity.defn(name=PREPARE_PREDICTION_FAILURE_ACTIVITY_NAME)
     async def prepare(self, input: PreparePredictionFailureInput) -> None:
         mortal = await self._mortals.get(input.user_id)
-        locale = mortal.locale if mortal is not None else self._content.default_locale
+        locale = (
+            mortal.locale
+            if mortal is not None and mortal.locale is not None
+            else self._content.default_locale
+        )
         await self._responses.store_response(
             input.response_key,
             TelegramResponse(

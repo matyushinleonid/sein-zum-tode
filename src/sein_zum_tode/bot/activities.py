@@ -20,6 +20,7 @@ from sein_zum_tode.bot.models import (
     PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
     PREPARE_HELP_ACTIVITY_NAME,
     PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
+    PREPARE_LOCALIZATION_ACTIVITY_NAME,
     PREPARE_NOTIFICATIONS_ACTIVITY_NAME,
     PREPARE_UNSUPPORTED_ACTIVITY_NAME,
     CleanupPayloadsInput,
@@ -38,6 +39,7 @@ from sein_zum_tode.bot.ports import (
     TelegramResponseStore,
     TelegramUpdateReader,
 )
+from sein_zum_tode.localization.models import SupportedLocale
 from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.notifications.models import NotificationFrequency
 from sein_zum_tode.observability import LogContext
@@ -106,12 +108,17 @@ class InspectTelegramUpdateActivity:
 
         callback = update.callback_query
         if callback is not None:
+            locale = SupportedLocale.from_callback_data(callback.data)
             frequency = NotificationFrequency.from_callback_data(callback.data)
             return InspectedUpdate(
                 kind=(
-                    InspectionKind.NOTIFICATION_SELECTION
-                    if frequency is not None
-                    else InspectionKind.UNSUPPORTED
+                    InspectionKind.LOCALIZATION_SELECTION
+                    if locale is not None
+                    else (
+                        InspectionKind.NOTIFICATION_SELECTION
+                        if frequency is not None
+                        else InspectionKind.UNSUPPORTED
+                    )
                 ),
                 update_key=input.update_key,
                 chat_id=chat.id if chat is not None else input.user_id,
@@ -131,6 +138,8 @@ class InspectTelegramUpdateActivity:
             kind = InspectionKind.HELP
         elif message.text == "/about":
             kind = InspectionKind.ABOUT
+        elif message.text == "/localization":
+            kind = InspectionKind.LOCALIZATION
         elif message.text == "/notifications":
             kind = InspectionKind.NOTIFICATIONS
         elif message.text is not None:
@@ -202,6 +211,25 @@ class PrepareTelegramResponseActivities:
         localized = await self._localized(input.user_id)
         await self._store(input, localized.about, parse_mode="HTML")
         self._log_prepared(input, InspectionKind.ABOUT)
+
+    @activity.defn(name=PREPARE_LOCALIZATION_ACTIVITY_NAME)
+    async def prepare_localization(self, input: PrepareResponseInput) -> None:
+        localized = await self._localized(input.user_id)
+        settings = localized.localization
+        keyboard = (
+            (
+                TelegramButton(
+                    text=settings.russian,
+                    callback_data=SupportedLocale.RUSSIAN.callback_data(),
+                ),
+                TelegramButton(
+                    text=settings.english,
+                    callback_data=SupportedLocale.ENGLISH.callback_data(),
+                ),
+            ),
+        )
+        await self._store(input, settings.prompt, keyboard=keyboard)
+        self._log_prepared(input, InspectionKind.LOCALIZATION)
 
     @activity.defn(name=PREPARE_NOTIFICATIONS_ACTIVITY_NAME)
     async def prepare_notifications(self, input: PrepareResponseInput) -> None:
@@ -293,7 +321,11 @@ class PrepareTelegramResponseActivities:
 
     async def _localized(self, user_id: int | None) -> LocalizedBotContent:
         mortal = await self._mortals.get(user_id) if user_id is not None else None
-        locale = mortal.locale if mortal is not None else self._content.default_locale
+        locale = (
+            mortal.locale
+            if mortal is not None and mortal.locale is not None
+            else self._content.default_locale
+        )
         return self._content.localized(locale)
 
     def _log_prepared(

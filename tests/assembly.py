@@ -301,6 +301,11 @@ class WorkerAssembly:
         )
         monkeypatch.setattr(
             module,
+            "ConfigureMortalLocalizationActivity",
+            self.create_configure_localization,
+        )
+        monkeypatch.setattr(
+            module,
             "GenerateDeathPredictionActivity",
             self.create_generate_prediction,
         )
@@ -408,6 +413,7 @@ class WorkerAssembly:
                 "prepare_echo",
                 "prepare_help",
                 "prepare_about",
+                "prepare_localization",
                 "prepare_notifications",
                 "prepare_limit_exhausted",
                 "prepare_unsupported",
@@ -484,6 +490,10 @@ class WorkerAssembly:
 
     def create_configure_notifications(self, **options: object) -> ActivityDefinitions:
         self.events.append(("configure_notifications", tuple(options)))
+        return ActivityDefinitions(("configure",))
+
+    def create_configure_localization(self, **options: object) -> ActivityDefinitions:
+        self.events.append(("configure_localization", tuple(options)))
         return ActivityDefinitions(("configure",))
 
     def create_generate_prediction(self, **options: object) -> ActivityDefinitions:

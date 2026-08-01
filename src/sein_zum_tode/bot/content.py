@@ -59,6 +59,15 @@ class NotificationSettingsContent(BaseModel):
         return self.updated.format(frequency=frequency)
 
 
+class LocalizationContent(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    prompt: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    russian: str = Field(min_length=1, max_length=64)
+    english: str = Field(min_length=1, max_length=64)
+    updated: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+
+
 class PredictionContent(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -89,6 +98,7 @@ class LocalizedBotContent(BaseModel):
     unsupported: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     group_unsupported: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     notification: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    localization: LocalizationContent
     notification_settings: NotificationSettingsContent
     prediction: PredictionContent
     conversation: ConversationContent
@@ -124,7 +134,9 @@ class BotContent(BaseModel):
     def default(self) -> LocalizedBotContent:
         return self.locales[self.default_locale]
 
-    def localized(self, locale: str) -> LocalizedBotContent:
+    def localized(self, locale: str | None) -> LocalizedBotContent:
+        if locale is None:
+            return self.default()
         return self.locales.get(locale, self.default())
 
 

@@ -13,11 +13,11 @@ def test_uses_fixed_defaults_for_a_new_mortal() -> None:
 
     assert actual == Mortal(
         id=310_019,
-        locale="en",
+        locale=None,
         timezone="Europe/Moscow",
         notification_cron="0 9 * * *",
         death_date=None,
-    ), "new Mortal did not receive the approved locale, timezone, or notification cron"
+    ), "new Mortal did not require localization or receive the fixed operational defaults"
 
 
 def test_allows_a_mortal_to_disable_notifications() -> None:

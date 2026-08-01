@@ -2,7 +2,11 @@ from datetime import date
 
 import pytest
 
-from sein_zum_tode.mortals.activities import MortalActivities, MortalActivityInput
+from sein_zum_tode.mortals.activities import (
+    MortalActivities,
+    MortalActivityInput,
+    MortalRegistration,
+)
 from sein_zum_tode.mortals.models import Mortal
 from tests.support import SilentLogger
 
@@ -37,6 +41,10 @@ class MortalRepositoryDouble:
         self.events.append(("set_notification_cron", mortal_id, cron))
         return Mortal(id=mortal_id, notification_cron=cron)
 
+    async def set_locale(self, mortal_id: int, locale: str) -> Mortal:
+        self.events.append(("set_locale", mortal_id, locale))
+        return Mortal(id=mortal_id, locale=locale)
+
     async def consume_llm_request(self, mortal_id: int, request_id: str) -> Mortal:
         self.events.append(("consume_llm_request", mortal_id, request_id))
         return Mortal(id=mortal_id, llm_requests_remaining=49)
@@ -67,11 +75,12 @@ def activities(events: list[tuple[object, ...]]) -> MortalActivities:
 async def test_registers_a_mortal_without_creating_a_schedule() -> None:
     events: list[tuple[object, ...]] = []
 
-    await activities(events).ensure(MortalActivityInput(mortal_id=330_017))
+    actual = await activities(events).ensure(MortalActivityInput(mortal_id=330_017))
 
-    assert events == [("ensure", 330_017)], (
-        "registration created notification state before questionnaire completion"
-    )
+    assert (actual, events) == (
+        MortalRegistration(localization_required=True),
+        [("ensure", 330_017)],
+    ), "registration did not expose the pending localization choice"
 
 
 async def test_reports_whether_a_mortal_has_prediction_quota() -> None:

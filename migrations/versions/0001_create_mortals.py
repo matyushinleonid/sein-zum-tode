@@ -16,8 +16,7 @@ def upgrade() -> None:
         sa.Column(
             "locale",
             sa.String(length=16),
-            server_default=sa.text("'en'"),
-            nullable=False,
+            nullable=True,
         ),
         sa.Column(
             "timezone",

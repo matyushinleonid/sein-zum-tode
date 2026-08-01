@@ -55,6 +55,7 @@ from sein_zum_tode.mortals.activities import (
     DEACTIVATE_MORTAL_ACTIVITY_NAME,
     ENSURE_MORTAL_ACTIVITY_NAME,
     MortalActivityInput,
+    MortalRegistration,
 )
 from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.prediction.activities import (
@@ -352,8 +353,8 @@ class ConversationWorkflowStory:
 
     @staticmethod
     @activity.defn(name=ENSURE_MORTAL_ACTIVITY_NAME)
-    async def ensure_mortal(input: MortalActivityInput) -> None:
-        return None
+    async def ensure_mortal(input: MortalActivityInput) -> MortalRegistration:
+        return MortalRegistration(localization_required=False)
 
     @staticmethod
     @activity.defn(name=CHECK_MORTAL_QUOTA_ACTIVITY_NAME)
@@ -370,7 +371,7 @@ class ConversationWorkflowStory:
     ) -> ConversationWorkflowStory:
         task_queue = f"deep-conversation-{uuid4()}"
         content = BotContents.debug()
-        mortals = MortalMemory({241_103: Mortal(id=241_103)})
+        mortals = MortalMemory({241_103: Mortal(id=241_103, locale="en")})
         schedules = MortalScheduleMemory()
         inspect = InspectTelegramUpdateActivity(
             update_reader=memory,
