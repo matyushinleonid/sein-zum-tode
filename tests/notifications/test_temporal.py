@@ -12,12 +12,12 @@ from temporalio.client import (
 )
 from temporalio.service import RPCError, RPCStatusCode
 
-from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.notifications.models import MortalNotificationWorkflowInput
 from sein_zum_tode.notifications.temporal import (
     TemporalMortalSchedule,
     TemporalScheduleHandle,
 )
+from tests.support import mortal
 
 pytestmark = pytest.mark.fast
 
@@ -85,13 +85,13 @@ def mortal_schedule(client: ScheduleClientDouble) -> TemporalMortalSchedule:
 
 async def test_creates_a_timezone_aware_daily_schedule() -> None:
     client = ScheduleClientDouble()
-    mortal = Mortal(
+    current_mortal = mortal(
         id=350_023,
         notification_cron="17 9 * * *",
         death_date=date(2100, 1, 1),
     )
 
-    await mortal_schedule(client).ensure(mortal)
+    await mortal_schedule(client).ensure(current_mortal)
 
     created = cast(Schedule, client.created_schedule)
     action = cast(ScheduleActionStartWorkflow, created.action)
@@ -125,13 +125,13 @@ async def test_updates_an_existing_schedule_idempotently() -> None:
         create_outcome=ScheduleAlreadyRunningError(),
         handle=handle,
     )
-    mortal = Mortal(
+    current_mortal = mortal(
         id=350_027,
         notification_cron="23 10 * * *",
         death_date=date(2100, 1, 1),
     )
 
-    await mortal_schedule(client).ensure(mortal)
+    await mortal_schedule(client).ensure(current_mortal)
 
     assert (
         client.events,
@@ -150,7 +150,7 @@ async def test_updates_an_existing_schedule_idempotently() -> None:
 async def test_null_cron_deletes_instead_of_creating_a_schedule() -> None:
     client = ScheduleClientDouble()
 
-    await mortal_schedule(client).ensure(Mortal(id=350_033, notification_cron=None))
+    await mortal_schedule(client).ensure(mortal(id=350_033, notification_cron=None))
 
     assert (
         client.events,

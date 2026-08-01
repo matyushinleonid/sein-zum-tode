@@ -1,5 +1,7 @@
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Self
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -12,8 +14,30 @@ from sein_zum_tode.infrastructure.completion_config import (
 )
 from sein_zum_tode.notifications.custom_schedule.models import (
     CronOperation,
+    NotificationScheduleSettings,
     TimezoneOperation,
 )
+from sein_zum_tode.notifications.custom_schedule.validation import (
+    NotificationScheduleValidator,
+)
+from sein_zum_tode.notifications.models import NotificationFrequency
+
+
+class NotificationPresets(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    daily: str = Field(min_length=1, max_length=128)
+    weekly: str = Field(min_length=1, max_length=128)
+    monthly: str = Field(min_length=1, max_length=128)
+    never: None = None
+
+    def cron(self, frequency: NotificationFrequency) -> str | None:
+        return {
+            NotificationFrequency.DAILY: self.daily,
+            NotificationFrequency.WEEKLY: self.weekly,
+            NotificationFrequency.MONTHLY: self.monthly,
+            NotificationFrequency.NEVER: self.never,
+        }[frequency]
 
 
 class MockNotificationScheduleConfig(BaseModel):
@@ -41,12 +65,37 @@ class MockNotificationScheduleConfig(BaseModel):
 class NotificationScheduleConfig(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    default_timezone: str = Field(min_length=1, max_length=64)
+    default_frequency: NotificationFrequency
+    presets: NotificationPresets
     provider: CompletionProvider
     minimum_interval_hours: int = Field(default=20, ge=1)
     system_prompt: str = Field(min_length=1)
     mock: MockNotificationScheduleConfig
     yandex: YandexCompletionConfig
     openai: OpenAICompletionConfig
+
+    @model_validator(mode="after")
+    def validate_default_timezone(self) -> Self:
+        try:
+            ZoneInfo(self.default_timezone)
+        except ZoneInfoNotFoundError as error:
+            raise ValueError("default_timezone must be a valid IANA timezone") from error
+        validator = NotificationScheduleValidator(
+            minimum_interval=timedelta(hours=self.minimum_interval_hours)
+        )
+        for frequency in NotificationFrequency:
+            validator.validate(
+                NotificationScheduleSettings(
+                    cron=self.presets.cron(frequency),
+                    timezone=self.default_timezone,
+                ),
+                now=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+        return self
+
+    def default_cron(self) -> str | None:
+        return self.presets.cron(self.default_frequency)
 
 
 class NotificationScheduleConfigurationError(Exception):

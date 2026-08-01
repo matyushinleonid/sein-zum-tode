@@ -3,12 +3,12 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from temporalio.exceptions import ApplicationError
 
+from sein_zum_tode.infrastructure.clock import SystemClock
 from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.notifications.custom_schedule.activities import (
     ApplyCustomNotificationScheduleActivity,
     GenerateCustomNotificationScheduleActivity,
     PrepareCustomNotificationFailureActivity,
-    SystemClock,
 )
 from sein_zum_tode.notifications.custom_schedule.models import (
     ApplyCustomNotificationScheduleInput,
@@ -32,6 +32,7 @@ from tests.support import (
     SilentLogger,
     TelegramMemory,
     TelegramUpdates,
+    mortal,
 )
 
 pytestmark = pytest.mark.fast
@@ -140,7 +141,7 @@ async def test_generates_once_with_locale_local_time_and_idempotent_global_quota
     proposals = ProposalMemory()
     mortals = MortalMemory(
         {
-            user_id: Mortal(
+            user_id: mortal(
                 id=user_id,
                 locale="ru",
                 timezone="Europe/Moscow",
@@ -217,7 +218,7 @@ async def test_rejects_expired_custom_schedule_input(
         ),
         proposals=ProposalMemory(),
         updates=telegram(update).update_documents,
-        mortals=MortalMemory({user_id: Mortal(id=user_id)} if has_mortal else {}),
+        mortals=MortalMemory({user_id: mortal(id=user_id)} if has_mortal else {}),
         default_locale="en",
         ttl_seconds=4127,
         clock=FixedClock(),
@@ -240,7 +241,7 @@ async def test_applies_cron_timezone_schedule_and_model_message() -> None:
     proposal = accepted_proposal(timezone="Europe/Berlin")
     proposals = ProposalMemory({proposal_key: stored_proposal(proposal)})
     payloads = telegram()
-    mortals = MortalMemory({user_id: Mortal(id=user_id, locale="ru")})
+    mortals = MortalMemory({user_id: mortal(id=user_id, locale="ru")})
     schedules = MortalScheduleMemory()
     subject = ApplyCustomNotificationScheduleActivity(
         proposals=proposals,
@@ -263,16 +264,16 @@ async def test_applies_cron_timezone_schedule_and_model_message() -> None:
         )
     )
 
-    mortal = mortals.mortals[user_id]
+    current_mortal = mortals.mortals[user_id]
     assert (
-        mortal.notification_cron,
-        mortal.timezone,
+        current_mortal.notification_cron,
+        current_mortal.timezone,
         schedules.events,
         payloads.responses["telegram:update:4131:response"].text,
     ) == (
         "30 19 * * 1-5",
         "Europe/Berlin",
-        [("ensure", mortal)],
+        [("ensure", current_mortal)],
         "Расписание настроено.",
     ), "valid proposal did not atomically update PostgreSQL, Schedule, and response"
 
@@ -286,7 +287,7 @@ async def test_returns_a_model_rejection_without_changing_preferences() -> None:
         timezone=TimezoneChange(operation=TimezoneOperation.KEEP),
         message="Please describe a time and frequency.",
     )
-    original = Mortal(id=user_id, locale="en")
+    original = mortal(id=user_id, locale="en")
     proposals = ProposalMemory({proposal_key: stored_proposal(proposal)})
     payloads = telegram()
     mortals = MortalMemory({user_id: original})
@@ -338,7 +339,7 @@ async def test_localizes_invalid_or_excessively_frequent_proposals(
     proposal_key = "telegram:update:4151:notification-schedule"
     proposals = ProposalMemory({proposal_key: stored_proposal(accepted_proposal(cron=cron))})
     payloads = telegram()
-    mortals = MortalMemory({user_id: Mortal(id=user_id, locale="en")})
+    mortals = MortalMemory({user_id: mortal(id=user_id, locale="en")})
     schedules = MortalScheduleMemory()
     subject = ApplyCustomNotificationScheduleActivity(
         proposals=proposals,
@@ -388,7 +389,7 @@ async def test_rejects_expired_custom_schedule_proposals(
     subject = ApplyCustomNotificationScheduleActivity(
         proposals=proposals,
         responses=telegram().response_documents,
-        mortals=MortalMemory({user_id: Mortal(id=user_id)} if has_mortal else {}),
+        mortals=MortalMemory({user_id: mortal(id=user_id)} if has_mortal else {}),
         schedules=MortalScheduleMemory(),
         validator=NotificationScheduleValidator(minimum_interval=timedelta(hours=20)),
         content=BotContents.debug(),
@@ -413,7 +414,7 @@ async def test_rejects_expired_custom_schedule_proposals(
     [
         (None, "Custom notification schedule failed"),
         (
-            Mortal(id=417_019, locale="ru"),
+            mortal(id=417_019, locale="ru"),
             "Не удалось настроить расписание уведомлений",
         ),
     ],

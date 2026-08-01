@@ -1,3 +1,10 @@
+default_timezone: Europe/Moscow
+default_frequency: daily
+presets:
+  daily: "0 9 * * *"
+  weekly: "0 9 * * 1"
+  monthly: "0 9 1 * *"
+  never: null
 provider: mock
 minimum_interval_hours: 20
 system_prompt: |

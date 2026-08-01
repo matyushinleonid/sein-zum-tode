@@ -4,6 +4,7 @@ import pytest
 
 from sein_zum_tode.infrastructure.completion_config import CompletionProvider
 from sein_zum_tode.notifications.custom_schedule.config import (
+    NotificationPresets,
     NotificationScheduleConfigurationError,
     YamlNotificationScheduleConfigLoader,
 )
@@ -19,6 +20,13 @@ def test_loads_structured_schedule_interpreter_configuration(tmp_path: Path) -> 
     path = tmp_path / "notification-schedule.yaml"
     path.write_text(
         """
+default_timezone: Asia/Tokyo
+default_frequency: weekly
+presets:
+  daily: "17 8 * * *"
+  weekly: "19 9 * * 2"
+  monthly: "23 10 3 * *"
+  never: null
 provider: yandex
 minimum_interval_hours: 19
 system_prompt: Return a structured cron proposal
@@ -46,6 +54,8 @@ openai:
 
     assert (
         actual.provider,
+        actual.default_timezone,
+        actual.default_cron(),
         actual.minimum_interval_hours,
         actual.mock.cron_operation,
         actual.mock.timezone_operation,
@@ -53,11 +63,31 @@ openai:
         actual.openai.reasoning_effort,
     ) == (
         CompletionProvider.YANDEX,
+        "Asia/Tokyo",
+        "19 9 * * 2",
         19,
         CronOperation.SET,
         TimezoneOperation.KEEP,
         701,
         "high",
+    )
+
+
+def test_maps_every_notification_preset_to_its_configured_cron() -> None:
+    from sein_zum_tode.notifications.models import NotificationFrequency
+
+    presets = NotificationPresets(
+        daily="17 8 * * *",
+        weekly="19 9 * * 2",
+        monthly="23 10 3 * *",
+        never=None,
+    )
+
+    assert tuple(presets.cron(frequency) for frequency in NotificationFrequency) == (
+        "17 8 * * *",
+        "19 9 * * 2",
+        "23 10 3 * *",
+        None,
     )
 
 
@@ -110,3 +140,44 @@ def test_rejects_invalid_schedule_interpreter_configuration(
 def test_rejects_a_missing_schedule_interpreter_configuration(tmp_path: Path) -> None:
     with pytest.raises(NotificationScheduleConfigurationError):
         YamlNotificationScheduleConfigLoader(tmp_path / "missing.yaml").load()
+
+
+@pytest.mark.parametrize(
+    ("timezone", "daily"),
+    [
+        ("Mars/Olympus_Mons", "17 8 * * *"),
+        ("Europe/Moscow", "invalid"),
+        ("Europe/Moscow", "*/5 * * * *"),
+    ],
+)
+def test_rejects_invalid_or_too_frequent_configured_presets(
+    tmp_path: Path,
+    timezone: str,
+    daily: str,
+) -> None:
+    path = tmp_path / "invalid-presets.yaml"
+    path.write_text(
+        f"""
+default_timezone: {timezone}
+default_frequency: daily
+presets:
+  daily: "{daily}"
+  weekly: "19 9 * * 2"
+  monthly: "23 10 3 * *"
+  never: null
+provider: mock
+minimum_interval_hours: 20
+system_prompt: Prompt
+mock:
+  cron_operation: set
+  cron_expression: "0 12 * * *"
+  timezone_operation: keep
+  timezone: null
+yandex: {{model: a, model_version: latest}}
+openai: {{model: b}}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(NotificationScheduleConfigurationError):
+        YamlNotificationScheduleConfigLoader(path).load()

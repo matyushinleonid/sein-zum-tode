@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import cast
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError
 
 from sein_zum_tode.bot.models import (
     CLEANUP_PAYLOADS_ACTIVITY_NAME,
@@ -10,6 +10,7 @@ from sein_zum_tode.bot.models import (
     CleanupPayloadsInput,
     DeliverResponseInput,
 )
+from sein_zum_tode.bot.temporal_errors import is_telegram_recipient_unavailable
 from sein_zum_tode.broadcasts.models import (
     DELIVER_SCREAM_ACTIVITY_NAME,
     LIST_SCREAM_RECIPIENTS_ACTIVITY_NAME,
@@ -26,6 +27,7 @@ from sein_zum_tode.mortals.activities import (
     MortalActivityInput,
 )
 from sein_zum_tode.observability import LogContext
+from sein_zum_tode.payload_keys import UpdatePayloadKeys
 
 
 @workflow.defn(name=TELEGRAM_SCREAM_WORKFLOW_NAME)
@@ -141,7 +143,7 @@ class TelegramScreamWorkflow:
         failed: int,
         activity_timeout: timedelta,
     ) -> None:
-        response_key = f"{input.update_key}:scream-report"
+        response_key = UpdatePayloadKeys(input.update_key).scream_report()
         try:
             await workflow.execute_activity(
                 PREPARE_SCREAM_REPORT_ACTIVITY_NAME,
@@ -206,7 +208,4 @@ class TelegramScreamWorkflow:
         )
 
     def _recipient_unavailable(self, error: ActivityError) -> bool:
-        cause = error.cause
-        return isinstance(cause, ApplicationError) and cause.type == (
-            "TelegramRecipientUnavailable"
-        )
+        return is_telegram_recipient_unavailable(error)

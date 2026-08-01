@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import cast
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError
 
 from sein_zum_tode.bot.models import (
     CLEANUP_PAYLOADS_ACTIVITY_NAME,
@@ -10,6 +10,7 @@ from sein_zum_tode.bot.models import (
     CleanupPayloadsInput,
     DeliverResponseInput,
 )
+from sein_zum_tode.bot.temporal_errors import is_telegram_recipient_unavailable
 from sein_zum_tode.mortals.activities import (
     DELETE_MORTAL_SCHEDULE_ACTIVITY_NAME,
     MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME,
@@ -23,6 +24,7 @@ from sein_zum_tode.notifications.models import (
     PrepareMortalNotificationInput,
 )
 from sein_zum_tode.observability import LogContext
+from sein_zum_tode.payload_keys import MortalNotificationPayloadKeys
 
 
 @workflow.defn(name=MORTAL_NOTIFICATION_WORKFLOW_NAME)
@@ -30,7 +32,10 @@ class MortalNotificationWorkflow:
     @workflow.run
     async def run(self, input: MortalNotificationWorkflowInput) -> None:
         activity_timeout = timedelta(seconds=input.activity_retry_timeout_seconds)
-        response_key = f"telegram:notification:{input.mortal_id}:{workflow.info().run_id}:response"
+        response_key = MortalNotificationPayloadKeys(
+            mortal_id=input.mortal_id,
+            run_id=workflow.info().run_id,
+        ).response()
         prepared = await self._prepare(input.mortal_id, response_key, activity_timeout)
         if prepared is None:
             await self._delete_schedule(input.mortal_id, activity_timeout)
@@ -138,10 +143,7 @@ class MortalNotificationWorkflow:
             self._log_failure(mortal_id, "mortal_schedule_deletion_failed")
 
     def _recipient_unavailable(self, error: ActivityError) -> bool:
-        cause = error.cause
-        return isinstance(cause, ApplicationError) and cause.type == (
-            "TelegramRecipientUnavailable"
-        )
+        return is_telegram_recipient_unavailable(error)
 
     def _log_failure(self, mortal_id: int, event: str) -> None:
         workflow.logger.exception(

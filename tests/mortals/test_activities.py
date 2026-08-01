@@ -8,7 +8,7 @@ from sein_zum_tode.mortals.activities import (
     MortalRegistration,
 )
 from sein_zum_tode.mortals.models import Mortal
-from tests.support import SilentLogger
+from tests.support import SilentLogger, mortal
 
 pytestmark = pytest.mark.fast
 
@@ -19,15 +19,15 @@ class MortalRepositoryDouble:
 
     async def ensure(self, mortal_id: int) -> Mortal:
         self.events.append(("ensure", mortal_id))
-        return Mortal(id=mortal_id)
+        return mortal(id=mortal_id)
 
     async def get(self, mortal_id: int) -> Mortal | None:
         self.events.append(("get", mortal_id))
-        return Mortal(id=mortal_id)
+        return mortal(id=mortal_id)
 
     async def set_death_date(self, mortal_id: int, death_date: date) -> Mortal:
         self.events.append(("set_death_date", mortal_id, death_date))
-        return Mortal(id=mortal_id, death_date=death_date)
+        return mortal(id=mortal_id, death_date=death_date)
 
     async def set_notification_cron(
         self,
@@ -35,7 +35,7 @@ class MortalRepositoryDouble:
         cron: str | None,
     ) -> Mortal:
         self.events.append(("set_notification_cron", mortal_id, cron))
-        return Mortal(id=mortal_id, notification_cron=cron)
+        return mortal(id=mortal_id, notification_cron=cron)
 
     async def set_notification_settings(
         self,
@@ -45,15 +45,15 @@ class MortalRepositoryDouble:
         timezone: str,
     ) -> Mortal:
         self.events.append(("set_notification_settings", mortal_id, cron, timezone))
-        return Mortal(id=mortal_id, notification_cron=cron, timezone=timezone)
+        return mortal(id=mortal_id, notification_cron=cron, timezone=timezone)
 
     async def set_locale(self, mortal_id: int, locale: str) -> Mortal:
         self.events.append(("set_locale", mortal_id, locale))
-        return Mortal(id=mortal_id, locale=locale)
+        return mortal(id=mortal_id, locale=locale)
 
     async def consume_llm_request(self, mortal_id: int, request_id: str) -> Mortal:
         self.events.append(("consume_llm_request", mortal_id, request_id))
-        return Mortal(id=mortal_id, llm_requests_remaining=49)
+        return mortal(id=mortal_id, llm_requests_remaining=49)
 
     async def mark_unreachable(self, mortal_id: int) -> None:
         self.events.append(("mark_unreachable", mortal_id))
@@ -87,7 +87,7 @@ async def test_registers_a_mortal_and_restores_its_schedule() -> None:
         MortalRegistration(localization_required=True),
         [
             ("ensure", 330_017),
-            ("ensure_schedule", Mortal(id=330_017)),
+            ("ensure_schedule", mortal(id=330_017)),
         ],
     ), "registration did not expose localization or restore notification delivery"
 

@@ -1,8 +1,9 @@
 from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, cast
+from typing import Literal, Protocol, cast
 
 import httpx
+from openai import AsyncOpenAI
 from openai.types.shared import ReasoningEffort
 from openai.types.shared_params import Reasoning
 from pydantic import BaseModel
@@ -62,7 +63,7 @@ class OpenAISdk[ResponseT: BaseModel](Protocol):
 
 
 class AsyncOpenAISdkAdapter[ResponseT: BaseModel]:
-    def __init__(self, sdk: Any) -> None:
+    def __init__(self, sdk: AsyncOpenAI) -> None:
         self._sdk = sdk
 
     @property

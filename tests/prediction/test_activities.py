@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 import pytest
 from temporalio.exceptions import ApplicationError
 
-from sein_zum_tode.mortals.models import Mortal
+from sein_zum_tode.infrastructure.clock import SystemClock
 from sein_zum_tode.prediction.activities import (
     ApplyDeathPredictionActivity,
     ApplyDeathPredictionInput,
@@ -11,7 +11,6 @@ from sein_zum_tode.prediction.activities import (
     GenerateDeathPredictionInput,
     PreparePredictionFailureActivity,
     PreparePredictionFailureInput,
-    SystemClock,
 )
 from sein_zum_tode.prediction.models import (
     DeathPrediction,
@@ -25,6 +24,7 @@ from tests.support import (
     MortalScheduleMemory,
     QuestionnaireMemory,
     SilentLogger,
+    mortal,
 )
 
 pytestmark = pytest.mark.fast
@@ -97,7 +97,7 @@ async def test_generates_once_and_replays_quota_consumption_idempotently(
     key = "questionnaire:3721"
     prediction_key = f"{key}:prediction"
     memory = QuestionnaireMemory(questionnaires={key: completed_state()})
-    mortals = MortalMemory({372_013: Mortal(id=372_013)})
+    mortals = MortalMemory({372_013: mortal(id=372_013)})
     predictor = PredictorDouble(consumes_quota=consumes_quota)
     subject = GenerateDeathPredictionActivity(
         predictor=predictor,
@@ -139,7 +139,7 @@ async def test_consumes_quota_for_a_successful_model_rejection() -> None:
     prediction_key = f"{key}:prediction"
     state = completed_state()
     memory = QuestionnaireMemory(questionnaires={key: state})
-    mortals = MortalMemory({state.user_id: Mortal(id=state.user_id)})
+    mortals = MortalMemory({state.user_id: mortal(id=state.user_id)})
     subject = GenerateDeathPredictionActivity(
         predictor=PredictorDouble(
             consumes_quota=True,
@@ -182,7 +182,7 @@ async def test_rejects_expired_prediction_input(
     memory = QuestionnaireMemory(
         questionnaires={"questionnaire:3739": state} if questionnaire_exists else {}
     )
-    mortals = MortalMemory({state.user_id: Mortal(id=state.user_id)} if mortal_exists else {})
+    mortals = MortalMemory({state.user_id: mortal(id=state.user_id)} if mortal_exists else {})
     subject = GenerateDeathPredictionActivity(
         predictor=PredictorDouble(consumes_quota=True),
         predictions=memory.prediction_repository,
@@ -218,7 +218,7 @@ async def test_applies_death_date_schedule_and_response() -> None:
         ),
     )
     memory.predictions["prediction:3761"] = stored
-    mortals = MortalMemory({user_id: Mortal(id=user_id)})
+    mortals = MortalMemory({user_id: mortal(id=user_id)})
     schedules = MortalScheduleMemory()
     subject = ApplyDeathPredictionActivity(
         predictions=memory.prediction_repository,
@@ -263,7 +263,7 @@ async def test_returns_rejection_without_changing_death_date_or_schedule() -> No
             message="Please provide meaningful answers.",
         ),
     )
-    original = Mortal(id=user_id, death_date=date(2091, 11, 13))
+    original = mortal(id=user_id, death_date=date(2091, 11, 13))
     mortals = MortalMemory({user_id: original})
     schedules = MortalScheduleMemory()
     subject = ApplyDeathPredictionActivity(
@@ -322,7 +322,7 @@ async def test_prepares_a_localized_failure_response() -> None:
     user_id = 379_007
     responses = QuestionnaireMemory()
     subject = PreparePredictionFailureActivity(
-        mortals=MortalMemory({user_id: Mortal(id=user_id, locale="en")}),
+        mortals=MortalMemory({user_id: mortal(id=user_id, locale="en")}),
         responses=responses.response_documents,
         content=BotContents.debug(),
         response_ttl_seconds=3793,

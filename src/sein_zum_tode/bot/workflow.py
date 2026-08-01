@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import cast
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflowError
+from temporalio.exceptions import ActivityError, ChildWorkflowError
 
 from sein_zum_tode.bot.models import (
     CLEANUP_PAYLOADS_ACTIVITY_NAME,
@@ -29,6 +29,7 @@ from sein_zum_tode.bot.models import (
     TelegramUpdateSignal,
     UserWorkflowInput,
 )
+from sein_zum_tode.bot.temporal_errors import is_telegram_recipient_unavailable
 from sein_zum_tode.broadcasts.models import (
     TELEGRAM_SCREAM_WORKFLOW_NAME,
     ScreamRequest,
@@ -56,6 +57,7 @@ from sein_zum_tode.notifications.models import (
     CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME,
 )
 from sein_zum_tode.observability import LogContext
+from sein_zum_tode.payload_keys import UpdatePayloadKeys
 from sein_zum_tode.questionnaire.models import (
     QUESTIONNAIRE_FINISHED_SIGNAL_NAME,
     QUESTIONNAIRE_UPDATE_SIGNAL_NAME,
@@ -135,28 +137,29 @@ class TelegramUserWorkflow:
             await self._continue_as_new_if_needed()
 
     async def _route(self, update_key: str) -> bool:
+        payload_keys = UpdatePayloadKeys(update_key)
         await self._release_finished_questionnaire()
         if self._questionnaire is not None and not self._questionnaire_accepting_updates:
             await self._release_questionnaire()
         inspected = await self._inspect(update_key)
         if inspected is None:
-            await self._cleanup(update_key, f"{update_key}:response")
+            await self._cleanup(update_key, payload_keys.response())
             return True
 
         if inspected.kind == InspectionKind.MORTAL_BLOCKED:
             if self._questionnaire is not None:
                 await self._cancel_questionnaire()
-            await self._cleanup(update_key, f"{update_key}:response")
+            await self._cleanup(update_key, payload_keys.response())
             await self._mark_mortal_unreachable(update_key)
             return False
         if inspected.kind == InspectionKind.MORTAL_UNBLOCKED:
             await self._restore_mortal(update_key)
-            await self._cleanup(update_key, f"{update_key}:response")
+            await self._cleanup(update_key, payload_keys.response())
             return True
         if inspected.kind == InspectionKind.GROUP_UNSUPPORTED:
             return await self._respond(inspected)
         if not await self._ensure_mortal(update_key):
-            await self._cleanup(update_key, f"{update_key}:response")
+            await self._cleanup(update_key, payload_keys.response())
             return True
 
         if inspected.kind in {
@@ -185,7 +188,7 @@ class TelegramUserWorkflow:
             self._awaiting_custom_notification = False
             quota = await self._llm_quota(update_key)
             if quota is None:
-                await self._cleanup(update_key, f"{update_key}:response")
+                await self._cleanup(update_key, payload_keys.response())
                 return True
             if not quota:
                 return await self._respond(self._limit_exhausted(inspected))
@@ -195,12 +198,12 @@ class TelegramUserWorkflow:
             if inspected.kind == InspectionKind.BEGIN:
                 quota = await self._llm_quota(update_key)
                 if quota is None:
-                    await self._cleanup(update_key, f"{update_key}:response")
+                    await self._cleanup(update_key, payload_keys.response())
                     return True
                 if not quota:
                     return await self._respond(self._limit_exhausted(inspected))
                 await self._restart_questionnaire(inspected)
-                await self._cleanup(update_key, f"{update_key}:response")
+                await self._cleanup(update_key, payload_keys.response())
                 return True
             if inspected.kind == InspectionKind.TEXT:
                 questionnaire = await self._release_finished_questionnaire()
@@ -215,12 +218,12 @@ class TelegramUserWorkflow:
         if inspected.kind == InspectionKind.BEGIN:
             quota = await self._llm_quota(update_key)
             if quota is None:
-                await self._cleanup(update_key, f"{update_key}:response")
+                await self._cleanup(update_key, payload_keys.response())
                 return True
             if not quota:
                 return await self._respond(self._limit_exhausted(inspected))
             await self._start_questionnaire(inspected)
-            await self._cleanup(update_key, f"{update_key}:response")
+            await self._cleanup(update_key, payload_keys.response())
             return True
         return await self._respond(inspected)
 
@@ -361,7 +364,7 @@ class TelegramUserWorkflow:
 
     async def _process_custom_notification(self, inspected: InspectedUpdate) -> bool:
         update_key = inspected.update_key
-        proposal_key = f"{update_key}:notification-schedule"
+        proposal_key = UpdatePayloadKeys(update_key).notification_schedule_proposal()
         response_key = inspected.response_key()
         recipient_available = True
         try:
@@ -572,10 +575,7 @@ class TelegramUserWorkflow:
         return PREPARE_ACTIVITY_NAMES[kind]
 
     def _recipient_unavailable(self, error: ActivityError) -> bool:
-        cause = error.cause
-        return isinstance(cause, ApplicationError) and cause.type == (
-            "TelegramRecipientUnavailable"
-        )
+        return is_telegram_recipient_unavailable(error)
 
     def _remember(self, update_key: str) -> None:
         self._recent_update_keys.append(update_key)

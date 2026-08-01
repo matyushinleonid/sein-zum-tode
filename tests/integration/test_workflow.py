@@ -58,7 +58,6 @@ from sein_zum_tode.mortals.activities import (
     MortalActivityInput,
     MortalRegistration,
 )
-from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.notifications.custom_schedule.models import (
     APPLY_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME,
     GENERATE_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME,
@@ -84,6 +83,7 @@ from tests.support import (
     SilentLogger,
     TelegramMemory,
     TelegramUpdates,
+    mortal,
 )
 
 pytestmark = [
@@ -1440,7 +1440,7 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
         response_store=telegram.response_documents,
         ttl_seconds=1801,
         content=BotContents.debug(),
-        mortals=MortalMemory({173_357: Mortal(id=173_357)}),
+        mortals=MortalMemory({173_357: mortal(id=173_357)}),
         logger=SilentLogger(),
     )
     deliver = DeliverTelegramResponseActivity(

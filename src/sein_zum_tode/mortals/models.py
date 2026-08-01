@@ -3,8 +3,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-DEFAULT_MORTAL_TIMEZONE = "Europe/Moscow"
-DEFAULT_MORTAL_NOTIFICATION_CRON = "0 9 * * *"
 DEFAULT_LLM_REQUESTS_REMAINING = 50
 
 
@@ -13,12 +11,8 @@ class Mortal(BaseModel):
 
     id: int
     locale: str | None = Field(default=None, min_length=2, max_length=16)
-    timezone: str = Field(default=DEFAULT_MORTAL_TIMEZONE, min_length=1, max_length=64)
-    notification_cron: str | None = Field(
-        default=DEFAULT_MORTAL_NOTIFICATION_CRON,
-        min_length=1,
-        max_length=128,
-    )
+    timezone: str = Field(min_length=1, max_length=64)
+    notification_cron: str | None = Field(min_length=1, max_length=128)
     death_date: date | None = None
     telegram_unreachable_at: datetime | None = None
     llm_requests_remaining: int = Field(
@@ -47,3 +41,31 @@ class Mortal(BaseModel):
 
     def can_request_llm(self) -> bool:
         return self.llm_requests_remaining > 0
+
+
+class MortalRegistrationDefaults(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    timezone: str = Field(min_length=1, max_length=64)
+    notification_cron: str | None = Field(min_length=1, max_length=128)
+    llm_requests_remaining: int = Field(default=DEFAULT_LLM_REQUESTS_REMAINING, ge=0)
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as error:
+            raise ValueError("timezone must be a valid IANA timezone") from error
+        return value
+
+    def mortal(self, mortal_id: int, *, death_date: date | None = None) -> Mortal:
+        return Mortal(
+            id=mortal_id,
+            locale=None,
+            timezone=self.timezone,
+            notification_cron=self.notification_cron,
+            death_date=death_date,
+            telegram_unreachable_at=None,
+            llm_requests_remaining=self.llm_requests_remaining,
+        )

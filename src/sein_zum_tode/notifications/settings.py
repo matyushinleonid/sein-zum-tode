@@ -7,6 +7,7 @@ from temporalio.exceptions import ApplicationError
 from sein_zum_tode.bot.content import BotContent
 from sein_zum_tode.bot.models import PrepareResponseInput, TelegramResponse
 from sein_zum_tode.mortals.ports import MortalRepository
+from sein_zum_tode.notifications.custom_schedule.config import NotificationPresets
 from sein_zum_tode.notifications.models import (
     CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME,
     NotificationFrequency,
@@ -25,6 +26,7 @@ class ConfigureMortalNotificationsActivity:
         mortals: MortalRepository,
         schedules: MortalSchedule,
         content: BotContent,
+        presets: NotificationPresets,
         response_ttl_seconds: int,
         logger: logging.Logger | None = None,
     ) -> None:
@@ -33,6 +35,7 @@ class ConfigureMortalNotificationsActivity:
         self._mortals = mortals
         self._schedules = schedules
         self._content = content
+        self._presets = presets
         self._response_ttl_seconds = response_ttl_seconds
         self._logger = logger or logging.getLogger(__name__)
 
@@ -51,7 +54,7 @@ class ConfigureMortalNotificationsActivity:
             )
         mortal = await self._mortals.set_notification_cron(
             input.user_id,
-            frequency.cron(),
+            self._presets.cron(frequency),
         )
         await self._schedules.ensure(mortal)
         localized = self._content.localized(mortal.locale)
@@ -75,6 +78,6 @@ class ConfigureMortalNotificationsActivity:
             extra=LogContext(component="worker", user_id=input.user_id).event(
                 "mortal_notification_frequency_configured",
                 frequency=frequency.value,
-                notification_cron=frequency.cron(),
+                notification_cron=self._presets.cron(frequency),
             ),
         )

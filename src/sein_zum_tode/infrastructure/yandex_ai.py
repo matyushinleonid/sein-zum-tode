@@ -1,7 +1,7 @@
 from dataclasses import dataclass
-from typing import Any
 
 from pydantic import BaseModel
+from yandex_ai_studio_sdk import AsyncAIStudio
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,7 +18,7 @@ class YandexAIStudioClient[ResponseT: BaseModel]:
     def __init__(
         self,
         *,
-        sdk: Any,
+        sdk: AsyncAIStudio,
         profile: YandexCompletionProfile,
         response_type: type[ResponseT],
     ) -> None:

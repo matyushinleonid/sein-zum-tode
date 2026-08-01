@@ -1,8 +1,10 @@
 from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import Literal
+from unittest.mock import Mock
 
 import pytest
+from openai import AsyncOpenAI
 from openai.types.shared_params import Reasoning
 from pydantic import BaseModel
 
@@ -80,10 +82,17 @@ def profile() -> OpenAICompletionProfile:
     )
 
 
+def adapter(sdk: OpenAISdkDouble) -> AsyncOpenAISdkAdapter[CompletionResult]:
+    typed_sdk = Mock(spec=AsyncOpenAI)
+    typed_sdk.responses = sdk.responses
+    typed_sdk.close = sdk.close
+    return AsyncOpenAISdkAdapter[CompletionResult](typed_sdk)
+
+
 async def test_enforces_the_adapter_schema_and_disables_response_storage() -> None:
     sdk = OpenAISdkDouble(CompletionResult(value=3881, explanation="Structured"))
     client = OpenAICompletionClient(
-        sdk=AsyncOpenAISdkAdapter[CompletionResult](sdk),
+        sdk=adapter(sdk),
         profile=profile(),
         response_type=CompletionResult,
     )
@@ -119,7 +128,7 @@ async def test_enforces_the_adapter_schema_and_disables_response_storage() -> No
 
 async def test_rejects_an_openai_response_without_parsed_output() -> None:
     client = OpenAICompletionClient(
-        sdk=AsyncOpenAISdkAdapter[CompletionResult](OpenAISdkDouble(None)),
+        sdk=adapter(OpenAISdkDouble(None)),
         profile=profile(),
         response_type=CompletionResult,
     )

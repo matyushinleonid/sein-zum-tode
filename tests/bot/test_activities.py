@@ -25,7 +25,6 @@ from sein_zum_tode.bot.models import (
     TelegramResponse,
 )
 from sein_zum_tode.broadcasts.models import ScreamRequest
-from sein_zum_tode.mortals.models import Mortal
 from tests.support import (
     ActivityCase,
     BotContents,
@@ -33,6 +32,7 @@ from tests.support import (
     SilentLogger,
     TelegramMemory,
     TelegramUpdates,
+    mortal,
 )
 
 pytestmark = pytest.mark.fast
@@ -549,7 +549,7 @@ async def test_localizes_scream_denial_for_a_russian_mortal() -> None:
         response_store=payloads.response_documents,
         ttl_seconds=1441,
         content=BotContents.debug(),
-        mortals=MortalMemory({144_149: Mortal(id=144_149, locale="ru")}),
+        mortals=MortalMemory({144_149: mortal(id=144_149, locale="ru")}),
         logger=SilentLogger(),
     )
     input = PrepareResponseInput(
@@ -572,7 +572,7 @@ async def test_prepares_html_about_and_callback_keyboards() -> None:
         response_store=payloads.response_documents,
         ttl_seconds=1451,
         content=BotContents.debug(),
-        mortals=MortalMemory({145_459: Mortal(id=145_459)}),
+        mortals=MortalMemory({145_459: mortal(id=145_459)}),
         logger=SilentLogger(),
     )
     about = PrepareResponseInput(

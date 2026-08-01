@@ -47,6 +47,7 @@ from sein_zum_tode.infrastructure.yandex_ai import (
 from sein_zum_tode.localization.settings import ConfigureMortalLocalizationActivity
 from sein_zum_tode.log_config import configure_logging
 from sein_zum_tode.mortals.activities import MortalActivities
+from sein_zum_tode.mortals.models import MortalRegistrationDefaults
 from sein_zum_tode.mortals.postgres import PostgresMortalRepository
 from sein_zum_tode.notifications.activities import PrepareMortalNotificationActivity
 from sein_zum_tode.notifications.custom_schedule.activities import (
@@ -117,6 +118,7 @@ def create_death_predictor(
             settings.openai_api_key is None
             or not settings.openai_api_key.get_secret_value()
             or not settings.socks5_proxy_host
+            or settings.socks5_proxy_port is None
             or not settings.socks5_proxy_username
             or settings.socks5_proxy_password is None
             or not settings.socks5_proxy_password.get_secret_value()
@@ -192,6 +194,7 @@ def create_notification_schedule_interpreter(
             settings.openai_api_key is None
             or not settings.openai_api_key.get_secret_value()
             or not settings.socks5_proxy_host
+            or settings.socks5_proxy_port is None
             or not settings.socks5_proxy_username
             or settings.socks5_proxy_password is None
             or not settings.socks5_proxy_password.get_secret_value()
@@ -319,7 +322,13 @@ async def run(settings: WorkerSettings) -> None:
         ssl=settings.postgres_ssl,
         pgbouncer=settings.postgres_pgbouncer,
     )
-    mortals = PostgresMortalRepository(postgres)
+    mortals = PostgresMortalRepository(
+        postgres,
+        registration_defaults=MortalRegistrationDefaults(
+            timezone=notification_schedule_config.default_timezone,
+            notification_cron=notification_schedule_config.default_cron(),
+        ),
+    )
     schedules = TemporalMortalSchedule(
         client=temporal,
         bot_id=bot.id,
@@ -379,6 +388,7 @@ async def run(settings: WorkerSettings) -> None:
         mortals=mortals,
         schedules=schedules,
         content=content,
+        presets=notification_schedule_config.presets,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
     )
     generate_notification_schedule = GenerateCustomNotificationScheduleActivity(

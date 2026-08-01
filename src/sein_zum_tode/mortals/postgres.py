@@ -25,10 +25,8 @@ from sein_zum_tode.infrastructure.postgres import (
 )
 from sein_zum_tode.mortals.errors import MortalQuotaExhaustedError, MortalRepositoryError
 from sein_zum_tode.mortals.models import (
-    DEFAULT_LLM_REQUESTS_REMAINING,
-    DEFAULT_MORTAL_NOTIFICATION_CRON,
-    DEFAULT_MORTAL_TIMEZONE,
     Mortal,
+    MortalRegistrationDefaults,
 )
 
 metadata = MetaData()
@@ -48,13 +46,11 @@ mortal_timezone_column: Column[str] = Column(
     "timezone",
     String(64),
     nullable=False,
-    server_default=text("'Europe/Moscow'"),
 )
 mortal_notification_cron_column: Column[str] = Column(
     "notification_cron",
     String(128),
     nullable=True,
-    server_default=text("'0 9 * * *'"),
 )
 mortal_death_date_column: Column[date] = Column(
     "death_date",
@@ -106,21 +102,20 @@ llm_request_consumptions = Table(
 
 
 class PostgresMortalRepository:
-    def __init__(self, postgres: PostgresStatementClient) -> None:
+    def __init__(
+        self,
+        postgres: PostgresStatementClient,
+        *,
+        registration_defaults: MortalRegistrationDefaults,
+    ) -> None:
         self._postgres = postgres
+        self._registration_defaults = registration_defaults
 
     async def ensure(self, mortal_id: int) -> Mortal:
+        new_mortal = self._registration_defaults.mortal(mortal_id)
         statement = (
             insert(mortals)
-            .values(
-                id=mortal_id,
-                locale=None,
-                timezone=DEFAULT_MORTAL_TIMEZONE,
-                notification_cron=DEFAULT_MORTAL_NOTIFICATION_CRON,
-                death_date=None,
-                telegram_unreachable_at=None,
-                llm_requests_remaining=DEFAULT_LLM_REQUESTS_REMAINING,
-            )
+            .values(**new_mortal.model_dump())
             .on_conflict_do_update(
                 index_elements=[mortal_id_column],
                 set_={"telegram_unreachable_at": None},
@@ -165,17 +160,13 @@ class PostgresMortalRepository:
         return tuple(int(row["id"]) for row in rows)
 
     async def set_death_date(self, mortal_id: int, death_date: date) -> Mortal:
+        new_mortal = self._registration_defaults.mortal(
+            mortal_id,
+            death_date=death_date,
+        )
         statement = (
             insert(mortals)
-            .values(
-                id=mortal_id,
-                locale=None,
-                timezone=DEFAULT_MORTAL_TIMEZONE,
-                notification_cron=DEFAULT_MORTAL_NOTIFICATION_CRON,
-                death_date=death_date,
-                telegram_unreachable_at=None,
-                llm_requests_remaining=DEFAULT_LLM_REQUESTS_REMAINING,
-            )
+            .values(**new_mortal.model_dump())
             .on_conflict_do_update(
                 index_elements=[mortal_id_column],
                 set_={"death_date": death_date},

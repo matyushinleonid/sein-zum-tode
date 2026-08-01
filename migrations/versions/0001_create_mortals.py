@@ -21,13 +21,11 @@ def upgrade() -> None:
         sa.Column(
             "timezone",
             sa.String(length=64),
-            server_default=sa.text("'Europe/Moscow'"),
             nullable=False,
         ),
         sa.Column(
             "notification_cron",
             sa.String(length=128),
-            server_default=sa.text("'0 9 * * *'"),
             nullable=True,
         ),
         sa.Column("death_date", sa.Date(), nullable=True),

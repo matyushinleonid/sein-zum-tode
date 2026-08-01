@@ -13,14 +13,6 @@ class NotificationFrequency(StrEnum):
     MONTHLY = "monthly"
     NEVER = "never"
 
-    def cron(self) -> str | None:
-        return {
-            NotificationFrequency.DAILY: "0 9 * * *",
-            NotificationFrequency.WEEKLY: "0 9 * * 1",
-            NotificationFrequency.MONTHLY: "0 9 1 * *",
-            NotificationFrequency.NEVER: None,
-        }[self]
-
     def callback_data(self) -> str:
         return f"notifications:{self.value}"
 

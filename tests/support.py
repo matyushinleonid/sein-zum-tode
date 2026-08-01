@@ -33,6 +33,27 @@ from sein_zum_tode.questionnaire.models import QuestionnaireState
 TEST_TIMEOUT_SECONDS = 30
 
 
+def mortal(
+    *,
+    id: int,
+    locale: str | None = None,
+    timezone: str = "Europe/Moscow",
+    notification_cron: str | None = "0 9 * * *",
+    death_date: date | None = None,
+    telegram_unreachable_at: datetime | None = None,
+    llm_requests_remaining: int = 50,
+) -> Mortal:
+    return Mortal(
+        id=id,
+        locale=locale,
+        timezone=timezone,
+        notification_cron=notification_cron,
+        death_date=death_date,
+        telegram_unreachable_at=telegram_unreachable_at,
+        llm_requests_remaining=llm_requests_remaining,
+    )
+
+
 class SilentLogger(logging.Logger):
     def __init__(self) -> None:
         super().__init__("silent-test-logger")
@@ -726,11 +747,12 @@ class MortalMemory:
 
     async def ensure(self, mortal_id: int) -> Mortal:
         self.events.append(("ensure", mortal_id))
-        mortal = self.mortals.setdefault(mortal_id, Mortal(id=mortal_id)).model_copy(
+        current = mortal(id=mortal_id)
+        mortal_state = self.mortals.setdefault(mortal_id, current).model_copy(
             update={"telegram_unreachable_at": None}
         )
-        self.mortals[mortal_id] = mortal
-        return mortal
+        self.mortals[mortal_id] = mortal_state
+        return mortal_state
 
     async def get(self, mortal_id: int) -> Mortal | None:
         self.events.append(("get", mortal_id))
@@ -754,11 +776,11 @@ class MortalMemory:
 
     async def set_death_date(self, mortal_id: int, death_date: date) -> Mortal:
         self.events.append(("set_death_date", mortal_id, death_date))
-        mortal = self.mortals.get(mortal_id, Mortal(id=mortal_id)).model_copy(
+        mortal_state = self.mortals.get(mortal_id, mortal(id=mortal_id)).model_copy(
             update={"death_date": death_date}
         )
-        self.mortals[mortal_id] = mortal
-        return mortal
+        self.mortals[mortal_id] = mortal_state
+        return mortal_state
 
     async def set_notification_cron(
         self,
@@ -766,11 +788,11 @@ class MortalMemory:
         cron: str | None,
     ) -> Mortal:
         self.events.append(("set_notification_cron", mortal_id, cron))
-        mortal = self.mortals.get(mortal_id, Mortal(id=mortal_id)).model_copy(
+        mortal_state = self.mortals.get(mortal_id, mortal(id=mortal_id)).model_copy(
             update={"notification_cron": cron}
         )
-        self.mortals[mortal_id] = mortal
-        return mortal
+        self.mortals[mortal_id] = mortal_state
+        return mortal_state
 
     async def set_notification_settings(
         self,
@@ -780,19 +802,19 @@ class MortalMemory:
         timezone: str,
     ) -> Mortal:
         self.events.append(("set_notification_settings", mortal_id, cron, timezone))
-        mortal = self.mortals.get(mortal_id, Mortal(id=mortal_id)).model_copy(
+        mortal_state = self.mortals.get(mortal_id, mortal(id=mortal_id)).model_copy(
             update={"notification_cron": cron, "timezone": timezone}
         )
-        self.mortals[mortal_id] = mortal
-        return mortal
+        self.mortals[mortal_id] = mortal_state
+        return mortal_state
 
     async def set_locale(self, mortal_id: int, locale: str) -> Mortal:
         self.events.append(("set_locale", mortal_id, locale))
-        mortal = self.mortals.get(mortal_id, Mortal(id=mortal_id)).model_copy(
+        mortal_state = self.mortals.get(mortal_id, mortal(id=mortal_id)).model_copy(
             update={"locale": locale}
         )
-        self.mortals[mortal_id] = mortal
-        return mortal
+        self.mortals[mortal_id] = mortal_state
+        return mortal_state
 
     async def consume_llm_request(self, mortal_id: int, request_id: str) -> Mortal:
         self.events.append(("consume_llm_request", mortal_id, request_id))
