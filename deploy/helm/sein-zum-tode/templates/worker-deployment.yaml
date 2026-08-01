@@ -39,7 +39,7 @@ spec:
           command:
             - python
             - -m
-            - sein_zum_tode.bot.worker
+            - sein_zum_tode.worker
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           env:
@@ -51,20 +51,22 @@ spec:
               value: {{ .Values.application.logFormat | quote }}
             - name: TELEGRAM_UPDATE_TTL_SECONDS
               value: {{ .Values.application.telegramUpdateTtlSeconds | quote }}
-            - name: CONVERSATION_TTL_SECONDS
-              value: {{ .Values.application.conversationTtlSeconds | quote }}
+            - name: QUESTIONNAIRE_TTL_SECONDS
+              value: {{ .Values.application.questionnaireTtlSeconds | quote }}
             - name: BOT_CONTENT_PATH
               value: /app/config/bot-content.yaml
             - name: DEATH_PREDICTION_CONFIG_PATH
               value: /app/config/death-prediction.yaml
             {{- if eq .Values.deathPrediction.config.provider "yandex" }}
             - name: YANDEX_AI_STUDIO_FOLDER_ID
-              value: {{ required "deathPrediction.folderId is required" .Values.deathPrediction.folderId | quote }}
+              value: {{ required "yandexAiStudio.folderId is required" .Values.yandexAiStudio.folderId | quote }}
             - name: YANDEX_AI_STUDIO_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "sein-zum-tode.secretName" . }}
-                  key: {{ .Values.deathPrediction.apiKeySecretKey | quote }}
+                  key: {{ .Values.yandexAiStudio.apiKeySecretKey | quote }}
+            - name: YANDEX_AI_STUDIO_ENABLE_SERVER_DATA_LOGGING
+              value: {{ .Values.yandexAiStudio.enableServerDataLogging | quote }}
             {{- end }}
             - name: TEMPORAL_ADDRESS
               value: {{ .Values.temporal.address | quote }}

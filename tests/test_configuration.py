@@ -33,12 +33,12 @@ def test_accepts_an_activity_retry_window_shorter_than_redis_payload() -> None:
     )
 
 
-def test_rejects_an_activity_retry_window_that_can_outlive_conversation() -> None:
+def test_rejects_an_activity_retry_window_that_can_outlive_questionnaire() -> None:
     values = {
         "telegram_bot_token": "197:nebula-token",
         "redis_password": "redis-pulsar-1889",
         "telegram_update_ttl_seconds": 1907,
-        "conversation_ttl_seconds": 1891,
+        "questionnaire_ttl_seconds": 1891,
         "temporal_activity_retry_timeout_seconds": 1891,
     }
 

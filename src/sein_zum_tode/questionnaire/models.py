@@ -6,14 +6,14 @@ from pydantic import BaseModel, ConfigDict
 from sein_zum_tode.bot.content import BotContent, LocalizedBotContent
 from sein_zum_tode.prediction.models import PredictionAnswer
 
-TELEGRAM_CONVERSATION_WORKFLOW_NAME = "TelegramConversationWorkflow"
-CONVERSATION_UPDATE_SIGNAL_NAME = "accept_conversation_update"
-CONVERSATION_FINISHED_SIGNAL_NAME = "conversation_finished"
-START_CONVERSATION_ACTIVITY_NAME = "start_telegram_conversation"
-RECORD_CONVERSATION_ANSWER_ACTIVITY_NAME = "record_telegram_conversation_answer"
+TELEGRAM_QUESTIONNAIRE_WORKFLOW_NAME = "TelegramQuestionnaireWorkflow"
+QUESTIONNAIRE_UPDATE_SIGNAL_NAME = "accept_questionnaire_update"
+QUESTIONNAIRE_FINISHED_SIGNAL_NAME = "questionnaire_finished"
+START_QUESTIONNAIRE_ACTIVITY_NAME = "start_telegram_questionnaire"
+RECORD_QUESTIONNAIRE_ANSWER_ACTIVITY_NAME = "record_telegram_questionnaire_answer"
 
 
-class ConversationQuestion(BaseModel):
+class QuestionnaireQuestion(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: str
@@ -21,7 +21,7 @@ class ConversationQuestion(BaseModel):
     answer: str | None = None
     answer_update_key: str | None = None
 
-    def answered(self, answer: str, update_key: str) -> ConversationQuestion:
+    def answered(self, answer: str, update_key: str) -> QuestionnaireQuestion:
         return self.model_copy(
             update={
                 "answer": answer,
@@ -30,7 +30,7 @@ class ConversationQuestion(BaseModel):
         )
 
 
-class ConversationState(BaseModel):
+class QuestionnaireState(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     schema_version: int = 1
@@ -41,7 +41,7 @@ class ConversationState(BaseModel):
     started_message: str
     completed_message: str
     deleted_message: str
-    questions: tuple[ConversationQuestion, ...]
+    questions: tuple[QuestionnaireQuestion, ...]
     current_question_index: int = 0
 
     @classmethod
@@ -53,29 +53,29 @@ class ConversationState(BaseModel):
         locale: str,
         user_id: int,
         chat_id: int,
-    ) -> ConversationState:
-        conversation = localized.conversation
+    ) -> QuestionnaireState:
+        questionnaire = localized.questionnaire
         return cls(
             content_version=content.version,
             locale=locale,
             user_id=user_id,
             chat_id=chat_id,
-            started_message=conversation.started,
-            completed_message=conversation.completed,
-            deleted_message=conversation.deleted,
+            started_message=questionnaire.started,
+            completed_message=questionnaire.completed,
+            deleted_message=questionnaire.deleted,
             questions=tuple(
-                ConversationQuestion(id=question.id, text=question.text)
-                for question in conversation.questions
+                QuestionnaireQuestion(id=question.id, text=question.text)
+                for question in questionnaire.questions
             ),
         )
 
     def initial_messages(self) -> tuple[str, str]:
         return self.started_message, self.questions[0].text
 
-    def apply_answer(self, *, update_key: str, text: str) -> AppliedConversationAnswer:
+    def apply_answer(self, *, update_key: str, text: str) -> AppliedQuestionnaireAnswer:
         existing_index = self._answer_index(update_key)
         if existing_index is not None:
-            return AppliedConversationAnswer(
+            return AppliedQuestionnaireAnswer(
                 state=self,
                 response_text=self._response_after(existing_index),
                 completed=existing_index == len(self.questions) - 1,
@@ -83,7 +83,7 @@ class ConversationState(BaseModel):
 
         question_index = self.current_question_index
         if question_index >= len(self.questions):
-            return AppliedConversationAnswer(
+            return AppliedQuestionnaireAnswer(
                 state=self,
                 response_text=self.completed_message,
                 completed=True,
@@ -97,7 +97,7 @@ class ConversationState(BaseModel):
                 "current_question_index": question_index + 1,
             }
         )
-        return AppliedConversationAnswer(
+        return AppliedQuestionnaireAnswer(
             state=state,
             response_text=state._response_after(question_index),
             completed=question_index == len(questions) - 1,
@@ -128,15 +128,15 @@ class ConversationState(BaseModel):
 
 
 @dataclass(frozen=True, slots=True)
-class AppliedConversationAnswer:
-    state: ConversationState
+class AppliedQuestionnaireAnswer:
+    state: QuestionnaireState
     response_text: str
     completed: bool
 
 
 @dataclass(frozen=True, slots=True)
-class ConversationWorkflowInput:
-    conversation_key: str
+class QuestionnaireWorkflowInput:
+    questionnaire_key: str
     user_id: int
     chat_id: int
     inactivity_timeout_seconds: int
@@ -145,36 +145,36 @@ class ConversationWorkflowInput:
 
 
 @dataclass(frozen=True, slots=True)
-class ConversationUpdateSignal:
+class QuestionnaireUpdateSignal:
     update_key: str
 
 
 @dataclass(frozen=True, slots=True)
-class ConversationFinishedSignal:
-    conversation_key: str
+class QuestionnaireFinishedSignal:
+    questionnaire_key: str
 
 
 @dataclass(frozen=True, slots=True)
-class StartConversationInput:
-    conversation_key: str
+class StartQuestionnaireInput:
+    questionnaire_key: str
     user_id: int
     chat_id: int
 
 
 @dataclass(frozen=True, slots=True)
-class ConversationStarted:
+class QuestionnaireStarted:
     response_keys: tuple[str, ...]
     privacy_response_key: str
 
 
 @dataclass(frozen=True, slots=True)
-class RecordConversationAnswerInput:
-    conversation_key: str
+class RecordQuestionnaireAnswerInput:
+    questionnaire_key: str
     update_key: str
     user_id: int
 
 
-class ConversationTurnKind(StrEnum):
+class QuestionnaireTurnKind(StrEnum):
     QUESTION = "question"
     COMPLETED = "completed"
     IGNORED = "ignored"
@@ -182,15 +182,15 @@ class ConversationTurnKind(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class ConversationTurn:
-    kind: ConversationTurnKind
+class QuestionnaireTurn:
+    kind: QuestionnaireTurnKind
     response_keys: tuple[str, ...] = ()
 
     def accepted(self) -> bool:
         return self.kind in {
-            ConversationTurnKind.QUESTION,
-            ConversationTurnKind.COMPLETED,
+            QuestionnaireTurnKind.QUESTION,
+            QuestionnaireTurnKind.COMPLETED,
         }
 
     def completed(self) -> bool:
-        return self.kind == ConversationTurnKind.COMPLETED
+        return self.kind == QuestionnaireTurnKind.COMPLETED

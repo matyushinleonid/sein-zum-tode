@@ -2,7 +2,7 @@ import asyncio
 from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 from pydantic import SecretStr
 
@@ -18,7 +18,7 @@ def explicit_settings() -> WorkerSettings:
         telegram_polling_timeout_seconds=43,
         telegram_request_timeout_seconds=59,
         telegram_update_ttl_seconds=1823,
-        conversation_ttl_seconds=1877,
+        questionnaire_ttl_seconds=1877,
         bot_content_path=Path("config/cosmos-content.yaml"),
         retry_initial_delay_seconds=0.73,
         retry_max_delay_seconds=18.29,
@@ -38,6 +38,7 @@ def explicit_settings() -> WorkerSettings:
         postgres_password=SecretStr("postgres-irregular-1879"),
         postgres_ssl=True,
         postgres_pgbouncer=True,
+        yandex_ai_studio_enable_server_data_logging=True,
     )
 
 
@@ -103,6 +104,8 @@ class IngressAssembly:
         self.bot = BotResource(self.events)
         self.redis = RedisResource(self.events)
         self.temporal = object()
+        self.temporal_adapter = object()
+        self.update_documents = object()
 
     def install(self, monkeypatch: Any, module: Any) -> None:
         monkeypatch.setattr(module, "Bot", self.create_bot)
@@ -110,8 +113,11 @@ class IngressAssembly:
         monkeypatch.setattr(module, "Client", SimpleNamespace(connect=self.connect_temporal))
         monkeypatch.setattr(module, "AiogramUpdateSource", self.create_source)
         monkeypatch.setattr(module, "RedisClient", self.create_redis_client)
+        monkeypatch.setattr(module, "PydanticJsonCodec", self.create_codec)
+        monkeypatch.setattr(module, "RedisJsonDocumentStore", self.create_documents)
         monkeypatch.setattr(module, "AiogramUpdateUserResolver", self.create_resolver)
-        monkeypatch.setattr(module, "RedisUpdateStore", self.create_store)
+        monkeypatch.setattr(module, "TelegramUpdateStore", self.create_store)
+        monkeypatch.setattr(module, "TemporalClientAdapter", self.create_temporal_adapter)
         monkeypatch.setattr(module, "TemporalUserWorkflowStarter", self.create_starter)
         monkeypatch.setattr(module, "TemporalUpdateHandoff", self.create_handoff)
         monkeypatch.setattr(module, "ExponentialRetryWaiter", self.create_waiter)
@@ -144,22 +150,50 @@ class IngressAssembly:
         self.events.append(("redis_client", redis is self.redis))
         return object()
 
+    def create_codec(self, **options: object) -> object:
+        model = cast(type[object], options["model"])
+        self.events.append(
+            (
+                "codec",
+                model.__name__,
+                options.get("by_alias", False),
+                options.get("exclude_none", False),
+            )
+        )
+        return object()
+
+    def create_documents(self, **options: object) -> object:
+        self.events.append(("documents", options["document_name"]))
+        return self.update_documents
+
     def create_resolver(self) -> object:
         self.events.append(("resolver",))
         return object()
 
     def create_store(self, **options: object) -> object:
-        self.events.append(("store", options["bot_id"], options["ttl_seconds"]))
+        self.events.append(
+            (
+                "store",
+                options["updates"] is self.update_documents,
+                options["bot_id"],
+                options["ttl_seconds"],
+            )
+        )
         return object()
+
+    def create_temporal_adapter(self, client: object) -> object:
+        self.events.append(("temporal_adapter", client is self.temporal))
+        return self.temporal_adapter
 
     def create_starter(self, **options: object) -> object:
         self.events.append(
             (
                 "starter",
+                options["client"] is self.temporal_adapter,
                 options["bot_id"],
                 options["task_queue"],
                 options["activity_retry_timeout_seconds"],
-                options["conversation_ttl_seconds"],
+                options["questionnaire_ttl_seconds"],
             )
         )
         return object()
@@ -229,9 +263,11 @@ class WorkerAssembly:
         self.redis_client = object()
         self.postgres = PostgresResource(self.events)
         self.temporal = object()
-        self.payloads = object()
-        self.conversations = object()
+        self.update_documents = object()
+        self.response_documents = object()
+        self.questionnaires = object()
         self.predictions = object()
+        self.cleaner = object()
         self.mortals = object()
         self.schedules = object()
         self.sender = object()
@@ -247,6 +283,9 @@ class WorkerAssembly:
         monkeypatch.setattr(module, "Bot", self.create_bot)
         monkeypatch.setattr(module, "Redis", self.create_redis)
         monkeypatch.setattr(module, "RedisClient", self.create_redis_client)
+        monkeypatch.setattr(module, "PydanticJsonCodec", self.create_codec)
+        monkeypatch.setattr(module, "RedisJsonDocumentStore", self.create_documents)
+        monkeypatch.setattr(module, "RedisKeyCleaner", self.create_cleaner)
         monkeypatch.setattr(
             module,
             "PostgresClient",
@@ -259,17 +298,6 @@ class WorkerAssembly:
             "YamlDeathPredictionConfigLoader",
             self.create_prediction_config_loader,
         )
-        monkeypatch.setattr(module, "RedisTelegramPayloadRepository", self.create_payloads)
-        monkeypatch.setattr(
-            module,
-            "RedisConversationStateRepository",
-            self.create_conversations,
-        )
-        monkeypatch.setattr(
-            module,
-            "RedisDeathPredictionRepository",
-            self.create_predictions,
-        )
         monkeypatch.setattr(module, "PostgresMortalRepository", self.create_mortals)
         monkeypatch.setattr(module, "TemporalMortalSchedule", self.create_schedules)
         monkeypatch.setattr(module, "AiogramTelegramMessageSender", self.create_sender)
@@ -278,12 +306,12 @@ class WorkerAssembly:
         monkeypatch.setattr(module, "PrepareTelegramResponseActivities", self.create_prepare)
         monkeypatch.setattr(
             module,
-            "StartTelegramConversationActivity",
-            self.create_start_conversation,
+            "StartTelegramQuestionnaireActivity",
+            self.create_start_questionnaire,
         )
         monkeypatch.setattr(
             module,
-            "RecordTelegramConversationAnswerActivity",
+            "RecordTelegramQuestionnaireAnswerActivity",
             self.create_record_answer,
         )
         monkeypatch.setattr(module, "DeliverTelegramResponseActivity", self.create_delivery)
@@ -353,17 +381,34 @@ class WorkerAssembly:
         self.events.append(("prediction_config_loader", path))
         return PredictionConfigLoaderResource(self.events, self.prediction_config)
 
-    def create_payloads(self, redis: object) -> object:
-        self.events.append(("payloads", redis is self.redis_client))
-        return self.payloads
+    def create_codec(self, **options: object) -> object:
+        model = cast(type[object], options["model"])
+        name = model.__name__
+        self.events.append(("codec", name))
+        return SimpleNamespace(model_name=name)
 
-    def create_conversations(self, redis: object) -> object:
-        self.events.append(("conversations", redis is self.redis_client))
-        return self.conversations
+    def create_documents(self, **options: object) -> object:
+        name = cast(str, options["document_name"])
+        codec = cast(SimpleNamespace, options["codec"])
+        documents = {
+            "Telegram update": self.update_documents,
+            "Telegram response": self.response_documents,
+            "Telegram questionnaire": self.questionnaires,
+            "death prediction": self.predictions,
+        }[name]
+        self.events.append(
+            (
+                "documents",
+                name,
+                options["redis"] is self.redis_client,
+                codec.model_name,
+            )
+        )
+        return documents
 
-    def create_predictions(self, redis: object) -> object:
-        self.events.append(("predictions", redis is self.redis_client))
-        return self.predictions
+    def create_cleaner(self, redis: object) -> object:
+        self.events.append(("cleaner", redis is self.redis_client))
+        return self.cleaner
 
     def create_mortals(self, postgres: object) -> object:
         self.events.append(("mortals", postgres is self.postgres))
@@ -395,14 +440,16 @@ class WorkerAssembly:
         )
         return self.predictor
 
-    def create_inspect(self, payloads: object) -> ActivityDefinitions:
-        self.events.append(("inspect", payloads is self.payloads))
+    def create_inspect(self, updates: object) -> ActivityDefinitions:
+        self.events.append(("inspect", updates is self.update_documents))
         return ActivityDefinitions(("inspect",))
 
     def create_prepare(self, **options: object) -> ActivityDefinitions:
         self.events.append(
             (
                 "prepare",
+                options["update_reader"] is self.update_documents,
+                options["response_store"] is self.response_documents,
                 options["ttl_seconds"],
                 options["content"] is self.content,
                 options["mortals"] is self.mortals,
@@ -421,15 +468,15 @@ class WorkerAssembly:
             )
         )
 
-    def create_start_conversation(self, **options: object) -> ActivityDefinitions:
+    def create_start_questionnaire(self, **options: object) -> ActivityDefinitions:
         self.events.append(
             (
-                "start_conversation",
+                "start_questionnaire",
                 options["content"] is self.content,
                 options["mortals"] is self.mortals,
-                options["conversations"] is self.conversations,
-                options["responses"] is self.payloads,
-                options["conversation_ttl_seconds"],
+                options["questionnaires"] is self.questionnaires,
+                options["responses"] is self.response_documents,
+                options["questionnaire_ttl_seconds"],
                 options["response_ttl_seconds"],
                 options["privacy_response_ttl_seconds"],
             )
@@ -440,10 +487,10 @@ class WorkerAssembly:
         self.events.append(
             (
                 "record_answer",
-                options["updates"] is self.payloads,
-                options["conversations"] is self.conversations,
-                options["responses"] is self.payloads,
-                options["conversation_ttl_seconds"],
+                options["updates"] is self.update_documents,
+                options["questionnaires"] is self.questionnaires,
+                options["responses"] is self.response_documents,
+                options["questionnaire_ttl_seconds"],
                 options["response_ttl_seconds"],
                 options["privacy_response_ttl_seconds"],
             )
@@ -454,14 +501,14 @@ class WorkerAssembly:
         self.events.append(
             (
                 "delivery",
-                options["response_reader"] is self.payloads,
+                options["response_reader"] is self.response_documents,
                 options["sender"] is self.sender,
             )
         )
         return ActivityDefinitions(("deliver",))
 
     def create_cleanup(self, **options: object) -> ActivityDefinitions:
-        self.events.append(("cleanup", options["cleaner"] is self.payloads))
+        self.events.append(("cleanup", options["cleaner"] is self.cleaner))
         return ActivityDefinitions(("cleanup",))
 
     def create_mortal_activities(self, **options: object) -> ActivityDefinitions:
@@ -481,7 +528,7 @@ class WorkerAssembly:
             (
                 "prepare_notification",
                 options["mortals"] is self.mortals,
-                options["responses"] is self.payloads,
+                options["responses"] is self.response_documents,
                 options["content"] is self.content,
                 options["response_ttl_seconds"],
             )

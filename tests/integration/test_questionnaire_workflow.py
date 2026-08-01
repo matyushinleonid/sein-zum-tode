@@ -21,24 +21,6 @@ from sein_zum_tode.bot.activities import (
     InspectTelegramUpdateActivity,
     PrepareTelegramResponseActivities,
 )
-from sein_zum_tode.bot.conversation.activities import (
-    RecordTelegramConversationAnswerActivity,
-    StartTelegramConversationActivity,
-)
-from sein_zum_tode.bot.conversation.models import (
-    CONVERSATION_UPDATE_SIGNAL_NAME,
-    RECORD_CONVERSATION_ANSWER_ACTIVITY_NAME,
-    START_CONVERSATION_ACTIVITY_NAME,
-    TELEGRAM_CONVERSATION_WORKFLOW_NAME,
-    ConversationStarted,
-    ConversationTurn,
-    ConversationTurnKind,
-    ConversationUpdateSignal,
-    ConversationWorkflowInput,
-    RecordConversationAnswerInput,
-    StartConversationInput,
-)
-from sein_zum_tode.bot.conversation.workflow import TelegramConversationWorkflow
 from sein_zum_tode.bot.models import (
     CLEANUP_PAYLOADS_ACTIVITY_NAME,
     DELIVER_RESPONSE_ACTIVITY_NAME,
@@ -71,12 +53,30 @@ from sein_zum_tode.prediction.activities import (
 )
 from sein_zum_tode.prediction.config import MockPredictionConfig
 from sein_zum_tode.prediction.mock import MockDeathPredictor
+from sein_zum_tode.questionnaire.activities import (
+    RecordTelegramQuestionnaireAnswerActivity,
+    StartTelegramQuestionnaireActivity,
+)
+from sein_zum_tode.questionnaire.models import (
+    QUESTIONNAIRE_UPDATE_SIGNAL_NAME,
+    RECORD_QUESTIONNAIRE_ANSWER_ACTIVITY_NAME,
+    START_QUESTIONNAIRE_ACTIVITY_NAME,
+    TELEGRAM_QUESTIONNAIRE_WORKFLOW_NAME,
+    QuestionnaireStarted,
+    QuestionnaireTurn,
+    QuestionnaireTurnKind,
+    QuestionnaireUpdateSignal,
+    QuestionnaireWorkflowInput,
+    RecordQuestionnaireAnswerInput,
+    StartQuestionnaireInput,
+)
+from sein_zum_tode.questionnaire.workflow import TelegramQuestionnaireWorkflow
 from tests.support import (
     TEST_TIMEOUT_SECONDS,
     BotContents,
-    ConversationMemory,
     MortalMemory,
     MortalScheduleMemory,
+    QuestionnaireMemory,
     SilentLogger,
     TelegramUpdates,
 )
@@ -87,7 +87,7 @@ pytestmark = [
 ]
 
 
-class ConversationActivityTranscript:
+class QuestionnaireActivityTranscript:
     def __init__(
         self,
         *,
@@ -119,15 +119,15 @@ class ConversationActivityTranscript:
         self.events.append(event)
         self.changed.set()
 
-    @activity.defn(name=START_CONVERSATION_ACTIVITY_NAME)
-    async def start(self, input: StartConversationInput) -> ConversationStarted:
-        self.record_event("start", input.conversation_key)
+    @activity.defn(name=START_QUESTIONNAIRE_ACTIVITY_NAME)
+    async def start(self, input: StartQuestionnaireInput) -> QuestionnaireStarted:
+        self.record_event("start", input.questionnaire_key)
         if isinstance(self.start_outcome, BaseException):
             raise self.start_outcome
-        return cast(ConversationStarted, self.start_outcome)
+        return cast(QuestionnaireStarted, self.start_outcome)
 
-    @activity.defn(name=RECORD_CONVERSATION_ANSWER_ACTIVITY_NAME)
-    async def record(self, input: RecordConversationAnswerInput) -> ConversationTurn:
+    @activity.defn(name=RECORD_QUESTIONNAIRE_ANSWER_ACTIVITY_NAME)
+    async def record(self, input: RecordQuestionnaireAnswerInput) -> QuestionnaireTurn:
         self.record_event("record", input.update_key)
         if input.update_key in self.blocked_updates:
             self.record_started.set()
@@ -135,7 +135,7 @@ class ConversationActivityTranscript:
         outcome = self.turn_outcomes[input.update_key]
         if isinstance(outcome, BaseException):
             raise outcome
-        return cast(ConversationTurn, outcome)
+        return cast(QuestionnaireTurn, outcome)
 
     @activity.defn(name=DELIVER_RESPONSE_ACTIVITY_NAME)
     async def deliver(self, input: DeliverResponseInput) -> None:
@@ -201,24 +201,24 @@ class ConversationActivityTranscript:
             )
 
 
-class ConversationActivityRouter:
+class QuestionnaireActivityRouter:
     def __init__(self) -> None:
-        self._transcript: ConversationActivityTranscript | None = None
+        self._transcript: QuestionnaireActivityTranscript | None = None
 
-    def use(self, transcript: ConversationActivityTranscript) -> None:
+    def use(self, transcript: QuestionnaireActivityTranscript) -> None:
         self._transcript = transcript
 
-    def selected(self) -> ConversationActivityTranscript:
+    def selected(self) -> QuestionnaireActivityTranscript:
         if self._transcript is None:
-            raise RuntimeError("Conversation Activity transcript is not selected")
+            raise RuntimeError("Questionnaire Activity transcript is not selected")
         return self._transcript
 
-    @activity.defn(name=START_CONVERSATION_ACTIVITY_NAME)
-    async def start(self, input: StartConversationInput) -> ConversationStarted:
+    @activity.defn(name=START_QUESTIONNAIRE_ACTIVITY_NAME)
+    async def start(self, input: StartQuestionnaireInput) -> QuestionnaireStarted:
         return await self.selected().start(input)
 
-    @activity.defn(name=RECORD_CONVERSATION_ANSWER_ACTIVITY_NAME)
-    async def record(self, input: RecordConversationAnswerInput) -> ConversationTurn:
+    @activity.defn(name=RECORD_QUESTIONNAIRE_ANSWER_ACTIVITY_NAME)
+    async def record(self, input: RecordQuestionnaireAnswerInput) -> QuestionnaireTurn:
         return await self.selected().record(input)
 
     @activity.defn(name=DELIVER_RESPONSE_ACTIVITY_NAME)
@@ -261,33 +261,33 @@ class ConversationActivityRouter:
         ]
 
 
-class FaultConversationWorkflowStory:
+class FaultQuestionnaireWorkflowStory:
     def __init__(
         self,
         *,
         environment: WorkflowEnvironment,
         worker: Worker,
         task_queue: str,
-        activities: ConversationActivityRouter,
+        activities: QuestionnaireActivityRouter,
     ) -> None:
         self.environment = environment
         self.worker = worker
         self.task_queue = task_queue
         self.activities = activities
-        self.handles: list[WorkflowHandle[TelegramConversationWorkflow, None]] = []
+        self.handles: list[WorkflowHandle[TelegramQuestionnaireWorkflow, None]] = []
 
     @classmethod
     async def open(
         cls,
         *,
         environment: WorkflowEnvironment,
-    ) -> FaultConversationWorkflowStory:
-        task_queue = f"fault-conversation-{uuid4()}"
-        activities = ConversationActivityRouter()
+    ) -> FaultQuestionnaireWorkflowStory:
+        task_queue = f"fault-questionnaire-{uuid4()}"
+        activities = QuestionnaireActivityRouter()
         worker = Worker(
             environment.client,
             task_queue=task_queue,
-            workflows=[TelegramConversationWorkflow],
+            workflows=[TelegramQuestionnaireWorkflow],
             activities=activities.definitions(),
         )
         await worker.__aenter__()
@@ -298,7 +298,7 @@ class FaultConversationWorkflowStory:
             activities=activities,
         )
 
-    def use(self, transcript: ConversationActivityTranscript) -> None:
+    def use(self, transcript: QuestionnaireActivityTranscript) -> None:
         self.activities.use(transcript)
 
     async def close(self) -> None:
@@ -306,17 +306,17 @@ class FaultConversationWorkflowStory:
             await handle.cancel()
         await self.worker.__aexit__(None, None, None)
 
-    async def start(self) -> WorkflowHandle[TelegramConversationWorkflow, None]:
+    async def start(self) -> WorkflowHandle[TelegramQuestionnaireWorkflow, None]:
         handle = await self.environment.client.start_workflow(
-            TELEGRAM_CONVERSATION_WORKFLOW_NAME,
-            ConversationWorkflowInput(
-                conversation_key="telegram:conversation:fault:2401",
+            TELEGRAM_QUESTIONNAIRE_WORKFLOW_NAME,
+            QuestionnaireWorkflowInput(
+                questionnaire_key="telegram:questionnaire:fault:2401",
                 user_id=240_103,
                 chat_id=240_109,
                 inactivity_timeout_seconds=300,
                 activity_retry_timeout_seconds=7,
             ),
-            id=f"fault-conversation-{uuid4()}",
+            id=f"fault-questionnaire-{uuid4()}",
             task_queue=self.task_queue,
         )
         self.handles.append(handle)
@@ -324,24 +324,24 @@ class FaultConversationWorkflowStory:
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def fault_conversation_story(
+async def fault_questionnaire_story(
     temporal_environment: WorkflowEnvironment,
-) -> AsyncIterator[FaultConversationWorkflowStory]:
-    story = await FaultConversationWorkflowStory.open(
+) -> AsyncIterator[FaultQuestionnaireWorkflowStory]:
+    story = await FaultQuestionnaireWorkflowStory.open(
         environment=temporal_environment,
     )
     yield story
     await story.close()
 
 
-class ConversationWorkflowStory:
+class QuestionnaireWorkflowStory:
     def __init__(
         self,
         *,
         environment: WorkflowEnvironment,
         worker: Worker,
         task_queue: str,
-        memory: ConversationMemory,
+        memory: QuestionnaireMemory,
         inactivity_timeout_seconds: int,
     ) -> None:
         self.environment = environment
@@ -366,46 +366,46 @@ class ConversationWorkflowStory:
         cls,
         *,
         environment: WorkflowEnvironment,
-        memory: ConversationMemory,
+        memory: QuestionnaireMemory,
         inactivity_timeout_seconds: int,
-    ) -> ConversationWorkflowStory:
-        task_queue = f"deep-conversation-{uuid4()}"
+    ) -> QuestionnaireWorkflowStory:
+        task_queue = f"deep-questionnaire-{uuid4()}"
         content = BotContents.debug()
         mortals = MortalMemory({241_103: Mortal(id=241_103, locale="en")})
         schedules = MortalScheduleMemory()
         inspect = InspectTelegramUpdateActivity(
-            update_reader=memory,
+            update_reader=memory.update_documents,
             logger=SilentLogger(),
         )
         prepare = PrepareTelegramResponseActivities(
-            update_reader=memory,
-            response_store=memory,
+            update_reader=memory.update_documents,
+            response_store=memory.response_documents,
             ttl_seconds=211,
             content=content,
             mortals=mortals,
             logger=SilentLogger(),
         )
-        start = StartTelegramConversationActivity(
+        start = StartTelegramQuestionnaireActivity(
             content=content,
             mortals=mortals,
-            conversations=memory,
-            responses=memory,
-            conversation_ttl_seconds=inactivity_timeout_seconds,
+            questionnaires=memory.questionnaire_repository,
+            responses=memory.response_documents,
+            questionnaire_ttl_seconds=inactivity_timeout_seconds,
             response_ttl_seconds=211,
             privacy_response_ttl_seconds=inactivity_timeout_seconds + 7,
             logger=SilentLogger(),
         )
-        record = RecordTelegramConversationAnswerActivity(
-            updates=memory,
-            conversations=memory,
-            responses=memory,
-            conversation_ttl_seconds=inactivity_timeout_seconds,
+        record = RecordTelegramQuestionnaireAnswerActivity(
+            updates=memory.update_documents,
+            questionnaires=memory.questionnaire_repository,
+            responses=memory.response_documents,
+            questionnaire_ttl_seconds=inactivity_timeout_seconds,
             response_ttl_seconds=211,
             privacy_response_ttl_seconds=inactivity_timeout_seconds + 7,
             logger=SilentLogger(),
         )
         deliver = DeliverTelegramResponseActivity(
-            response_reader=memory,
+            response_reader=memory.response_documents,
             sender=memory,
             logger=SilentLogger(),
         )
@@ -418,30 +418,30 @@ class ConversationWorkflowStory:
                 config=MockPredictionConfig(days_left=26837),
                 content=content,
             ),
-            predictions=memory,
-            conversations=memory,
+            predictions=memory.prediction_repository,
+            questionnaires=memory.questionnaire_repository,
             mortals=mortals,
             ttl_seconds=inactivity_timeout_seconds,
             logger=SilentLogger(),
         )
         apply_prediction = ApplyDeathPredictionActivity(
-            predictions=memory,
+            predictions=memory.prediction_repository,
             mortals=mortals,
             schedules=schedules,
-            responses=memory,
+            responses=memory.response_documents,
             response_ttl_seconds=211,
             logger=SilentLogger(),
         )
         prepare_prediction_failure = PreparePredictionFailureActivity(
             mortals=mortals,
-            responses=memory,
+            responses=memory.response_documents,
             content=content,
             response_ttl_seconds=211,
         )
         worker = Worker(
             environment.client,
             task_queue=task_queue,
-            workflows=[TelegramUserWorkflow, TelegramConversationWorkflow],
+            workflows=[TelegramUserWorkflow, TelegramQuestionnaireWorkflow],
             activities=[
                 inspect.inspect,
                 prepare.prepare_echo,
@@ -468,7 +468,7 @@ class ConversationWorkflowStory:
             inactivity_timeout_seconds=inactivity_timeout_seconds,
         )
 
-    async def __aenter__(self) -> ConversationWorkflowStory:
+    async def __aenter__(self) -> QuestionnaireWorkflowStory:
         return self
 
     async def __aexit__(
@@ -490,9 +490,9 @@ class ConversationWorkflowStory:
             UserWorkflowInput(
                 user_id=241_103,
                 activity_retry_timeout_seconds=7,
-                conversation_ttl_seconds=self.inactivity_timeout_seconds,
+                questionnaire_ttl_seconds=self.inactivity_timeout_seconds,
             ),
-            id=f"deep-conversation-user-{uuid4()}",
+            id=f"deep-questionnaire-user-{uuid4()}",
             task_queue=self.task_queue,
             start_signal=TELEGRAM_UPDATE_SIGNAL_NAME,
             start_signal_args=[TelegramUpdateSignal(redis_key=begin_key)],
@@ -520,7 +520,7 @@ async def test_runs_the_complete_private_questionnaire_without_persisting_answer
     echo_key = "telegram:update:echo:2437"
     first_secret = "Sensitive first answer 2417"
     second_secret = "Sensitive second answer 2423"
-    memory = ConversationMemory(
+    memory = QuestionnaireMemory(
         updates={
             begin_key: private_message(update_id=2411, text="/begin"),
             first_answer_key: private_message(update_id=2417, text=first_secret),
@@ -528,7 +528,7 @@ async def test_runs_the_complete_private_questionnaire_without_persisting_answer
             echo_key: private_message(update_id=2437, text="Echo after completion"),
         }
     )
-    async with await ConversationWorkflowStory.open(
+    async with await QuestionnaireWorkflowStory.open(
         environment=temporal_environment,
         memory=memory,
         inactivity_timeout_seconds=300,
@@ -546,14 +546,14 @@ async def test_runs_the_complete_private_questionnaire_without_persisting_answer
                 TelegramUpdateSignal(redis_key=second_answer_key),
             )
             await memory.wait_for_messages(6)
-            await memory.wait_until_absent(f"{begin_key}:conversation:privacy")
+            await memory.wait_until_absent(f"{begin_key}:questionnaire:privacy")
             await handle.signal(
                 TELEGRAM_UPDATE_SIGNAL_NAME,
                 TelegramUpdateSignal(redis_key=echo_key),
             )
             await memory.wait_for_messages(7)
             await memory.wait_until_absent(f"{echo_key}:response")
-            child_id = f"{handle.id}:conversation:{begin_key}"
+            child_id = f"{handle.id}:questionnaire:{begin_key}"
             parent_history = await handle.fetch_history()
             child_history = await story.environment.client.get_workflow_handle(
                 child_id
@@ -566,7 +566,7 @@ async def test_runs_the_complete_private_questionnaire_without_persisting_answer
             ]
         )
         assert memory.messages == [
-            (241_109, "mock conversation started"),
+            (241_109, "mock questionnaire started"),
             (241_109, "q1?"),
             (241_109, "q2?"),
             (241_109, "thanks for your answers!"),
@@ -576,9 +576,9 @@ async def test_runs_the_complete_private_questionnaire_without_persisting_answer
             ),
             (241_109, "your answers were deleted from our system"),
             (241_109, "Echo after completion"),
-        ], "parent and child Workflows did not execute the configured conversation in order"
+        ], "parent and child Workflows did not execute the configured questionnaire in order"
         assert (
-            memory.conversations,
+            memory.questionnaires,
             memory.responses,
             memory.predictions,
             first_answer_key in memory.updates,
@@ -598,12 +598,14 @@ async def test_runs_the_complete_private_questionnaire_without_persisting_answer
         ), "completion retained private Redis data or persisted answers in Temporal history"
 
 
-async def test_deletes_an_inactive_conversation_and_notifies_the_user(
+async def test_deletes_an_inactive_questionnaire_and_notifies_the_user(
     temporal_environment: WorkflowEnvironment,
 ) -> None:
     begin_key = "telegram:update:begin:2437"
-    memory = ConversationMemory(updates={begin_key: private_message(update_id=2437, text="/begin")})
-    async with await ConversationWorkflowStory.open(
+    memory = QuestionnaireMemory(
+        updates={begin_key: private_message(update_id=2437, text="/begin")}
+    )
+    async with await QuestionnaireWorkflowStory.open(
         environment=temporal_environment,
         memory=memory,
         inactivity_timeout_seconds=5,
@@ -616,11 +618,11 @@ async def test_deletes_an_inactive_conversation_and_notifies_the_user(
 
         assert (
             memory.messages,
-            memory.conversations,
+            memory.questionnaires,
             memory.responses,
         ) == (
             [
-                (241_109, "mock conversation started"),
+                (241_109, "mock questionnaire started"),
                 (241_109, "q1?"),
                 (241_109, "your answers were deleted from our system"),
             ],
@@ -629,18 +631,18 @@ async def test_deletes_an_inactive_conversation_and_notifies_the_user(
         ), "inactivity timeout failed to clean Redis or send the configured privacy notice"
 
 
-async def test_restarts_an_active_conversation_without_a_deletion_notice(
+async def test_restarts_an_active_questionnaire_without_a_deletion_notice(
     temporal_environment: WorkflowEnvironment,
 ) -> None:
     first_begin_key = "telegram:update:begin:2441"
     second_begin_key = "telegram:update:begin:2447"
-    memory = ConversationMemory(
+    memory = QuestionnaireMemory(
         updates={
             first_begin_key: private_message(update_id=2441, text="/begin"),
             second_begin_key: private_message(update_id=2447, text="/begin"),
         }
     )
-    async with await ConversationWorkflowStory.open(
+    async with await QuestionnaireWorkflowStory.open(
         environment=temporal_environment,
         memory=memory,
         inactivity_timeout_seconds=300,
@@ -656,40 +658,40 @@ async def test_restarts_an_active_conversation_without_a_deletion_notice(
 
         assert (
             memory.messages,
-            tuple(memory.conversations),
+            tuple(memory.questionnaires),
         ) == (
             [
-                (241_109, "mock conversation started"),
+                (241_109, "mock questionnaire started"),
                 (241_109, "q1?"),
-                (241_109, "mock conversation started"),
+                (241_109, "mock questionnaire started"),
                 (241_109, "q1?"),
             ],
-            (f"{second_begin_key}:conversation",),
-        ), "repeated /begin did not silently replace the active conversation snapshot"
+            (f"{second_begin_key}:questionnaire",),
+        ), "repeated /begin did not silently replace the active questionnaire snapshot"
 
 
-async def test_finishes_when_the_conversation_cannot_be_started(
-    fault_conversation_story: FaultConversationWorkflowStory,
+async def test_finishes_when_the_questionnaire_cannot_be_started(
+    fault_questionnaire_story: FaultQuestionnaireWorkflowStory,
 ) -> None:
-    transcript = ConversationActivityTranscript(
+    transcript = QuestionnaireActivityTranscript(
         start_outcome=ApplicationError("snapshot rejected", non_retryable=True),
         turn_outcomes={},
     )
-    fault_conversation_story.use(transcript)
-    handle = await fault_conversation_story.start()
+    fault_questionnaire_story.use(transcript)
+    handle = await fault_questionnaire_story.start()
 
     await handle.result()
 
-    assert transcript.events == [("start", "telegram:conversation:fault:2401")], (
-        "failed start continued into delivery or conversation processing"
+    assert transcript.events == [("start", "telegram:questionnaire:fault:2401")], (
+        "failed start continued into delivery or questionnaire processing"
     )
 
 
 async def test_cleans_private_data_when_initial_delivery_and_cleanup_fail(
-    fault_conversation_story: FaultConversationWorkflowStory,
+    fault_questionnaire_story: FaultQuestionnaireWorkflowStory,
 ) -> None:
-    transcript = ConversationActivityTranscript(
-        start_outcome=ConversationStarted(
+    transcript = QuestionnaireActivityTranscript(
+        start_outcome=QuestionnaireStarted(
             response_keys=("telegram:response:initial:2467",),
             privacy_response_key="telegram:response:privacy:2473",
         ),
@@ -697,99 +699,99 @@ async def test_cleans_private_data_when_initial_delivery_and_cleanup_fail(
         failed_deliveries={"telegram:response:initial:2467"},
         fail_cleanup=True,
     )
-    fault_conversation_story.use(transcript)
-    handle = await fault_conversation_story.start()
+    fault_questionnaire_story.use(transcript)
+    handle = await fault_questionnaire_story.start()
 
     await handle.result()
 
     assert transcript.events == [
-        ("start", "telegram:conversation:fault:2401"),
+        ("start", "telegram:questionnaire:fault:2401"),
         ("deliver", "telegram:response:initial:2467"),
         ("cleanup", ("telegram:response:initial:2467",)),
         ("deliver", "telegram:response:privacy:2473"),
         (
             "cleanup",
             (
-                "telegram:conversation:fault:2401",
+                "telegram:questionnaire:fault:2401",
                 "telegram:response:privacy:2473",
             ),
         ),
-    ], "delivery failure skipped best-effort conversation and privacy cleanup"
+    ], "delivery failure skipped best-effort questionnaire and privacy cleanup"
 
 
 async def test_finishes_privately_when_recording_an_answer_fails(
-    fault_conversation_story: FaultConversationWorkflowStory,
+    fault_questionnaire_story: FaultQuestionnaireWorkflowStory,
 ) -> None:
     update_key = "telegram:update:fault:2503"
-    transcript = ConversationActivityTranscript(
-        start_outcome=ConversationStarted(
+    transcript = QuestionnaireActivityTranscript(
+        start_outcome=QuestionnaireStarted(
             response_keys=(),
             privacy_response_key="telegram:response:privacy:2503",
         ),
         turn_outcomes={update_key: ApplicationError("record rejected", non_retryable=True)},
     )
-    fault_conversation_story.use(transcript)
-    with fault_conversation_story.environment.auto_time_skipping_disabled():
-        handle = await fault_conversation_story.start()
+    fault_questionnaire_story.use(transcript)
+    with fault_questionnaire_story.environment.auto_time_skipping_disabled():
+        handle = await fault_questionnaire_story.start()
         await transcript.wait_for("start", 1)
         await handle.signal(
-            CONVERSATION_UPDATE_SIGNAL_NAME,
-            ConversationUpdateSignal(update_key=update_key),
+            QUESTIONNAIRE_UPDATE_SIGNAL_NAME,
+            QuestionnaireUpdateSignal(update_key=update_key),
         )
         await handle.result()
 
     assert transcript.events == [
-        ("start", "telegram:conversation:fault:2401"),
+        ("start", "telegram:questionnaire:fault:2401"),
         ("record", update_key),
         ("deliver", "telegram:response:privacy:2503"),
         (
             "cleanup",
             (
-                "telegram:conversation:fault:2401",
+                "telegram:questionnaire:fault:2401",
                 update_key,
                 "telegram:response:privacy:2503",
             ),
         ),
-    ], "failed answer recording left the update or conversation snapshot behind"
+    ], "failed answer recording left the update or questionnaire snapshot behind"
 
 
-async def test_ignores_duplicate_input_then_finishes_an_expired_conversation(
-    fault_conversation_story: FaultConversationWorkflowStory,
+async def test_ignores_duplicate_input_then_finishes_an_expired_questionnaire(
+    fault_questionnaire_story: FaultQuestionnaireWorkflowStory,
 ) -> None:
     ignored_key = "telegram:update:ignored:2521"
     expired_key = "telegram:update:expired:2531"
-    transcript = ConversationActivityTranscript(
-        start_outcome=ConversationStarted(
+    transcript = QuestionnaireActivityTranscript(
+        start_outcome=QuestionnaireStarted(
             response_keys=(),
             privacy_response_key="telegram:response:privacy:2539",
         ),
         turn_outcomes={
-            ignored_key: ConversationTurn(kind=ConversationTurnKind.IGNORED),
-            expired_key: ConversationTurn(kind=ConversationTurnKind.EXPIRED),
+            ignored_key: QuestionnaireTurn(kind=QuestionnaireTurnKind.IGNORED),
+            expired_key: QuestionnaireTurn(kind=QuestionnaireTurnKind.EXPIRED),
         },
         blocked_updates={ignored_key},
     )
-    fault_conversation_story.use(transcript)
-    with fault_conversation_story.environment.auto_time_skipping_disabled():
-        handle = await fault_conversation_story.start()
+    fault_questionnaire_story.use(transcript)
+    with fault_questionnaire_story.environment.auto_time_skipping_disabled():
+        handle = await fault_questionnaire_story.start()
         await transcript.wait_for("start", 1)
         await handle.signal(
-            CONVERSATION_UPDATE_SIGNAL_NAME,
-            ConversationUpdateSignal(update_key=ignored_key),
+            QUESTIONNAIRE_UPDATE_SIGNAL_NAME,
+            QuestionnaireUpdateSignal(update_key=ignored_key),
         )
         await asyncio.wait_for(
             transcript.record_started.wait(),
             timeout=TEST_TIMEOUT_SECONDS,
         )
         await handle.signal(
-            CONVERSATION_UPDATE_SIGNAL_NAME,
-            ConversationUpdateSignal(update_key=ignored_key),
+            QUESTIONNAIRE_UPDATE_SIGNAL_NAME,
+            QuestionnaireUpdateSignal(update_key=ignored_key),
         )
         transcript.release_record.set()
         await transcript.wait_for("cleanup", 1)
         await handle.signal(
-            CONVERSATION_UPDATE_SIGNAL_NAME,
-            ConversationUpdateSignal(update_key=expired_key),
+            QUESTIONNAIRE_UPDATE_SIGNAL_NAME,
+            QuestionnaireUpdateSignal(update_key=expired_key),
         )
         await handle.result()
 
@@ -800,24 +802,24 @@ async def test_ignores_duplicate_input_then_finishes_an_expired_conversation(
 
 
 async def test_cancellation_cleans_an_update_being_recorded(
-    fault_conversation_story: FaultConversationWorkflowStory,
+    fault_questionnaire_story: FaultQuestionnaireWorkflowStory,
 ) -> None:
     update_key = "telegram:update:blocked:2551"
-    transcript = ConversationActivityTranscript(
-        start_outcome=ConversationStarted(
+    transcript = QuestionnaireActivityTranscript(
+        start_outcome=QuestionnaireStarted(
             response_keys=(),
             privacy_response_key="telegram:response:privacy:2557",
         ),
-        turn_outcomes={update_key: ConversationTurn(kind=ConversationTurnKind.QUESTION)},
+        turn_outcomes={update_key: QuestionnaireTurn(kind=QuestionnaireTurnKind.QUESTION)},
         blocked_updates={update_key},
     )
-    fault_conversation_story.use(transcript)
-    with fault_conversation_story.environment.auto_time_skipping_disabled():
-        handle = await fault_conversation_story.start()
+    fault_questionnaire_story.use(transcript)
+    with fault_questionnaire_story.environment.auto_time_skipping_disabled():
+        handle = await fault_questionnaire_story.start()
         await transcript.wait_for("start", 1)
         await handle.signal(
-            CONVERSATION_UPDATE_SIGNAL_NAME,
-            ConversationUpdateSignal(update_key=update_key),
+            QUESTIONNAIRE_UPDATE_SIGNAL_NAME,
+            QuestionnaireUpdateSignal(update_key=update_key),
         )
         await asyncio.wait_for(
             transcript.record_started.wait(),
@@ -829,7 +831,7 @@ async def test_cancellation_cleans_an_update_being_recorded(
     assert (
         "cleanup",
         (
-            "telegram:conversation:fault:2401",
+            "telegram:questionnaire:fault:2401",
             update_key,
             "telegram:response:privacy:2557",
         ),
@@ -837,30 +839,30 @@ async def test_cancellation_cleans_an_update_being_recorded(
 
 
 async def test_activation_failure_does_not_restore_private_redis_data(
-    fault_conversation_story: FaultConversationWorkflowStory,
+    fault_questionnaire_story: FaultQuestionnaireWorkflowStory,
 ) -> None:
     update_key = "telegram:update:completed:2579"
     response_key = "telegram:response:completed:2591"
-    transcript = ConversationActivityTranscript(
-        start_outcome=ConversationStarted(
+    transcript = QuestionnaireActivityTranscript(
+        start_outcome=QuestionnaireStarted(
             response_keys=(),
             privacy_response_key="telegram:response:privacy:2593",
         ),
         turn_outcomes={
-            update_key: ConversationTurn(
-                kind=ConversationTurnKind.COMPLETED,
+            update_key: QuestionnaireTurn(
+                kind=QuestionnaireTurnKind.COMPLETED,
                 response_keys=(response_key,),
             )
         },
         fail_activation=True,
     )
-    fault_conversation_story.use(transcript)
-    with fault_conversation_story.environment.auto_time_skipping_disabled():
-        handle = await fault_conversation_story.start()
+    fault_questionnaire_story.use(transcript)
+    with fault_questionnaire_story.environment.auto_time_skipping_disabled():
+        handle = await fault_questionnaire_story.start()
         await transcript.wait_for("start", 1)
         await handle.signal(
-            CONVERSATION_UPDATE_SIGNAL_NAME,
-            ConversationUpdateSignal(update_key=update_key),
+            QUESTIONNAIRE_UPDATE_SIGNAL_NAME,
+            QuestionnaireUpdateSignal(update_key=update_key),
         )
         await handle.result()
 
@@ -878,31 +880,31 @@ async def test_activation_failure_does_not_restore_private_redis_data(
 
 
 async def test_prediction_and_fallback_failure_still_deliver_privacy_notice(
-    fault_conversation_story: FaultConversationWorkflowStory,
+    fault_questionnaire_story: FaultQuestionnaireWorkflowStory,
 ) -> None:
     update_key = "telegram:update:prediction-double-failure:2597"
     response_key = "telegram:response:prediction-double-failure:2599"
-    transcript = ConversationActivityTranscript(
-        start_outcome=ConversationStarted(
+    transcript = QuestionnaireActivityTranscript(
+        start_outcome=QuestionnaireStarted(
             response_keys=(),
             privacy_response_key="telegram:response:privacy:2603",
         ),
         turn_outcomes={
-            update_key: ConversationTurn(
-                kind=ConversationTurnKind.COMPLETED,
+            update_key: QuestionnaireTurn(
+                kind=QuestionnaireTurnKind.COMPLETED,
                 response_keys=(response_key,),
             )
         },
         fail_activation=True,
         fail_prediction_failure_response=True,
     )
-    fault_conversation_story.use(transcript)
-    with fault_conversation_story.environment.auto_time_skipping_disabled():
-        handle = await fault_conversation_story.start()
+    fault_questionnaire_story.use(transcript)
+    with fault_questionnaire_story.environment.auto_time_skipping_disabled():
+        handle = await fault_questionnaire_story.start()
         await transcript.wait_for("start", 1)
         await handle.signal(
-            CONVERSATION_UPDATE_SIGNAL_NAME,
-            ConversationUpdateSignal(update_key=update_key),
+            QUESTIONNAIRE_UPDATE_SIGNAL_NAME,
+            QuestionnaireUpdateSignal(update_key=update_key),
         )
         await handle.result()
 
@@ -914,13 +916,13 @@ async def test_prediction_and_fallback_failure_still_deliver_privacy_notice(
 
 
 @pytest.mark.parametrize("fail_deactivation", [False, True])
-async def test_forbidden_conversation_delivery_deactivates_the_mortal(
+async def test_forbidden_questionnaire_delivery_deactivates_the_mortal(
     fail_deactivation: bool,
-    fault_conversation_story: FaultConversationWorkflowStory,
+    fault_questionnaire_story: FaultQuestionnaireWorkflowStory,
 ) -> None:
     response_key = "telegram:response:forbidden:2609"
-    transcript = ConversationActivityTranscript(
-        start_outcome=ConversationStarted(
+    transcript = QuestionnaireActivityTranscript(
+        start_outcome=QuestionnaireStarted(
             response_keys=(response_key,),
             privacy_response_key="telegram:response:privacy:2617",
         ),
@@ -928,8 +930,8 @@ async def test_forbidden_conversation_delivery_deactivates_the_mortal(
         unavailable_deliveries={response_key},
         fail_deactivation=fail_deactivation,
     )
-    fault_conversation_story.use(transcript)
-    handle = await fault_conversation_story.start()
+    fault_questionnaire_story.use(transcript)
+    handle = await fault_questionnaire_story.start()
     await handle.result()
 
     assert [event[0] for event in transcript.events[:4]] == [

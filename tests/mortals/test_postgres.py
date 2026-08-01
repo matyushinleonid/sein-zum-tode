@@ -7,7 +7,6 @@ from sqlalchemy.sql import ClauseElement, Executable
 
 from sein_zum_tode.infrastructure.postgres import (
     PostgresClientError,
-    PostgresStatementClient,
 )
 from sein_zum_tode.mortals.errors import MortalQuotaExhaustedError, MortalRepositoryError
 from sein_zum_tode.mortals.models import Mortal
@@ -22,7 +21,7 @@ def result_or_raise[T](value: T | BaseException) -> T:
     return value
 
 
-class PostgresStatementClientDouble(PostgresStatementClient):
+class PostgresStatementClientDouble:
     def __init__(
         self,
         *,
@@ -33,13 +32,17 @@ class PostgresStatementClientDouble(PostgresStatementClient):
         self.execute_outcomes = list(execute_outcomes or [])
         self.fetch_outcomes = list(fetch_outcomes or [])
         self.returning_outcomes = list(returning_outcomes or [])
-        self.events: list[tuple[str, Executable]] = []
+        self.events: list[tuple[str, ClauseElement]] = []
+
+    def record(self, operation: str, statement: Executable) -> None:
+        assert isinstance(statement, ClauseElement)
+        self.events.append((operation, statement))
 
     def repository(self) -> PostgresMortalRepository:
         return PostgresMortalRepository(self)
 
     async def execute(self, statement: Executable) -> None:
-        self.events.append(("execute", statement))
+        self.record("execute", statement)
         outcome = self.execute_outcomes.pop(0) if self.execute_outcomes else None
         result_or_raise(outcome)
 
@@ -47,7 +50,7 @@ class PostgresStatementClientDouble(PostgresStatementClient):
         self,
         statement: Executable,
     ) -> Mapping[str, Any] | None:
-        self.events.append(("fetch_one", statement))
+        self.record("fetch_one", statement)
         outcome = self.fetch_outcomes.pop(0)
         return result_or_raise(outcome)
 
@@ -55,7 +58,7 @@ class PostgresStatementClientDouble(PostgresStatementClient):
         self,
         statement: Executable,
     ) -> Mapping[str, Any] | None:
-        self.events.append(("execute_returning_one", statement))
+        self.record("execute_returning_one", statement)
         outcome = self.returning_outcomes.pop(0)
         return result_or_raise(outcome)
 
@@ -78,9 +81,10 @@ def mortal_row(
     }
 
 
-def parameters(statement: Executable) -> dict[str, object]:
-    assert isinstance(statement, ClauseElement)
-    return dict(statement.compile().params)
+def parameters(statement: ClauseElement) -> dict[str, object]:
+    parameters = statement.compile().params
+    assert parameters is not None
+    return {str(key): value for key, value in parameters.items()}
 
 
 async def test_registers_a_mortal_idempotently_with_fixed_defaults() -> None:

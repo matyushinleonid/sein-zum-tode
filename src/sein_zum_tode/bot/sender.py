@@ -14,10 +14,10 @@ from sein_zum_tode.bot.errors import (
     TelegramRecipientUnavailableError,
 )
 from sein_zum_tode.bot.models import TelegramResponse
-from sein_zum_tode.bot.ports import TelegramMessageSender, TelegramSendingClient
+from sein_zum_tode.bot.ports import TelegramSendingClient
 
 
-class AiogramTelegramMessageSender(TelegramMessageSender):
+class AiogramTelegramMessageSender:
     def __init__(self, bot: TelegramSendingClient) -> None:
         self._bot = bot
 

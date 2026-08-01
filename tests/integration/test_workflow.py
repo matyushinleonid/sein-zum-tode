@@ -20,13 +20,6 @@ from sein_zum_tode.bot.activities import (
     InspectTelegramUpdateActivity,
     PrepareTelegramResponseActivities,
 )
-from sein_zum_tode.bot.conversation.models import (
-    CONVERSATION_FINISHED_SIGNAL_NAME,
-    TELEGRAM_CONVERSATION_WORKFLOW_NAME,
-    ConversationFinishedSignal,
-    ConversationWorkflowInput,
-)
-from sein_zum_tode.bot.conversation.workflow import TelegramConversationWorkflow
 from sein_zum_tode.bot.models import (
     CLEANUP_PAYLOADS_ACTIVITY_NAME,
     DELIVER_RESPONSE_ACTIVITY_NAME,
@@ -62,6 +55,13 @@ from sein_zum_tode.mortals.activities import (
 )
 from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.notifications.models import CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME
+from sein_zum_tode.questionnaire.models import (
+    QUESTIONNAIRE_FINISHED_SIGNAL_NAME,
+    TELEGRAM_QUESTIONNAIRE_WORKFLOW_NAME,
+    QuestionnaireFinishedSignal,
+    QuestionnaireWorkflowInput,
+)
+from sein_zum_tode.questionnaire.workflow import TelegramQuestionnaireWorkflow
 from tests.support import (
     TEST_TIMEOUT_SECONDS,
     BotContents,
@@ -77,15 +77,15 @@ pytestmark = [
 ]
 
 
-@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME, sandboxed=False)
-class FailingTelegramConversationWorkflow:
+@workflow.defn(name=TELEGRAM_QUESTIONNAIRE_WORKFLOW_NAME, sandboxed=False)
+class FailingTelegramQuestionnaireWorkflow:
     @workflow.run
-    async def run(self, input: ConversationWorkflowInput) -> None:
-        raise ApplicationError("conversation workflow failed", non_retryable=True)
+    async def run(self, input: QuestionnaireWorkflowInput) -> None:
+        raise ApplicationError("questionnaire workflow failed", non_retryable=True)
 
 
-@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME, sandboxed=False)
-class DelayedFailingTelegramConversationWorkflow:
+@workflow.defn(name=TELEGRAM_QUESTIONNAIRE_WORKFLOW_NAME, sandboxed=False)
+class DelayedFailingTelegramQuestionnaireWorkflow:
     def __init__(self) -> None:
         self._released = False
 
@@ -94,13 +94,13 @@ class DelayedFailingTelegramConversationWorkflow:
         self._released = True
 
     @workflow.run
-    async def run(self, input: ConversationWorkflowInput) -> None:
+    async def run(self, input: QuestionnaireWorkflowInput) -> None:
         await workflow.wait_condition(lambda: self._released)
-        raise ApplicationError("conversation workflow failed", non_retryable=True)
+        raise ApplicationError("questionnaire workflow failed", non_retryable=True)
 
 
-@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME, sandboxed=False)
-class DelayedFinishedTelegramConversationWorkflow:
+@workflow.defn(name=TELEGRAM_QUESTIONNAIRE_WORKFLOW_NAME, sandboxed=False)
+class DelayedFinishedTelegramQuestionnaireWorkflow:
     def __init__(self) -> None:
         self._finished_signal_sent = False
         self._released = False
@@ -114,11 +114,11 @@ class DelayedFinishedTelegramConversationWorkflow:
         return self._finished_signal_sent
 
     @workflow.run
-    async def run(self, input: ConversationWorkflowInput) -> None:
+    async def run(self, input: QuestionnaireWorkflowInput) -> None:
         parent = workflow.get_external_workflow_handle(input.owner_workflow_id)
         await parent.signal(
-            CONVERSATION_FINISHED_SIGNAL_NAME,
-            ConversationFinishedSignal(conversation_key=input.conversation_key),
+            QUESTIONNAIRE_FINISHED_SIGNAL_NAME,
+            QuestionnaireFinishedSignal(questionnaire_key=input.questionnaire_key),
         )
         self._finished_signal_sent = True
         await workflow.wait_condition(lambda: self._released)
@@ -446,23 +446,23 @@ class WorkflowWorkerPool:
         activities = ActivityRouter()
         workers: dict[type, Worker] = {}
         task_queues: dict[type, str] = {}
-        conversation_workflows = (
-            TelegramConversationWorkflow,
-            FailingTelegramConversationWorkflow,
-            DelayedFailingTelegramConversationWorkflow,
-            DelayedFinishedTelegramConversationWorkflow,
+        questionnaire_workflows = (
+            TelegramQuestionnaireWorkflow,
+            FailingTelegramQuestionnaireWorkflow,
+            DelayedFailingTelegramQuestionnaireWorkflow,
+            DelayedFinishedTelegramQuestionnaireWorkflow,
         )
-        for conversation_workflow in conversation_workflows:
+        for questionnaire_workflow in questionnaire_workflows:
             task_queue = f"deep-telegram-{uuid4()}"
             worker = Worker(
                 environment.client,
                 task_queue=task_queue,
-                workflows=[TelegramUserWorkflow, conversation_workflow],
+                workflows=[TelegramUserWorkflow, questionnaire_workflow],
                 activities=activities.definitions(),
             )
             await worker.__aenter__()
-            workers[conversation_workflow] = worker
-            task_queues[conversation_workflow] = task_queue
+            workers[questionnaire_workflow] = worker
+            task_queues[questionnaire_workflow] = task_queue
         return cls(
             environment=environment,
             activities=activities,
@@ -479,10 +479,10 @@ class WorkflowWorkerPool:
         self,
         *,
         activities: Sequence[Callable[..., object]],
-        conversation_workflow: type,
+        questionnaire_workflow: type,
     ) -> str:
         self.activities.use(activities)
-        return self.task_queues[conversation_workflow]
+        return self.task_queues[questionnaire_workflow]
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
@@ -511,11 +511,11 @@ class WorkflowStory:
         *,
         pool: WorkflowWorkerPool,
         activities: Sequence[Callable[..., object]],
-        conversation_workflow: type = TelegramConversationWorkflow,
+        questionnaire_workflow: type = TelegramQuestionnaireWorkflow,
     ) -> WorkflowStory:
         task_queue = pool.select(
             activities=activities,
-            conversation_workflow=conversation_workflow,
+            questionnaire_workflow=questionnaire_workflow,
         )
         return cls(
             environment=pool.environment,
@@ -623,7 +623,7 @@ async def test_routes_unique_signals_through_the_complete_pipeline(
         ], "workflow duplicated a signal or selected an incorrect Activity pipeline"
 
 
-async def test_routes_notification_callback_without_entering_a_conversation(
+async def test_routes_notification_callback_without_entering_a_questionnaire(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
     update_key = "redis:notification-callback:1757"
@@ -736,7 +736,7 @@ async def test_handles_exhausted_or_unavailable_quota_before_begin(
     async with await WorkflowStory.open(
         pool=workflow_worker_pool,
         activities=transcript.definitions(),
-        conversation_workflow=DelayedFailingTelegramConversationWorkflow,
+        questionnaire_workflow=DelayedFailingTelegramQuestionnaireWorkflow,
     ) as story:
         handle = await story.start(update_key, continue_after=None)
         await transcript.wait_for("cleanup", 1)
@@ -763,7 +763,7 @@ async def test_handles_exhausted_or_unavailable_quota_before_begin(
         ),
     ],
 )
-async def test_does_not_restart_an_active_conversation_without_available_quota(
+async def test_does_not_restart_an_active_questionnaire_without_available_quota(
     second_quota: object,
     expected_operations: list[str],
     workflow_worker_pool: WorkflowWorkerPool,
@@ -784,7 +784,7 @@ async def test_does_not_restart_an_active_conversation_without_available_quota(
     async with await WorkflowStory.open(
         pool=workflow_worker_pool,
         activities=transcript.definitions(),
-        conversation_workflow=DelayedFailingTelegramConversationWorkflow,
+        questionnaire_workflow=DelayedFailingTelegramQuestionnaireWorkflow,
     ) as story:
         with story.environment.auto_time_skipping_disabled():
             handle = await story.start(first_key, continue_after=None)
@@ -878,7 +878,7 @@ async def test_keeps_processing_after_response_preparation_failure(
     ], "failed response preparation terminated the per-user workflow"
 
 
-async def test_recovers_when_a_child_conversation_workflow_fails(
+async def test_recovers_when_a_child_questionnaire_workflow_fails(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
     begin_key = "redis:begin-failed-child:1783"
@@ -894,11 +894,11 @@ async def test_recovers_when_a_child_conversation_workflow_fails(
     async with await WorkflowStory.open(
         pool=workflow_worker_pool,
         activities=transcript.definitions(),
-        conversation_workflow=FailingTelegramConversationWorkflow,
+        questionnaire_workflow=FailingTelegramQuestionnaireWorkflow,
     ) as story:
         handle = await story.start(begin_key, continue_after=None)
         await transcript.wait_for("cleanup", 1)
-        child_id = f"{handle.id}:conversation:{begin_key}"
+        child_id = f"{handle.id}:questionnaire:{begin_key}"
         child = story.environment.client.get_workflow_handle(child_id)
         with pytest.raises(WorkflowFailureError):
             await child.result()
@@ -913,7 +913,7 @@ async def test_recovers_when_a_child_conversation_workflow_fails(
             ("prepare_echo", echo_key, 173_357),
             ("deliver", echo_key, 173_357),
             ("cleanup", echo_key, 173_357),
-        ], "failed child conversation prevented later updates from using normal routing"
+        ], "failed child questionnaire prevented later updates from using normal routing"
 
 
 async def test_reroutes_an_update_when_child_fails_during_inspection(
@@ -933,7 +933,7 @@ async def test_reroutes_an_update_when_child_fails_during_inspection(
     async with await WorkflowStory.open(
         pool=workflow_worker_pool,
         activities=transcript.definitions(),
-        conversation_workflow=DelayedFailingTelegramConversationWorkflow,
+        questionnaire_workflow=DelayedFailingTelegramQuestionnaireWorkflow,
     ) as story:
         with story.environment.auto_time_skipping_disabled():
             handle = await story.start(begin_key, continue_after=None)
@@ -946,9 +946,9 @@ async def test_reroutes_an_update_when_child_fails_during_inspection(
                 transcript.inspection_started.wait(),
                 timeout=TEST_TIMEOUT_SECONDS,
             )
-            child_id = f"{handle.id}:conversation:{begin_key}"
+            child_id = f"{handle.id}:questionnaire:{begin_key}"
             child = story.environment.client.get_workflow_handle(child_id)
-            await child.signal(DelayedFailingTelegramConversationWorkflow.release_failure)
+            await child.signal("release_failure")
             with pytest.raises(WorkflowFailureError):
                 await child.result()
             transcript.release_inspection.set()
@@ -1025,19 +1025,19 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
         delete_result=None,
     )
     inspect = InspectTelegramUpdateActivity(
-        update_reader=telegram,
+        update_reader=telegram.update_documents,
         logger=SilentLogger(),
     )
     prepare = PrepareTelegramResponseActivities(
-        update_reader=telegram,
-        response_store=telegram,
+        update_reader=telegram.update_documents,
+        response_store=telegram.response_documents,
         ttl_seconds=1801,
         content=BotContents.debug(),
         mortals=MortalMemory({173_357: Mortal(id=173_357)}),
         logger=SilentLogger(),
     )
     deliver = DeliverTelegramResponseActivity(
-        response_reader=telegram,
+        response_reader=telegram.response_documents,
         sender=telegram,
         logger=SilentLogger(),
     )
@@ -1251,11 +1251,11 @@ async def test_forbidden_delivery_deactivates_and_completes_parent(
     ], "Telegram Forbidden did not run fallback Mortal deletion before parent completion"
 
 
-async def test_block_cancels_an_active_conversation_before_deactivation(
+async def test_block_cancels_an_active_questionnaire_before_deactivation(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
     begin_key = "redis:begin-before-block:1867"
-    blocked_key = "redis:block-during-conversation:1871"
+    blocked_key = "redis:block-during-questionnaire:1871"
     transcript = ActivityTranscript(
         inspections={
             begin_key: InspectionKind.BEGIN,
@@ -1267,7 +1267,7 @@ async def test_block_cancels_an_active_conversation_before_deactivation(
     async with await WorkflowStory.open(
         pool=workflow_worker_pool,
         activities=transcript.definitions(),
-        conversation_workflow=DelayedFailingTelegramConversationWorkflow,
+        questionnaire_workflow=DelayedFailingTelegramQuestionnaireWorkflow,
     ) as story:
         with story.environment.auto_time_skipping_disabled():
             handle = await story.start(begin_key, continue_after=None)
@@ -1301,23 +1301,21 @@ async def test_waits_for_a_finished_child_before_routing_the_next_update(
     async with await WorkflowStory.open(
         pool=workflow_worker_pool,
         activities=transcript.definitions(),
-        conversation_workflow=DelayedFinishedTelegramConversationWorkflow,
+        questionnaire_workflow=DelayedFinishedTelegramQuestionnaireWorkflow,
     ) as story:
         with story.environment.auto_time_skipping_disabled():
             handle = await story.start(begin_key, continue_after=None)
             await transcript.wait_for("cleanup", 1)
-            child_id = f"{handle.id}:conversation:{begin_key}"
+            child_id = f"{handle.id}:questionnaire:{begin_key}"
             child = story.environment.client.get_workflow_handle(child_id)
             async with asyncio.timeout(TEST_TIMEOUT_SECONDS):
-                while not await child.query(
-                    DelayedFinishedTelegramConversationWorkflow.finished_signal_sent
-                ):
+                while not await child.query("finished_signal_sent"):
                     pass
             await handle.signal(
                 TELEGRAM_UPDATE_SIGNAL_NAME,
                 TelegramUpdateSignal(redis_key=echo_key),
             )
-            await child.signal(DelayedFinishedTelegramConversationWorkflow.release_completion)
+            await child.signal("release_completion")
             await transcript.wait_for("cleanup", 2)
 
     assert transcript.events[-4:] == [

@@ -1,25 +1,22 @@
+from sein_zum_tode.ports.completion import CompletionClient
 from sein_zum_tode.prediction.models import DeathPrediction, DeathPredictionRequest
-from sein_zum_tode.prediction.ports import DeathPredictor, StructuredCompletionClient
 
 
-class YandexDeathPredictor(DeathPredictor):
+class LLMDeathPredictor:
     def __init__(
         self,
         *,
-        client: StructuredCompletionClient,
+        client: CompletionClient[DeathPrediction],
     ) -> None:
         self._client = client
 
     @property
     def provider_name(self) -> str:
-        return "yandex"
+        return self._client.provider_name
 
     @property
     def consumes_quota(self) -> bool:
-        return True
+        return self._client.consumes_quota
 
     async def predict(self, request: DeathPredictionRequest) -> DeathPrediction:
-        return await self._client.complete(
-            user_prompt=request.prompt(),
-            response_format=DeathPrediction,
-        )
+        return await self._client.complete(user_prompt=request.prompt())

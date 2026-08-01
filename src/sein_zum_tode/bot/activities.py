@@ -33,22 +33,20 @@ from sein_zum_tode.bot.models import (
     TelegramResponse,
 )
 from sein_zum_tode.bot.ports import (
+    EphemeralPayloadCleaner,
     TelegramMessageSender,
-    TelegramPayloadCleaner,
-    TelegramResponseReader,
-    TelegramResponseStore,
-    TelegramUpdateReader,
 )
 from sein_zum_tode.localization.models import SupportedLocale
 from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.notifications.models import NotificationFrequency
 from sein_zum_tode.observability import LogContext
+from sein_zum_tode.ports.documents import DocumentReader, DocumentWriter
 
 
 class InspectTelegramUpdateActivity:
     def __init__(
         self,
-        update_reader: TelegramUpdateReader,
+        update_reader: DocumentReader[Update],
         logger: logging.Logger | None = None,
     ) -> None:
         self._update_reader = update_reader
@@ -57,7 +55,7 @@ class InspectTelegramUpdateActivity:
     @activity.defn(name=INSPECT_UPDATE_ACTIVITY_NAME)
     async def inspect(self, input: InspectUpdateInput) -> InspectedUpdate:
         try:
-            update = await self._update_reader.load_update(input.update_key)
+            update = await self._update_reader.load(input.update_key)
         except InvalidStoredPayloadError:
             update = None
         if update is None:
@@ -175,8 +173,8 @@ class InspectTelegramUpdateActivity:
 class PrepareTelegramResponseActivities:
     def __init__(
         self,
-        update_reader: TelegramUpdateReader,
-        response_store: TelegramResponseStore,
+        update_reader: DocumentReader[Update],
+        response_store: DocumentWriter[TelegramResponse],
         ttl_seconds: int,
         content: BotContent,
         mortals: MortalRepository,
@@ -194,7 +192,7 @@ class PrepareTelegramResponseActivities:
         localized = await self._localized(input.user_id)
         text = localized.unsupported
         try:
-            update = await self._update_reader.load_update(input.update_key)
+            update = await self._update_reader.load(input.update_key)
         except InvalidStoredPayloadError:
             update = None
         if update is not None and update.message is not None and update.message.text is not None:
@@ -307,7 +305,7 @@ class PrepareTelegramResponseActivities:
         parse_mode: str | None = None,
         keyboard: tuple[tuple[TelegramButton, ...], ...] = (),
     ) -> None:
-        await self._response_store.store_response(
+        await self._response_store.store(
             input.response_key,
             TelegramResponse(
                 chat_id=input.chat_id,
@@ -350,7 +348,7 @@ class PrepareTelegramResponseActivities:
 class DeliverTelegramResponseActivity:
     def __init__(
         self,
-        response_reader: TelegramResponseReader,
+        response_reader: DocumentReader[TelegramResponse],
         sender: TelegramMessageSender,
         logger: logging.Logger | None = None,
     ) -> None:
@@ -361,7 +359,7 @@ class DeliverTelegramResponseActivity:
     @activity.defn(name=DELIVER_RESPONSE_ACTIVITY_NAME)
     async def deliver(self, input: DeliverResponseInput) -> None:
         try:
-            response = await self._response_reader.load_response(input.response_key)
+            response = await self._response_reader.load(input.response_key)
         except InvalidStoredPayloadError as error:
             raise ApplicationError(
                 f"Invalid Telegram response at {input.response_key}",
@@ -404,7 +402,7 @@ class DeliverTelegramResponseActivity:
 class CleanupTelegramPayloadsActivity:
     def __init__(
         self,
-        cleaner: TelegramPayloadCleaner,
+        cleaner: EphemeralPayloadCleaner,
         logger: logging.Logger | None = None,
     ) -> None:
         self._cleaner = cleaner

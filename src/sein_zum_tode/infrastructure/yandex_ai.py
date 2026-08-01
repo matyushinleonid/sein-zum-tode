@@ -1,42 +1,60 @@
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel
 
-from sein_zum_tode.prediction.config import YandexPredictionConfig
+
+@dataclass(frozen=True, slots=True)
+class YandexCompletionProfile:
+    model: str
+    model_version: str
+    temperature: float
+    max_tokens: int
+    request_timeout_seconds: int
+    system_prompt: str
 
 
-class YandexAIStudioClient:
+class YandexAIStudioClient[ResponseT: BaseModel]:
     def __init__(
         self,
         *,
         sdk: Any,
-        config: YandexPredictionConfig,
+        profile: YandexCompletionProfile,
+        response_type: type[ResponseT],
     ) -> None:
-        self._config = config
+        self._profile = profile
+        self._response_type = response_type
         self._model = sdk.models.completions(
-            config.model,
-            model_version=config.model_version,
+            profile.model,
+            model_version=profile.model_version,
         )
 
-    async def complete[ResponseT: BaseModel](
+    @property
+    def provider_name(self) -> str:
+        return "yandex"
+
+    @property
+    def consumes_quota(self) -> bool:
+        return True
+
+    async def complete(
         self,
         *,
         user_prompt: str,
-        response_format: type[ResponseT],
     ) -> ResponseT:
         model = self._model.configure(
-            temperature=self._config.temperature,
-            max_tokens=self._config.max_tokens,
-            response_format=response_format,
+            temperature=self._profile.temperature,
+            max_tokens=self._profile.max_tokens,
+            response_format=self._response_type,
         )
         result = await model.run(
             [
                 {
                     "role": "system",
-                    "text": self._config.system_prompt,
+                    "text": self._profile.system_prompt,
                 },
                 {"role": "user", "text": user_prompt},
             ],
-            timeout=self._config.request_timeout_seconds,
+            timeout=self._profile.request_timeout_seconds,
         )
-        return response_format.model_validate_json(result.text)
+        return self._response_type.model_validate_json(result.text)

@@ -1,45 +1,33 @@
 import asyncio
 import logging
-from collections.abc import Awaitable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
-from typing import cast
+from typing import Protocol, cast
 
 from aiogram.types import InlineKeyboardMarkup, Update
 from temporalio.common import WorkflowIDConflictPolicy
 
 from sein_zum_tode.bot.content import (
     BotContent,
-    ConversationContent,
     LocalizationContent,
     LocalizedBotContent,
     NotificationSettingsContent,
     PredictionContent,
     QuestionContent,
+    QuestionnaireContent,
 )
-from sein_zum_tode.bot.conversation.models import ConversationState
-from sein_zum_tode.bot.conversation.ports import ConversationStateRepository
-from sein_zum_tode.bot.models import InspectionKind, TelegramResponse
-from sein_zum_tode.bot.ports import (
-    TelegramMessageSender,
-    TelegramPayloadCleaner,
-    TelegramResponseReader,
-    TelegramResponseStore,
-    TelegramSendingClient,
-    TelegramUpdateReader,
+from sein_zum_tode.bot.models import (
+    InspectionKind,
+    TelegramResponse,
+    TelegramUpdateSignal,
+    UserWorkflowInput,
 )
-from sein_zum_tode.infrastructure.redis import RedisClient, RedisTransport
+from sein_zum_tode.infrastructure.redis import RedisClient
 from sein_zum_tode.ingress.models import StoredUpdate
-from sein_zum_tode.ingress.ports import (
-    RetryWaiter,
-    TelegramPollingClient,
-    UpdateHandoff,
-    UpdateSource,
-    UpdateStore,
-    UpdateUserResolver,
-)
 from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.prediction.models import StoredDeathPrediction
+from sein_zum_tode.questionnaire.models import QuestionnaireState
 
 TEST_TIMEOUT_SECONDS = 30
 
@@ -89,8 +77,8 @@ class BotContents:
                         failed="Prediction failed",
                         mock="Mock prediction: {answers}",
                     ),
-                    conversation=ConversationContent(
-                        started="mock conversation started",
+                    questionnaire=QuestionnaireContent(
+                        started="mock questionnaire started",
                         completed="thanks for your answers!",
                         deleted="your answers were deleted from our system",
                         questions=(
@@ -127,7 +115,7 @@ class BotContents:
                         failed="Ошибка предсказания",
                         mock="Тестовое предсказание: {answers}",
                     ),
-                    conversation=ConversationContent(
+                    questionnaire=QuestionnaireContent(
                         started="Тестовая анкета начата",
                         completed="Спасибо за ваши ответы!",
                         deleted="Ваши ответы удалены из нашей системы",
@@ -333,7 +321,7 @@ def result_or_raise[T](result: T | BaseException) -> T:
     return result
 
 
-class RedisDouble(RedisTransport):
+class RedisDouble:
     def __init__(
         self,
         get_result: object,
@@ -352,20 +340,11 @@ class RedisDouble(RedisTransport):
         self.events.append(("get", name))
         return cast(str | bytes | None, result_or_raise(self.get_result))
 
-    def set(
+    async def set(
         self,
         name: str,
         value: str,
         *,
-        ex: int,
-    ) -> Awaitable[bool | str | bytes | None]:
-        return self._set(name=name, value=value, ex=ex)
-
-    async def _set(
-        self,
-        *,
-        name: str,
-        value: str,
         ex: int,
     ) -> bool | str | bytes | None:
         self.events.append(("set", name, value, ex))
@@ -376,7 +355,7 @@ class RedisDouble(RedisTransport):
         return cast(int, result_or_raise(self.delete_result))
 
 
-class TelegramBotDouble(TelegramPollingClient, TelegramSendingClient):
+class TelegramBotDouble:
     def __init__(
         self,
         updates: Sequence[Update],
@@ -398,14 +377,14 @@ class TelegramBotDouble(TelegramPollingClient, TelegramSendingClient):
         self.events.append(("delete_webhook", drop_pending_updates))
         return result_or_raise(self.delete_result)
 
-    def get_updates(
+    async def get_updates(
         self,
         offset: int | None = None,
         limit: int | None = None,
         timeout: int | None = None,
         allowed_updates: list[str] | None = None,
         request_timeout: int | None = None,
-    ) -> Awaitable[Sequence[Update]]:
+    ) -> Sequence[Update]:
         arguments: dict[str, object] = {
             "offset": offset,
             "timeout": timeout,
@@ -414,9 +393,6 @@ class TelegramBotDouble(TelegramPollingClient, TelegramSendingClient):
         }
         if limit is not None:
             arguments["limit"] = limit
-        return self._get_updates(arguments)
-
-    async def _get_updates(self, arguments: dict[str, object]) -> Sequence[Update]:
         self.events.append(("get_updates", arguments))
         result = result_or_raise(self.receive_result)
         return self.updates if result is None else cast(Sequence[Update], result)
@@ -437,13 +413,46 @@ class TelegramBotDouble(TelegramPollingClient, TelegramSendingClient):
         return result_or_raise(self.send_result)
 
 
-class TelegramMemory(
-    TelegramUpdateReader,
-    TelegramResponseStore,
-    TelegramResponseReader,
-    TelegramPayloadCleaner,
-    TelegramMessageSender,
-):
+class UpdateMemoryBackend(Protocol):
+    async def load_update(self, key: str) -> Update | None: ...
+
+
+class ResponseMemoryBackend(Protocol):
+    async def store_response(
+        self,
+        key: str,
+        response: TelegramResponse,
+        ttl_seconds: int,
+    ) -> None: ...
+
+    async def load_response(self, key: str) -> TelegramResponse | None: ...
+
+
+class UpdateDocumentMemory:
+    def __init__(self, backend: UpdateMemoryBackend) -> None:
+        self._backend = backend
+
+    async def load(self, key: str) -> Update | None:
+        return await self._backend.load_update(key)
+
+
+class ResponseDocumentMemory:
+    def __init__(self, backend: ResponseMemoryBackend) -> None:
+        self._backend = backend
+
+    async def store(
+        self,
+        key: str,
+        document: TelegramResponse,
+        ttl_seconds: int,
+    ) -> None:
+        await self._backend.store_response(key, document, ttl_seconds)
+
+    async def load(self, key: str) -> TelegramResponse | None:
+        return await self._backend.load_response(key)
+
+
+class TelegramMemory:
     def __init__(
         self,
         update_result: object,
@@ -460,6 +469,8 @@ class TelegramMemory(
         self.events: list[tuple[object, ...]] = []
         self.responses: dict[str, TelegramResponse] = {}
         self.sent = asyncio.Event()
+        self.update_documents = UpdateDocumentMemory(self)
+        self.response_documents = ResponseDocumentMemory(self)
 
     async def load_update(self, key: str) -> Update | None:
         self.events.append(("load_update", key))
@@ -494,44 +505,73 @@ class TelegramMemory(
         self.sent.set()
 
 
-class ConversationMemory(
-    TelegramUpdateReader,
-    ConversationStateRepository,
-    TelegramResponseStore,
-    TelegramResponseReader,
-    TelegramPayloadCleaner,
-    TelegramMessageSender,
-):
+class QuestionnaireStateMemory:
+    def __init__(self, memory: QuestionnaireMemory) -> None:
+        self._memory = memory
+
+    async def load(self, key: str) -> QuestionnaireState | None:
+        return await self._memory.load_questionnaire(key)
+
+    async def store(
+        self,
+        key: str,
+        document: QuestionnaireState,
+        ttl_seconds: int,
+    ) -> None:
+        await self._memory.store_questionnaire(key, document, ttl_seconds)
+
+
+class DeathPredictionMemory:
+    def __init__(self, memory: QuestionnaireMemory) -> None:
+        self._memory = memory
+
+    async def load(self, key: str) -> StoredDeathPrediction | None:
+        return await self._memory.load_prediction(key)
+
+    async def store(
+        self,
+        key: str,
+        document: StoredDeathPrediction,
+        ttl_seconds: int,
+    ) -> None:
+        await self._memory.store_prediction(key, document, ttl_seconds)
+
+
+class QuestionnaireMemory:
     def __init__(
         self,
         *,
         updates: dict[str, Update] | None = None,
-        conversations: dict[str, ConversationState] | None = None,
+        questionnaires: dict[str, QuestionnaireState] | None = None,
     ) -> None:
         self.updates = dict(updates or {})
-        self.conversations = dict(conversations or {})
+        self.questionnaires = dict(questionnaires or {})
         self.responses: dict[str, TelegramResponse] = {}
         self.predictions: dict[str, StoredDeathPrediction] = {}
         self.events: list[tuple[object, ...]] = []
         self.messages: list[tuple[int, str]] = []
         self.changed = asyncio.Event()
+        self.update_documents = UpdateDocumentMemory(self)
+        self.response_documents = ResponseDocumentMemory(self)
+        self.questionnaire_repository = QuestionnaireStateMemory(self)
+        self.prediction_repository = DeathPredictionMemory(self)
 
     async def load_update(self, key: str) -> Update | None:
         self.events.append(("load_update", key))
         return self.updates.get(key)
 
-    async def load_conversation(self, key: str) -> ConversationState | None:
-        self.events.append(("load_conversation", key))
-        return self.conversations.get(key)
+    async def load_questionnaire(self, key: str) -> QuestionnaireState | None:
+        self.events.append(("load_questionnaire", key))
+        return self.questionnaires.get(key)
 
-    async def store_conversation(
+    async def store_questionnaire(
         self,
         key: str,
-        state: ConversationState,
+        state: QuestionnaireState,
         ttl_seconds: int,
     ) -> None:
-        self.events.append(("store_conversation", key, state, ttl_seconds))
-        self.conversations[key] = state
+        self.events.append(("store_questionnaire", key, state, ttl_seconds))
+        self.questionnaires[key] = state
 
     async def store_response(
         self,
@@ -550,16 +590,16 @@ class ConversationMemory(
         self.events.append(("delete", keys))
         for key in keys:
             self.updates.pop(key, None)
-            self.conversations.pop(key, None)
+            self.questionnaires.pop(key, None)
             self.responses.pop(key, None)
             self.predictions.pop(key, None)
         self.changed.set()
 
-    async def load(self, key: str) -> StoredDeathPrediction | None:
+    async def load_prediction(self, key: str) -> StoredDeathPrediction | None:
         self.events.append(("load_prediction", key))
         return self.predictions.get(key)
 
-    async def store(
+    async def store_prediction(
         self,
         key: str,
         prediction: StoredDeathPrediction,
@@ -582,7 +622,7 @@ class ConversationMemory(
             )
 
     async def wait_until_absent(self, key: str) -> None:
-        while key in self.updates or key in self.conversations or key in self.responses:
+        while key in self.updates or key in self.questionnaires or key in self.responses:
             self.changed.clear()
             await asyncio.wait_for(
                 self.changed.wait(),
@@ -590,7 +630,7 @@ class ConversationMemory(
             )
 
 
-class ConversationRepositoryDouble(ConversationStateRepository):
+class QuestionnaireRepositoryDouble:
     def __init__(
         self,
         *,
@@ -601,17 +641,17 @@ class ConversationRepositoryDouble(ConversationStateRepository):
         self.store_result = store_result
         self.events: list[tuple[object, ...]] = []
 
-    async def load_conversation(self, key: str) -> ConversationState | None:
-        self.events.append(("load_conversation", key))
-        return cast(ConversationState | None, result_or_raise(self.load_result))
+    async def load(self, key: str) -> QuestionnaireState | None:
+        self.events.append(("load_questionnaire", key))
+        return cast(QuestionnaireState | None, result_or_raise(self.load_result))
 
-    async def store_conversation(
+    async def store(
         self,
         key: str,
-        state: ConversationState,
+        document: QuestionnaireState,
         ttl_seconds: int,
     ) -> None:
-        self.events.append(("store_conversation", key, state, ttl_seconds))
+        self.events.append(("store_questionnaire", key, document, ttl_seconds))
         result_or_raise(self.store_result)
 
 
@@ -697,7 +737,7 @@ class MortalScheduleMemory:
         self.events.append(("delete", mortal_id))
 
 
-class UserResolverDouble(UpdateUserResolver):
+class UserResolverDouble:
     def __init__(self, user_id: int | None) -> None:
         self.user_id = user_id
         self.events: list[int] = []
@@ -707,7 +747,7 @@ class UserResolverDouble(UpdateUserResolver):
         return self.user_id
 
 
-class SourceDouble(UpdateSource):
+class SourceDouble:
     def __init__(
         self,
         prepare_outcomes: Sequence[object],
@@ -731,7 +771,7 @@ class SourceDouble(UpdateSource):
         return cast(Sequence[Update], outcome)
 
 
-class StoreDouble(UpdateStore):
+class StoreDouble:
     def __init__(self, outcomes: Sequence[object]) -> None:
         self.outcomes = list(outcomes)
         self.events: list[int] = []
@@ -741,7 +781,7 @@ class StoreDouble(UpdateStore):
         return cast(StoredUpdate, result_or_raise(self.outcomes.pop(0)))
 
 
-class HandoffDouble(UpdateHandoff):
+class HandoffDouble:
     def __init__(self, outcomes: Sequence[object]) -> None:
         self.outcomes = list(outcomes)
         self.events: list[StoredUpdate] = []
@@ -751,7 +791,7 @@ class HandoffDouble(UpdateHandoff):
         result_or_raise(self.outcomes.pop(0))
 
 
-class RetryWaiterDouble(RetryWaiter):
+class RetryWaiterDouble:
     def __init__(self, stop: bool) -> None:
         self.stop = stop
         self.events: list[int] = []
@@ -780,13 +820,13 @@ class TemporalClientDouble:
     async def start_workflow(
         self,
         workflow: str,
-        arg: object,
+        arg: UserWorkflowInput,
         *,
         id: str,
         task_queue: str,
         id_conflict_policy: WorkflowIDConflictPolicy,
         start_signal: str | None,
-        start_signal_args: Sequence[object],
+        start_signal_args: Sequence[TelegramUpdateSignal],
     ) -> object:
         self.events.append(
             (

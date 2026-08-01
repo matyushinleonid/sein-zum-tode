@@ -18,7 +18,7 @@ class QuestionContent(BaseModel):
     text: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
 
 
-class ConversationContent(BaseModel):
+class QuestionnaireContent(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     started: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
@@ -30,7 +30,7 @@ class ConversationContent(BaseModel):
     def validate_question_ids(self) -> Self:
         ids = tuple(question.id for question in self.questions)
         if len(ids) != len(set(ids)):
-            raise ValueError("conversation question IDs must be unique")
+            raise ValueError("questionnaire question IDs must be unique")
         return self
 
 
@@ -101,7 +101,7 @@ class LocalizedBotContent(BaseModel):
     localization: LocalizationContent
     notification_settings: NotificationSettingsContent
     prediction: PredictionContent
-    conversation: ConversationContent
+    questionnaire: QuestionnaireContent
 
     @model_validator(mode="after")
     def validate_notification_template(self) -> Self:

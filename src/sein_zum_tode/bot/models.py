@@ -38,7 +38,7 @@ class InspectionKind(StrEnum):
 class UserWorkflowInput:
     user_id: int
     activity_retry_timeout_seconds: int
-    conversation_ttl_seconds: int = 3600
+    questionnaire_ttl_seconds: int = 3600
     pending_update_keys: tuple[str, ...] = ()
     recent_update_keys: tuple[str, ...] = ()
     continue_as_new_after_updates: int | None = None

@@ -1,18 +1,18 @@
 import pytest
 
-from sein_zum_tode.bot.conversation.models import (
-    ConversationState,
-    ConversationTurn,
-    ConversationTurnKind,
+from sein_zum_tode.questionnaire.models import (
+    QuestionnaireState,
+    QuestionnaireTurn,
+    QuestionnaireTurnKind,
 )
 from tests.support import BotContents
 
 pytestmark = pytest.mark.fast
 
 
-def started_state() -> ConversationState:
+def started_state() -> QuestionnaireState:
     content = BotContents.debug()
-    return ConversationState.begin(
+    return QuestionnaireState.begin(
         content=content,
         localized=content.default(),
         locale="en",
@@ -21,7 +21,7 @@ def started_state() -> ConversationState:
     )
 
 
-def test_snapshots_the_configured_conversation_for_one_user() -> None:
+def test_snapshots_the_configured_questionnaire_for_one_user() -> None:
     actual = started_state()
 
     assert (
@@ -36,9 +36,9 @@ def test_snapshots_the_configured_conversation_for_one_user() -> None:
         "en",
         201_107,
         201_113,
-        ("mock conversation started", "q1?"),
+        ("mock questionnaire started", "q1?"),
         (("q1", "q1?"), ("q2", "q2?")),
-    ), "conversation snapshot lost configured content or Telegram ownership"
+    ), "questionnaire snapshot lost configured content or Telegram ownership"
 
 
 def test_records_an_answer_and_selects_the_next_question() -> None:
@@ -98,7 +98,7 @@ def test_completes_with_the_configured_completion_message() -> None:
     ), "final answer did not produce the configured completion message"
 
 
-def test_keeps_a_completed_conversation_completed() -> None:
+def test_keeps_a_completed_questionnaire_completed() -> None:
     state = started_state()
     state = state.apply_answer(update_key="telegram:answer:2053", text="Vega").state
     state = state.apply_answer(update_key="telegram:answer:2063", text="Sirius").state
@@ -122,18 +122,18 @@ def test_keeps_a_completed_conversation_completed() -> None:
 @pytest.mark.parametrize(
     ("kind", "accepted", "completed"),
     [
-        (ConversationTurnKind.QUESTION, True, False),
-        (ConversationTurnKind.COMPLETED, True, True),
-        (ConversationTurnKind.IGNORED, False, False),
-        (ConversationTurnKind.EXPIRED, False, False),
+        (QuestionnaireTurnKind.QUESTION, True, False),
+        (QuestionnaireTurnKind.COMPLETED, True, True),
+        (QuestionnaireTurnKind.IGNORED, False, False),
+        (QuestionnaireTurnKind.EXPIRED, False, False),
     ],
 )
-def test_describes_each_conversation_turn(
-    kind: ConversationTurnKind,
+def test_describes_each_questionnaire_turn(
+    kind: QuestionnaireTurnKind,
     accepted: bool,
     completed: bool,
 ) -> None:
-    actual = ConversationTurn(kind=kind)
+    actual = QuestionnaireTurn(kind=kind)
 
     assert (actual.accepted(), actual.completed()) == (
         accepted,

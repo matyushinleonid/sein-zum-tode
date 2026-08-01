@@ -1,9 +1,13 @@
 import pytest
 from redis.exceptions import ConnectionError
 
+from sein_zum_tode.infrastructure.redis_documents import (
+    PydanticJsonCodec,
+    RedisJsonDocumentStore,
+)
 from sein_zum_tode.ingress.errors import UpdateStoreError
 from sein_zum_tode.ingress.models import StoredUpdate
-from sein_zum_tode.ingress.store import RedisUpdateStore
+from sein_zum_tode.ingress.store import TelegramUpdateStore
 from tests.support import RedisDouble, TelegramUpdates, UserResolverDouble
 
 pytestmark = pytest.mark.fast
@@ -23,8 +27,16 @@ async def test_stores_the_complete_update_and_its_route() -> None:
         delete_result=0,
     )
     resolver = UserResolverDouble(98_333)
-    store = RedisUpdateStore(
-        redis=redis.client(),
+    store = TelegramUpdateStore(
+        updates=RedisJsonDocumentStore(
+            redis=redis.client(),
+            codec=PydanticJsonCodec(
+                model=type(update),
+                by_alias=True,
+                exclude_none=True,
+            ),
+            document_name="Telegram update",
+        ),
         user_resolver=resolver,
         bot_id=98_347,
         ttl_seconds=997,
@@ -69,8 +81,12 @@ async def test_rejects_every_unsuccessful_redis_write(redis_outcome: object) -> 
         set_result=redis_outcome,
         delete_result=0,
     )
-    store = RedisUpdateStore(
-        redis=redis.client(),
+    store = TelegramUpdateStore(
+        updates=RedisJsonDocumentStore(
+            redis=redis.client(),
+            codec=PydanticJsonCodec(model=type(update)),
+            document_name="Telegram update",
+        ),
         user_resolver=UserResolverDouble(101_323),
         bot_id=101_347,
         ttl_seconds=1019,

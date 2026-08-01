@@ -6,7 +6,6 @@ from temporalio import activity
 
 from sein_zum_tode.bot.content import BotContent
 from sein_zum_tode.bot.models import TelegramResponse
-from sein_zum_tode.bot.ports import TelegramResponseStore
 from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.notifications.models import (
     PREPARE_MORTAL_NOTIFICATION_ACTIVITY_NAME,
@@ -14,6 +13,7 @@ from sein_zum_tode.notifications.models import (
     PrepareMortalNotificationInput,
 )
 from sein_zum_tode.observability import LogContext
+from sein_zum_tode.ports.documents import DocumentWriter
 
 
 class Clock(Protocol):
@@ -30,7 +30,7 @@ class PrepareMortalNotificationActivity:
         self,
         *,
         mortals: MortalRepository,
-        responses: TelegramResponseStore,
+        responses: DocumentWriter[TelegramResponse],
         content: BotContent,
         response_ttl_seconds: int,
         clock: Clock | None = None,
@@ -55,7 +55,7 @@ class PrepareMortalNotificationActivity:
         if days_left is None:
             return None
         text = self._content.localized(mortal.locale).notification_text(days_left)
-        await self._responses.store_response(
+        await self._responses.store(
             input.response_key,
             TelegramResponse(chat_id=mortal.id, text=text),
             self._response_ttl_seconds,

@@ -1,17 +1,25 @@
 import asyncio
 
 from aiogram import Bot
+from aiogram.types import Update
 from redis.asyncio import Redis
 from temporalio.client import Client
 
 from sein_zum_tode.config import Settings
 from sein_zum_tode.infrastructure.redis import RedisClient
+from sein_zum_tode.infrastructure.redis_documents import (
+    PydanticJsonCodec,
+    RedisJsonDocumentStore,
+)
 from sein_zum_tode.ingress.handoff import TemporalUpdateHandoff
 from sein_zum_tode.ingress.poller import ExponentialRetryWaiter, TelegramPoller
 from sein_zum_tode.ingress.routing import AiogramUpdateUserResolver
 from sein_zum_tode.ingress.source import AiogramUpdateSource
-from sein_zum_tode.ingress.store import RedisUpdateStore
-from sein_zum_tode.ingress.temporal import TemporalUserWorkflowStarter
+from sein_zum_tode.ingress.store import TelegramUpdateStore
+from sein_zum_tode.ingress.temporal import (
+    TemporalClientAdapter,
+    TemporalUserWorkflowStarter,
+)
 from sein_zum_tode.log_config import configure_logging
 from sein_zum_tode.runtime import install_signal_handlers
 
@@ -37,18 +45,26 @@ async def run(settings: Settings) -> None:
         polling_timeout_seconds=settings.telegram_polling_timeout_seconds,
         request_timeout_seconds=settings.telegram_request_timeout_seconds,
     )
-    store = RedisUpdateStore(
-        redis=redis,
+    store = TelegramUpdateStore(
+        updates=RedisJsonDocumentStore(
+            redis=redis,
+            codec=PydanticJsonCodec(
+                model=Update,
+                by_alias=True,
+                exclude_none=True,
+            ),
+            document_name="Telegram update",
+        ),
         user_resolver=AiogramUpdateUserResolver(),
         bot_id=bot.id,
         ttl_seconds=settings.telegram_update_ttl_seconds,
     )
     workflow_starter = TemporalUserWorkflowStarter(
-        client=temporal,
+        client=TemporalClientAdapter(temporal),
         bot_id=bot.id,
         task_queue=settings.temporal_task_queue,
-        activity_retry_timeout_seconds=(settings.temporal_activity_retry_timeout_seconds),
-        conversation_ttl_seconds=settings.conversation_ttl_seconds,
+        activity_retry_timeout_seconds=settings.temporal_activity_retry_timeout_seconds,
+        questionnaire_ttl_seconds=settings.questionnaire_ttl_seconds,
     )
     poller = TelegramPoller(
         source=source,

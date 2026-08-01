@@ -43,8 +43,8 @@ async def test_configures_each_supported_localization(
     )
     mortals = MortalMemory({user_id: Mortal(id=user_id)})
     subject = ConfigureMortalLocalizationActivity(
-        updates=payloads,
-        responses=payloads,
+        updates=payloads.update_documents,
+        responses=payloads.response_documents,
         mortals=mortals,
         content=BotContents.debug(),
         response_ttl_seconds=3617,
@@ -98,8 +98,8 @@ async def test_rejects_an_invalid_localization_callback(
         delete_result=None,
     )
     subject = ConfigureMortalLocalizationActivity(
-        updates=payloads,
-        responses=payloads,
+        updates=payloads.update_documents,
+        responses=payloads.response_documents,
         mortals=MortalMemory(),
         content=BotContents.debug(),
         response_ttl_seconds=3623,
