@@ -1017,10 +1017,12 @@ async def test_custom_schedule_handles_global_quota_or_completion_failure(
 ) -> None:
     callback_key = "redis:custom-schedule-callback:17587"
     schedule_key = "redis:custom-schedule-text:17589"
+    stop_key = "redis:stop-after-custom-schedule-outcome:17591"
     transcript = ActivityTranscript(
         inspections={
             callback_key: InspectionKind.CUSTOM_NOTIFICATION_SELECTION,
             schedule_key: InspectionKind.TEXT,
+            stop_key: InspectionKind.MORTAL_BLOCKED,
         },
         failing_inspection=None,
         failing_cleanup=False,
@@ -1040,8 +1042,17 @@ async def test_custom_schedule_handles_global_quota_or_completion_failure(
             TelegramUpdateSignal(redis_key=schedule_key),
         )
         await transcript.wait_for("cleanup", 1)
+        events = [event[0] for event in transcript.events]
+        if forbidden_delivery:
+            await handle.result()
+        else:
+            await handle.signal(
+                TELEGRAM_UPDATE_SIGNAL_NAME,
+                TelegramUpdateSignal(redis_key=stop_key),
+            )
+            await handle.result()
 
-    assert [event[0] for event in transcript.events] == expected
+    assert events == expected
 
 
 async def test_requires_localization_before_processing_a_new_mortal(
