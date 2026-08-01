@@ -38,9 +38,8 @@ from sein_zum_tode.localization.models import (
 )
 from sein_zum_tode.mortals.activities import (
     CHECK_MORTAL_QUOTA_ACTIVITY_NAME,
-    DEACTIVATE_MORTAL_ACTIVITY_NAME,
     ENSURE_MORTAL_ACTIVITY_NAME,
-    RESET_MORTAL_ACTIVITY_NAME,
+    MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME,
     MortalActivityInput,
     MortalRegistration,
 )
@@ -137,10 +136,10 @@ class TelegramUserWorkflow:
             if self._questionnaire is not None:
                 await self._cancel_questionnaire()
             await self._cleanup(update_key, f"{update_key}:response")
-            await self._deactivate_mortal(update_key)
+            await self._mark_mortal_unreachable(update_key)
             return False
         if inspected.kind == InspectionKind.MORTAL_UNBLOCKED:
-            await self._reset_mortal(update_key)
+            await self._restore_mortal(update_key)
             await self._cleanup(update_key, f"{update_key}:response")
             return True
         if inspected.kind == InspectionKind.GROUP_UNSUPPORTED:
@@ -268,7 +267,7 @@ class TelegramUserWorkflow:
         except ActivityError as error:
             if self._recipient_unavailable(error):
                 recipient_available = False
-                await self._deactivate_mortal(update_key)
+                await self._mark_mortal_unreachable(update_key)
             context = LogContext(
                 component="worker",
                 user_id=self._user_id,
@@ -349,10 +348,10 @@ class TelegramUserWorkflow:
             callback_query_id=inspected.callback_query_id,
         )
 
-    async def _deactivate_mortal(self, update_key: str | None) -> None:
+    async def _mark_mortal_unreachable(self, update_key: str | None) -> None:
         try:
             await workflow.execute_activity(
-                DEACTIVATE_MORTAL_ACTIVITY_NAME,
+                MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME,
                 MortalActivityInput(mortal_id=self._user_id),
                 schedule_to_close_timeout=self._activity_timeout,
             )
@@ -363,34 +362,16 @@ class TelegramUserWorkflow:
                 update_key=update_key,
             )
             workflow.logger.exception(
-                "Mortal deactivation failed",
-                extra=context.event("mortal_deactivation_failed"),
+                "Failed to mark Mortal unreachable",
+                extra=context.event("mortal_mark_unreachable_failed"),
             )
         self._mortal_registered = False
         self._localization_required = None
 
-    async def _reset_mortal(self, update_key: str) -> None:
-        try:
-            await workflow.execute_activity(
-                RESET_MORTAL_ACTIVITY_NAME,
-                MortalActivityInput(mortal_id=self._user_id),
-                schedule_to_close_timeout=self._activity_timeout,
-            )
-        except ActivityError:
-            context = LogContext(
-                component="worker",
-                user_id=self._user_id,
-                update_key=update_key,
-            )
-            workflow.logger.exception(
-                "Mortal reset failed",
-                extra=context.event("mortal_reset_failed"),
-            )
-            self._mortal_registered = False
-            self._localization_required = None
-            return
-        self._mortal_registered = True
-        self._localization_required = True
+    async def _restore_mortal(self, update_key: str) -> None:
+        self._mortal_registered = False
+        self._localization_required = None
+        await self._ensure_mortal(update_key)
 
     async def _start_questionnaire(self, inspected: InspectedUpdate) -> None:
         questionnaire_key = f"{inspected.update_key}:questionnaire"

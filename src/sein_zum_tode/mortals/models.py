@@ -20,6 +20,7 @@ class Mortal(BaseModel):
         max_length=128,
     )
     death_date: date | None = None
+    telegram_unreachable_at: datetime | None = None
     llm_requests_remaining: int = Field(
         default=DEFAULT_LLM_REQUESTS_REMAINING,
         ge=0,

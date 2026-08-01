@@ -22,7 +22,7 @@ from sein_zum_tode.broadcasts.models import (
     ScreamWorkflowInput,
 )
 from sein_zum_tode.mortals.activities import (
-    DEACTIVATE_MORTAL_ACTIVITY_NAME,
+    MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME,
     MortalActivityInput,
 )
 from sein_zum_tode.observability import LogContext
@@ -101,7 +101,7 @@ class TelegramScreamWorkflow:
             )
         except ActivityError as error:
             if self._recipient_unavailable(error):
-                await self._deactivate(input, recipient_id, activity_timeout)
+                await self._mark_unreachable(input, recipient_id, activity_timeout)
             workflow.logger.exception(
                 "Scream delivery failed",
                 extra=self._context(input).event(
@@ -113,7 +113,7 @@ class TelegramScreamWorkflow:
             return False
         return True
 
-    async def _deactivate(
+    async def _mark_unreachable(
         self,
         input: ScreamWorkflowInput,
         recipient_id: int,
@@ -121,15 +121,15 @@ class TelegramScreamWorkflow:
     ) -> None:
         try:
             await workflow.execute_activity(
-                DEACTIVATE_MORTAL_ACTIVITY_NAME,
+                MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME,
                 MortalActivityInput(mortal_id=recipient_id),
                 schedule_to_close_timeout=activity_timeout,
             )
         except ActivityError:
             workflow.logger.exception(
-                "Scream recipient deactivation failed",
+                "Failed to mark scream recipient unreachable",
                 extra=self._context(input).event(
-                    "scream_recipient_deactivation_failed",
+                    "scream_recipient_mark_unreachable_failed",
                     recipient_id=recipient_id,
                 ),
             )

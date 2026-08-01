@@ -31,6 +31,7 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.Column("death_date", sa.Date(), nullable=True),
+        sa.Column("telegram_unreachable_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
 

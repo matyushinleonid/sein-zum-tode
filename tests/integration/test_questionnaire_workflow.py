@@ -34,8 +34,8 @@ from sein_zum_tode.bot.models import (
 from sein_zum_tode.bot.workflow import TelegramUserWorkflow
 from sein_zum_tode.mortals.activities import (
     CHECK_MORTAL_QUOTA_ACTIVITY_NAME,
-    DEACTIVATE_MORTAL_ACTIVITY_NAME,
     ENSURE_MORTAL_ACTIVITY_NAME,
+    MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME,
     MortalActivityInput,
     MortalRegistration,
 )
@@ -99,7 +99,7 @@ class QuestionnaireActivityTranscript:
         unavailable_deliveries: set[str] | None = None,
         fail_activation: bool = False,
         fail_prediction_failure_response: bool = False,
-        fail_deactivation: bool = False,
+        fail_mark_unreachable: bool = False,
     ) -> None:
         self.start_outcome = start_outcome
         self.turn_outcomes = turn_outcomes
@@ -109,7 +109,7 @@ class QuestionnaireActivityTranscript:
         self.unavailable_deliveries = unavailable_deliveries or set()
         self.fail_activation = fail_activation
         self.fail_prediction_failure_response = fail_prediction_failure_response
-        self.fail_deactivation = fail_deactivation
+        self.fail_mark_unreachable = fail_mark_unreachable
         self.events: list[tuple[object, ...]] = []
         self.changed = asyncio.Event()
         self.record_started = asyncio.Event()
@@ -174,11 +174,11 @@ class QuestionnaireActivityTranscript:
         if self.fail_prediction_failure_response:
             raise ApplicationError("failure response unavailable", non_retryable=True)
 
-    @activity.defn(name=DEACTIVATE_MORTAL_ACTIVITY_NAME)
-    async def deactivate_mortal(self, input: MortalActivityInput) -> None:
-        self.record_event("deactivate_mortal", input.mortal_id)
-        if self.fail_deactivation:
-            raise ApplicationError("deactivation unavailable", non_retryable=True)
+    @activity.defn(name=MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME)
+    async def mark_mortal_unreachable(self, input: MortalActivityInput) -> None:
+        self.record_event("mark_mortal_unreachable", input.mortal_id)
+        if self.fail_mark_unreachable:
+            raise ApplicationError("reachability update unavailable", non_retryable=True)
 
     def definitions(self) -> Sequence[Callable[..., object]]:
         return [
@@ -189,7 +189,7 @@ class QuestionnaireActivityTranscript:
             self.generate_prediction,
             self.apply_prediction,
             self.prepare_prediction_failure,
-            self.deactivate_mortal,
+            self.mark_mortal_unreachable,
         ]
 
     async def wait_for(self, operation: str, count: int) -> None:
@@ -244,9 +244,9 @@ class QuestionnaireActivityRouter:
     ) -> None:
         await self.selected().prepare_prediction_failure(input)
 
-    @activity.defn(name=DEACTIVATE_MORTAL_ACTIVITY_NAME)
-    async def deactivate_mortal(self, input: MortalActivityInput) -> None:
-        await self.selected().deactivate_mortal(input)
+    @activity.defn(name=MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME)
+    async def mark_mortal_unreachable(self, input: MortalActivityInput) -> None:
+        await self.selected().mark_mortal_unreachable(input)
 
     def definitions(self) -> Sequence[Callable[..., object]]:
         return [
@@ -257,7 +257,7 @@ class QuestionnaireActivityRouter:
             self.generate_prediction,
             self.apply_prediction,
             self.prepare_prediction_failure,
-            self.deactivate_mortal,
+            self.mark_mortal_unreachable,
         ]
 
 
@@ -913,9 +913,9 @@ async def test_prediction_and_fallback_failure_still_deliver_privacy_notice(
     ], "failed prediction fallback skipped response attempt, privacy notice, or cleanup"
 
 
-@pytest.mark.parametrize("fail_deactivation", [False, True])
-async def test_forbidden_questionnaire_delivery_deactivates_the_mortal(
-    fail_deactivation: bool,
+@pytest.mark.parametrize("fail_mark_unreachable", [False, True])
+async def test_forbidden_questionnaire_delivery_marks_the_mortal_unreachable(
+    fail_mark_unreachable: bool,
     fault_questionnaire_story: FaultQuestionnaireWorkflowStory,
 ) -> None:
     response_key = "telegram:response:forbidden:2609"
@@ -926,7 +926,7 @@ async def test_forbidden_questionnaire_delivery_deactivates_the_mortal(
         ),
         turn_outcomes={},
         unavailable_deliveries={response_key},
-        fail_deactivation=fail_deactivation,
+        fail_mark_unreachable=fail_mark_unreachable,
     )
     fault_questionnaire_story.use(transcript)
     handle = await fault_questionnaire_story.start()
@@ -935,6 +935,6 @@ async def test_forbidden_questionnaire_delivery_deactivates_the_mortal(
     assert [event[0] for event in transcript.events[:4]] == [
         "start",
         "deliver",
-        "deactivate_mortal",
+        "mark_mortal_unreachable",
         "cleanup",
-    ], "forbidden questionnaire delivery did not invoke fallback Mortal deactivation"
+    ], "forbidden questionnaire delivery did not update Mortal reachability"

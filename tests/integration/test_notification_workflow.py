@@ -17,8 +17,8 @@ from sein_zum_tode.bot.models import (
     DeliverResponseInput,
 )
 from sein_zum_tode.mortals.activities import (
-    DEACTIVATE_MORTAL_ACTIVITY_NAME,
     DELETE_MORTAL_SCHEDULE_ACTIVITY_NAME,
+    MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME,
     MortalActivityInput,
 )
 from sein_zum_tode.notifications.models import (
@@ -49,13 +49,13 @@ class NotificationActivityTranscript:
         prepare_outcome: object,
         delivery_outcome: object = None,
         cleanup_outcome: object = None,
-        deactivate_outcome: object = None,
+        mark_unreachable_outcome: object = None,
         delete_schedule_outcome: object = None,
     ) -> None:
         self.prepare_outcome = prepare_outcome
         self.delivery_outcome = delivery_outcome
         self.cleanup_outcome = cleanup_outcome
-        self.deactivate_outcome = deactivate_outcome
+        self.mark_unreachable_outcome = mark_unreachable_outcome
         self.delete_schedule_outcome = delete_schedule_outcome
         self.events: list[tuple[object, ...]] = []
 
@@ -80,10 +80,10 @@ class NotificationActivityTranscript:
         self.events.append(("cleanup", input.user_id, input.keys))
         result_or_raise(self.cleanup_outcome)
 
-    @activity.defn(name=DEACTIVATE_MORTAL_ACTIVITY_NAME)
-    async def deactivate(self, input: MortalActivityInput) -> None:
-        self.events.append(("deactivate", input.mortal_id))
-        result_or_raise(self.deactivate_outcome)
+    @activity.defn(name=MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME)
+    async def mark_unreachable(self, input: MortalActivityInput) -> None:
+        self.events.append(("mark_unreachable", input.mortal_id))
+        result_or_raise(self.mark_unreachable_outcome)
 
     @activity.defn(name=DELETE_MORTAL_SCHEDULE_ACTIVITY_NAME)
     async def delete_schedule(self, input: MortalActivityInput) -> None:
@@ -95,7 +95,7 @@ class NotificationActivityTranscript:
             self.prepare,
             self.deliver,
             self.cleanup,
-            self.deactivate,
+            self.mark_unreachable,
             self.delete_schedule,
         ]
 
@@ -127,9 +127,9 @@ class NotificationActivityRouter:
     async def cleanup(self, input: CleanupPayloadsInput) -> None:
         await self.selected().cleanup(input)
 
-    @activity.defn(name=DEACTIVATE_MORTAL_ACTIVITY_NAME)
-    async def deactivate(self, input: MortalActivityInput) -> None:
-        await self.selected().deactivate(input)
+    @activity.defn(name=MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME)
+    async def mark_unreachable(self, input: MortalActivityInput) -> None:
+        await self.selected().mark_unreachable(input)
 
     @activity.defn(name=DELETE_MORTAL_SCHEDULE_ACTIVITY_NAME)
     async def delete_schedule(self, input: MortalActivityInput) -> None:
@@ -140,7 +140,7 @@ class NotificationActivityRouter:
             self.prepare,
             self.deliver,
             self.cleanup,
-            self.deactivate,
+            self.mark_unreachable,
             self.delete_schedule,
         ]
 
@@ -256,7 +256,7 @@ async def test_reconciles_a_schedule_without_an_enabled_mortal(
     ], "stale Schedule was not removed when notification preferences disappeared"
 
 
-async def test_forbidden_delivery_deactivates_the_mortal(
+async def test_forbidden_delivery_marks_the_mortal_unreachable(
     notification_story: NotificationWorkflowStory,
 ) -> None:
     transcript = NotificationActivityTranscript(
@@ -275,9 +275,9 @@ async def test_forbidden_delivery_deactivates_the_mortal(
     assert [event[0] for event in transcript.events] == [
         "prepare",
         "deliver",
-        "deactivate",
+        "mark_unreachable",
         "cleanup",
-    ], "Telegram Forbidden did not remove the Mortal and its Schedule"
+    ], "Telegram Forbidden did not mark the Mortal unreachable and remove its Schedule"
 
 
 async def test_best_effort_cleanup_survives_delivery_and_cleanup_failures(
@@ -297,13 +297,13 @@ async def test_best_effort_cleanup_survives_delivery_and_cleanup_failures(
         "prepare",
         "deliver",
         "cleanup",
-    ], "transient notification failure incorrectly deactivated the Mortal"
+    ], "transient notification failure incorrectly marked the Mortal unreachable"
 
 
 @pytest.mark.parametrize(
     "failed_operation",
     [
-        "deactivate",
+        "mark_unreachable",
         "delete_schedule",
     ],
 )
@@ -315,7 +315,7 @@ async def test_lifecycle_activity_failure_does_not_hide_delivery_outcome(
         f"{failed_operation} unavailable",
         non_retryable=True,
     )
-    forbidden = failed_operation == "deactivate"
+    forbidden = failed_operation == "mark_unreachable"
     transcript = NotificationActivityTranscript(
         prepare_outcome=(
             PreparedMortalNotification(
@@ -334,7 +334,7 @@ async def test_lifecycle_activity_failure_does_not_hide_delivery_outcome(
             if forbidden
             else None
         ),
-        deactivate_outcome=lifecycle_failure if forbidden else None,
+        mark_unreachable_outcome=lifecycle_failure if forbidden else None,
         delete_schedule_outcome=lifecycle_failure if not forbidden else None,
     )
     await notification_story.run(transcript)

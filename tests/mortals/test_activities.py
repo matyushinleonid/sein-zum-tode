@@ -25,10 +25,6 @@ class MortalRepositoryDouble:
         self.events.append(("get", mortal_id))
         return Mortal(id=mortal_id)
 
-    async def reset(self, mortal_id: int) -> Mortal:
-        self.events.append(("reset", mortal_id))
-        return Mortal(id=mortal_id)
-
     async def set_death_date(self, mortal_id: int, death_date: date) -> Mortal:
         self.events.append(("set_death_date", mortal_id, death_date))
         return Mortal(id=mortal_id, death_date=death_date)
@@ -49,8 +45,8 @@ class MortalRepositoryDouble:
         self.events.append(("consume_llm_request", mortal_id, request_id))
         return Mortal(id=mortal_id, llm_requests_remaining=49)
 
-    async def delete(self, mortal_id: int) -> None:
-        self.events.append(("delete", mortal_id))
+    async def mark_unreachable(self, mortal_id: int) -> None:
+        self.events.append(("mark_unreachable", mortal_id))
 
 
 class MortalScheduleDouble:
@@ -72,15 +68,18 @@ def activities(events: list[tuple[object, ...]]) -> MortalActivities:
     )
 
 
-async def test_registers_a_mortal_without_creating_a_schedule() -> None:
+async def test_registers_a_mortal_and_restores_its_schedule() -> None:
     events: list[tuple[object, ...]] = []
 
     actual = await activities(events).ensure(MortalActivityInput(mortal_id=330_017))
 
     assert (actual, events) == (
         MortalRegistration(localization_required=True),
-        [("ensure", 330_017)],
-    ), "registration did not expose the pending localization choice"
+        [
+            ("ensure", 330_017),
+            ("ensure_schedule", Mortal(id=330_017)),
+        ],
+    ), "registration did not expose localization or restore notification delivery"
 
 
 async def test_reports_whether_a_mortal_has_prediction_quota() -> None:
@@ -94,26 +93,15 @@ async def test_reports_whether_a_mortal_has_prediction_quota() -> None:
     ), "quota check did not read the current Mortal limit"
 
 
-async def test_reset_restores_defaults_and_removes_the_old_schedule() -> None:
+async def test_marks_the_mortal_unreachable_before_removing_its_schedule() -> None:
     events: list[tuple[object, ...]] = []
 
-    await activities(events).reset(MortalActivityInput(mortal_id=330_027))
+    await activities(events).mark_unreachable(MortalActivityInput(mortal_id=330_029))
 
     assert events == [
-        ("reset", 330_027),
-        ("delete_schedule", 330_027),
-    ], "unblock did not reset the Mortal before removing its previous Schedule"
-
-
-async def test_deletes_the_mortal_before_its_schedule() -> None:
-    events: list[tuple[object, ...]] = []
-
-    await activities(events).deactivate(MortalActivityInput(mortal_id=330_029))
-
-    assert events == [
-        ("delete", 330_029),
+        ("mark_unreachable", 330_029),
         ("delete_schedule", 330_029),
-    ], "deactivation did not preserve the idempotent PostgreSQL-then-Temporal order"
+    ], "unreachable state was not persisted before removing its Temporal Schedule"
 
 
 async def test_deletes_only_the_schedule_when_notification_workflow_is_terminal() -> None:

@@ -37,10 +37,6 @@ class MortalRepositoryDouble:
         self.events.append(("get", mortal_id))
         return self.mortal
 
-    async def reset(self, mortal_id: int) -> Mortal:
-        self.events.append(("reset", mortal_id))
-        return Mortal(id=mortal_id)
-
     async def set_death_date(self, mortal_id: int, death_date: date) -> Mortal:
         self.events.append(("set_death_date", mortal_id, death_date))
         return Mortal(id=mortal_id, death_date=death_date)
@@ -61,8 +57,8 @@ class MortalRepositoryDouble:
         self.events.append(("consume_llm_request", mortal_id, request_id))
         return Mortal(id=mortal_id, llm_requests_remaining=49)
 
-    async def delete(self, mortal_id: int) -> None:
-        self.events.append(("delete", mortal_id))
+    async def mark_unreachable(self, mortal_id: int) -> None:
+        self.events.append(("mark_unreachable", mortal_id))
 
 
 def responses() -> TelegramMemory:
@@ -84,6 +80,11 @@ def responses() -> TelegramMemory:
             id=340_007,
             notification_cron=None,
             death_date=date(2100, 1, 1),
+        ),
+        Mortal(
+            id=340_007,
+            death_date=date(2100, 1, 1),
+            telegram_unreachable_at=datetime(2099, 11, 30, tzinfo=UTC),
         ),
     ],
 )
@@ -116,7 +117,7 @@ async def test_skips_a_notification_without_complete_enabled_preferences(
         None,
         [("get", 340_007)],
         [],
-    ), "notification was prepared for a missing, incomplete, or disabled Mortal"
+    ), "notification was prepared for a missing, incomplete, disabled, or unreachable Mortal"
 
 
 async def test_prepares_a_localized_countdown_in_redis() -> None:
