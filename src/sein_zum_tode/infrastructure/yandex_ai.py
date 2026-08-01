@@ -58,3 +58,6 @@ class YandexAIStudioClient[ResponseT: BaseModel]:
             timeout=self._profile.request_timeout_seconds,
         )
         return self._response_type.model_validate_json(result.text)
+
+    async def close(self) -> None:
+        return None

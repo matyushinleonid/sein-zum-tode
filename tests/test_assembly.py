@@ -3,14 +3,17 @@ from types import ModuleType
 from typing import cast
 
 import pytest
+from httpx import URL
 from pydantic import SecretStr
 
 import sein_zum_tode.main as ingress_module
 import sein_zum_tode.worker as worker_module
+from sein_zum_tode.infrastructure.openai import OpenAICompletionProfile
 from sein_zum_tode.infrastructure.yandex_ai import YandexCompletionProfile
 from sein_zum_tode.prediction.config import (
     DeathPredictionConfig,
     MockPredictionConfig,
+    OpenAIPredictionConfig,
     PredictionConfigurationError,
     PredictionProvider,
     YandexPredictionConfig,
@@ -29,13 +32,18 @@ pytestmark = pytest.mark.fast
 def yandex_prediction_config() -> DeathPredictionConfig:
     return DeathPredictionConfig(
         provider=PredictionProvider.YANDEX,
+        system_prompt="Return structured data",
         mock=MockPredictionConfig(days_left=17),
         yandex=YandexPredictionConfig(
             model="yandexgpt",
             model_version="rc",
-            system_prompt="Return structured data",
         ),
+        openai=OpenAIPredictionConfig(model="gpt-5.6-sol"),
     )
+
+
+def openai_prediction_config() -> DeathPredictionConfig:
+    return yandex_prediction_config().model_copy(update={"provider": PredictionProvider.OPENAI})
 
 
 async def test_assembles_and_closes_the_ingress_process(
@@ -232,6 +240,7 @@ async def test_assembles_and_closes_the_temporal_worker(
         ),
         ("worker.enter",),
         ("worker.exit", None),
+        ("predictor.close",),
         ("bot.close",),
         ("redis.close",),
         ("postgres.close",),
@@ -311,6 +320,123 @@ def test_rejects_yandex_provider_without_credentials() -> None:
             config=yandex_prediction_config(),
             content=BotContents.debug(),
             settings=explicit_settings(),
+        )
+
+
+def test_builds_an_openai_predictor_with_mandatory_socks5_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[object, ...]] = []
+    http_client = object()
+    sdk = object()
+    sdk_adapter = object()
+    completion = object()
+    predictor = object()
+
+    def create_http_client(**options: object) -> object:
+        events.append(("http", options))
+        return http_client
+
+    def create_sdk(**options: object) -> object:
+        events.append(("sdk", options))
+        return sdk
+
+    def create_sdk_adapter(current_sdk: object) -> object:
+        events.append(("sdk_adapter", current_sdk is sdk))
+        return sdk_adapter
+
+    def create_completion(**options: object) -> object:
+        events.append(("completion", options))
+        return completion
+
+    def create_predictor(**options: object) -> object:
+        events.append(("predictor", options))
+        return predictor
+
+    monkeypatch.setattr(worker_module, "DefaultAsyncHttpxClient", create_http_client)
+    monkeypatch.setattr(worker_module, "AsyncOpenAI", create_sdk)
+    monkeypatch.setattr(worker_module, "AsyncOpenAISdkAdapter", create_sdk_adapter)
+    monkeypatch.setattr(worker_module, "OpenAICompletionClient", create_completion)
+    monkeypatch.setattr(worker_module, "LLMDeathPredictor", create_predictor)
+    settings = explicit_settings().model_copy(
+        update={
+            "openai_api_key": SecretStr("openai-key-397"),
+            "socks5_proxy_host": "proxy-nebula.internal",
+            "socks5_proxy_port": 3989,
+            "socks5_proxy_username": "mortal-4001",
+            "socks5_proxy_password": SecretStr("proxy-irregular-4003"),
+        }
+    )
+
+    actual = worker_module.create_death_predictor(
+        config=openai_prediction_config(),
+        content=BotContents.debug(),
+        settings=settings,
+    )
+    proxy = cast(URL, cast(dict[str, object], events[0][1])["proxy"])
+    sdk_options = cast(dict[str, object], events[1][1])
+    completion_options = cast(dict[str, object], events[3][1])
+    predictor_options = cast(dict[str, object], events[4][1])
+
+    assert (
+        actual is predictor,
+        proxy.scheme,
+        proxy.host,
+        proxy.port,
+        proxy.username,
+        proxy.password,
+        sdk_options,
+        events[2],
+        completion_options["sdk"] is sdk_adapter,
+        predictor_options["client"] is completion,
+    ) == (
+        True,
+        "socks5h",
+        "proxy-nebula.internal",
+        3989,
+        "mortal-4001",
+        "proxy-irregular-4003",
+        {"api_key": "openai-key-397", "http_client": http_client},
+        ("sdk_adapter", True),
+        True,
+        True,
+    ), "OpenAI composition did not enforce the authenticated SOCKS5 transport"
+    assert completion_options["profile"] == OpenAICompletionProfile(
+        model="gpt-5.6-sol",
+        reasoning_effort="medium",
+        max_output_tokens=1000,
+        request_timeout_seconds=180,
+        system_prompt="Return structured data",
+    )
+    assert cast(type[object], completion_options["response_type"]).__name__ == ("DeathPrediction")
+
+
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        ("openai_api_key", None),
+        ("socks5_proxy_host", ""),
+        ("socks5_proxy_username", ""),
+        ("socks5_proxy_password", None),
+    ],
+)
+def test_rejects_openai_provider_without_complete_proxy_credentials(
+    setting: str,
+    value: object,
+) -> None:
+    settings = explicit_settings().model_copy(
+        update={
+            "openai_api_key": SecretStr("openai-key-4013"),
+            "socks5_proxy_password": SecretStr("proxy-irregular-4019"),
+            setting: value,
+        }
+    )
+
+    with pytest.raises(PredictionConfigurationError):
+        worker_module.create_death_predictor(
+            config=openai_prediction_config(),
+            content=BotContents.debug(),
+            settings=settings,
         )
 
 

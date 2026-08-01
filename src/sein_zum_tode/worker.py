@@ -2,6 +2,7 @@ import asyncio
 
 from aiogram import Bot
 from aiogram.types import Update
+from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 from redis.asyncio import Redis
 from temporalio.client import Client
 from temporalio.worker import Worker
@@ -24,6 +25,12 @@ from sein_zum_tode.broadcasts.activities import (
 )
 from sein_zum_tode.broadcasts.workflow import TelegramScreamWorkflow
 from sein_zum_tode.config import WorkerSettings
+from sein_zum_tode.infrastructure.openai import (
+    AsyncOpenAISdkAdapter,
+    OpenAICompletionClient,
+    OpenAICompletionProfile,
+    Socks5Proxy,
+)
 from sein_zum_tode.infrastructure.postgres import PostgresClient
 from sein_zum_tode.infrastructure.redis import RedisClient
 from sein_zum_tode.infrastructure.redis_documents import (
@@ -78,6 +85,41 @@ def create_death_predictor(
             config=config.mock,
             content=content,
         )
+    if config.provider == PredictionProvider.OPENAI:
+        if (
+            settings.openai_api_key is None
+            or not settings.openai_api_key.get_secret_value()
+            or not settings.socks5_proxy_host
+            or not settings.socks5_proxy_username
+            or settings.socks5_proxy_password is None
+            or not settings.socks5_proxy_password.get_secret_value()
+        ):
+            raise PredictionConfigurationError(
+                "OPENAI_API_KEY and complete SOCKS5 proxy settings are required"
+            )
+        proxy = Socks5Proxy(
+            host=settings.socks5_proxy_host,
+            port=settings.socks5_proxy_port,
+            username=settings.socks5_proxy_username,
+            password=settings.socks5_proxy_password.get_secret_value(),
+        )
+        openai_sdk = AsyncOpenAI(
+            api_key=settings.openai_api_key.get_secret_value(),
+            http_client=DefaultAsyncHttpxClient(proxy=proxy.url()),
+        )
+        return LLMDeathPredictor(
+            client=OpenAICompletionClient(
+                sdk=AsyncOpenAISdkAdapter(openai_sdk),
+                profile=OpenAICompletionProfile(
+                    model=config.openai.model,
+                    reasoning_effort=config.openai.reasoning_effort,
+                    max_output_tokens=config.openai.max_output_tokens,
+                    request_timeout_seconds=config.openai.request_timeout_seconds,
+                    system_prompt=config.system_prompt,
+                ),
+                response_type=DeathPrediction,
+            )
+        )
     if (
         settings.yandex_ai_studio_api_key is None
         or not settings.yandex_ai_studio_api_key.get_secret_value()
@@ -86,21 +128,21 @@ def create_death_predictor(
         raise PredictionConfigurationError(
             "YANDEX_AI_STUDIO_API_KEY and YANDEX_AI_STUDIO_FOLDER_ID are required"
         )
-    sdk = AsyncAIStudio(
+    yandex_sdk = AsyncAIStudio(
         folder_id=settings.yandex_ai_studio_folder_id,
         auth=settings.yandex_ai_studio_api_key.get_secret_value(),
         enable_server_data_logging=settings.yandex_ai_studio_enable_server_data_logging,
     )
     return LLMDeathPredictor(
         client=YandexAIStudioClient(
-            sdk=sdk,
+            sdk=yandex_sdk,
             profile=YandexCompletionProfile(
                 model=config.yandex.model,
                 model_version=config.yandex.model_version,
                 temperature=config.yandex.temperature,
                 max_tokens=config.yandex.max_tokens,
                 request_timeout_seconds=config.yandex.request_timeout_seconds,
-                system_prompt=config.yandex.system_prompt,
+                system_prompt=config.system_prompt,
             ),
             response_type=DeathPrediction,
         )
@@ -299,6 +341,7 @@ async def run(settings: WorkerSettings) -> None:
         async with worker:
             await stop_event.wait()
     finally:
+        await predictor.close()
         await bot.session.close()
         await redis_connection.aclose()
         await postgres.close()

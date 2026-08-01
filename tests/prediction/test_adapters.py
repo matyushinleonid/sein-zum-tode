@@ -47,6 +47,9 @@ class CompletionClientDouble:
         self.events.append((user_prompt,))
         return self.response
 
+    async def close(self) -> None:
+        self.events.append(("close",))
+
 
 async def test_mock_prediction_includes_local_answers_without_consuming_quota() -> None:
     predictor = MockDeathPredictor(
@@ -55,6 +58,7 @@ async def test_mock_prediction_includes_local_answers_without_consuming_quota() 
     )
 
     actual = await predictor.predict(request())
+    await predictor.close()
 
     assert (
         predictor.provider_name,
@@ -64,6 +68,7 @@ async def test_mock_prediction_includes_local_answers_without_consuming_quota() 
         "mock",
         False,
         DeathPrediction(
+            prediction_possible=True,
             days_left=3623,
             message="Mock prediction: q1-Alpha",
         ),
@@ -71,7 +76,11 @@ async def test_mock_prediction_includes_local_answers_without_consuming_quota() 
 
 
 async def test_llm_adapter_delegates_prompt_response_and_provider_metadata() -> None:
-    expected = DeathPrediction(days_left=3631, message="Structured prediction")
+    expected = DeathPrediction(
+        prediction_possible=True,
+        days_left=3631,
+        message="Structured prediction",
+    )
     client = CompletionClientDouble(
         response=expected,
         provider_name="structured-nebula",
@@ -80,15 +89,18 @@ async def test_llm_adapter_delegates_prompt_response_and_provider_metadata() -> 
     predictor = LLMDeathPredictor(client=client)
 
     actual = await predictor.predict(request())
+    await predictor.close()
 
     assert (
         predictor.provider_name,
         predictor.consumes_quota,
         actual,
         "Current date: 2026-07-30" in cast(str, client.events[0][0]),
+        client.events[-1],
     ) == (
         "structured-nebula",
         True,
         expected,
         True,
+        ("close",),
     ), "LLM predictor did not delegate the prompt or client metadata"

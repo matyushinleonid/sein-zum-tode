@@ -115,9 +115,24 @@ yandexAiStudio:
   apiKeySecretKey: YANDEX_AI_STUDIO_API_KEY
   enableServerDataLogging: false
 
+openai:
+  apiKeySecretKey: OPENAI_API_KEY
+
+socks5Proxy:
+  host: 167.233.46.190
+  port: 32768
+  username: matyushinleonid
+  passwordSecretKey: SOCKS5_PROXY_PASSWORD
+
 deathPrediction:
   config:
     provider: mock
+    system_prompt: |
+      Do not use the pronoun "I" in your responses. If absolutely necessary, you may use "we", but passive-voice or impersonal constructions are preferable. Respond in the same language the user used in their questionnaire answers.
+
+      First assess the questionnaire as a whole. If the answers are predominantly meaningless, random, irrelevant to the questions, or contain too little usable information for a responsible estimate, set "prediction_possible" to false, set "days_left" to null, and use "message" to explain briefly what is wrong and ask the user to complete the questionnaire with meaningful answers. Do not reject a questionnaire merely because one answer is missing, uncertain, or uninformative. When "prediction_possible" is false, do not provide a lifespan estimate.
+
+      Otherwise set "prediction_possible" to true, estimate how many days the user has left to live in the "days_left" field, and provide a brief explanation in the "message" field. Do not show explicit arithmetic; outline in general terms how the answers influence the result. Aim for as much accuracy as possible, avoid overly optimistic estimates, and avoid round numbers such as exactly 365 or 10. Convert the number of remaining days to years and present it at the end of the explanation.
     mock:
       days_left: 26837
     yandex:
@@ -126,8 +141,11 @@ deathPrediction:
       temperature: 0.3
       max_tokens: 1000
       request_timeout_seconds: 180
-      system_prompt: |
-        Do not use the pronoun "I" in your responses. If absolutely necessary, you may use "we", but it is preferable to employ passive-voice or impersonal constructions. Respond in the same language the user has used in their previous answers. Your task is to estimate how many days the user has left to live ("days_left" field) and to provide a brief explanation ("message" field) of how that estimate was derived (without showing explicit arithmetic, just outline in general terms how each of the user's answers influences the result). Aim for as much accuracy as possible (in particular, avoid overly optimistic estimates), and avoid "round" numbers such as exactly 365 or 10; instead, offer a more irregular, natural-looking figure. The number of days remaining for the user should be converted to years and presented at the end of your explanation.
+    openai:
+      model: gpt-5.6-sol
+      reasoning_effort: medium
+      max_output_tokens: 1000
+      request_timeout_seconds: 180
 
 postgres:
   host: postgres.local
@@ -165,6 +183,8 @@ externalSecret:
     redisPassword: REDIS_PASSWORD
     telegramBotToken: TELEGRAM_BOT_TOKEN
     yandexAiStudioApiKey: YANDEX_AI_STUDIO_API_KEY
+    openaiApiKey: OPENAI_API_KEY
+    socks5ProxyPassword: SOCKS5_PROXY_PASSWORD
 
 # Used only when externalSecret.enabled=false. The existing Secret must contain
 # the configured database, Redis, Telegram, and optional Yandex keys.
