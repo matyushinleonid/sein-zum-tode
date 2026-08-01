@@ -52,9 +52,8 @@ from sein_zum_tode.localization.models import (
 )
 from sein_zum_tode.mortals.activities import (
     CHECK_MORTAL_QUOTA_ACTIVITY_NAME,
-    DEACTIVATE_MORTAL_ACTIVITY_NAME,
     ENSURE_MORTAL_ACTIVITY_NAME,
-    RESET_MORTAL_ACTIVITY_NAME,
+    MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME,
     MortalActivityInput,
     MortalRegistration,
 )
@@ -165,9 +164,8 @@ class ActivityTranscript:
         failing_response: str | None = None,
         blocked_inspection: str | None = None,
         failing_registration: bool = False,
-        failing_deactivation: bool = False,
+        failing_mark_unreachable: bool = False,
         forbidden_delivery: str | None = None,
-        failing_reset: bool = False,
         quota_outcomes: list[object] | None = None,
         localization_required: bool = False,
         scream_requests: dict[str, ScreamRequest] | None = None,
@@ -178,9 +176,8 @@ class ActivityTranscript:
         self.failing_response = failing_response
         self.blocked_inspection = blocked_inspection
         self.failing_registration = failing_registration
-        self.failing_deactivation = failing_deactivation
+        self.failing_mark_unreachable = failing_mark_unreachable
         self.forbidden_delivery = forbidden_delivery
-        self.failing_reset = failing_reset
         self.quota_outcomes = list(quota_outcomes or [])
         self.localization_required = localization_required
         self.scream_requests = dict(scream_requests or {})
@@ -309,20 +306,15 @@ class ActivityTranscript:
             raise ApplicationError("PostgreSQL unavailable", non_retryable=True)
         return MortalRegistration(localization_required=self.localization_required)
 
-    @activity.defn(name=DEACTIVATE_MORTAL_ACTIVITY_NAME)
-    async def deactivate_mortal(self, input: MortalActivityInput) -> None:
+    @activity.defn(name=MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME)
+    async def mark_mortal_unreachable(self, input: MortalActivityInput) -> None:
         self.record(
-            operation="deactivate",
+            operation="mark_unreachable",
             update_key="mortal-lifecycle",
             user_id=input.mortal_id,
         )
-        if self.failing_deactivation:
-            raise ApplicationError("deactivation unavailable", non_retryable=True)
-
-    @activity.defn(name=RESET_MORTAL_ACTIVITY_NAME)
-    async def reset_mortal(self, input: MortalActivityInput) -> None:
-        if self.failing_reset:
-            raise ApplicationError("reset unavailable", non_retryable=True)
+        if self.failing_mark_unreachable:
+            raise ApplicationError("reachability update unavailable", non_retryable=True)
 
     @activity.defn(name=CHECK_MORTAL_QUOTA_ACTIVITY_NAME)
     async def has_quota(self, input: MortalActivityInput) -> bool:
@@ -345,8 +337,7 @@ class ActivityTranscript:
             self.deliver,
             self.cleanup,
             self.ensure_mortal,
-            self.deactivate_mortal,
-            self.reset_mortal,
+            self.mark_mortal_unreachable,
             self.has_quota,
         ]
 
@@ -426,13 +417,9 @@ class ActivityRouter:
     async def ensure_mortal(self, input: MortalActivityInput) -> MortalRegistration:
         return cast(MortalRegistration, await self.selected("ensure_mortal")(input))
 
-    @activity.defn(name=DEACTIVATE_MORTAL_ACTIVITY_NAME)
-    async def deactivate_mortal(self, input: MortalActivityInput) -> None:
-        await self.selected("deactivate_mortal")(input)
-
-    @activity.defn(name=RESET_MORTAL_ACTIVITY_NAME)
-    async def reset_mortal(self, input: MortalActivityInput) -> None:
-        await self.selected("reset_mortal")(input)
+    @activity.defn(name=MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME)
+    async def mark_mortal_unreachable(self, input: MortalActivityInput) -> None:
+        await self.selected("mark_mortal_unreachable")(input)
 
     @activity.defn(name=CHECK_MORTAL_QUOTA_ACTIVITY_NAME)
     async def has_quota(self, input: MortalActivityInput) -> bool:
@@ -452,8 +439,7 @@ class ActivityRouter:
             self.deliver,
             self.cleanup,
             self.ensure_mortal,
-            self.deactivate_mortal,
-            self.reset_mortal,
+            self.mark_mortal_unreachable,
             self.has_quota,
         ]
 
@@ -1247,7 +1233,7 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
         deliver.deliver,
         cleanup.cleanup,
         lifecycle.ensure_mortal,
-        lifecycle.deactivate_mortal,
+        lifecycle.mark_mortal_unreachable,
     ]
     async with await WorkflowStory.open(
         pool=workflow_worker_pool,
@@ -1360,11 +1346,11 @@ async def test_unblock_registers_silently_before_later_text(
     ], "unblock produced a Telegram response or failed to restore normal routing"
 
 
-async def test_unblock_stays_silent_when_reset_fails(
+async def test_unblock_stays_silent_when_reactivation_fails(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
-    unblock_key = "redis:unblock-reset-failure:1837"
-    stop_key = "redis:stop-after-unblock-reset-failure:1838"
+    unblock_key = "redis:unblock-reactivation-failure:1837"
+    stop_key = "redis:stop-after-unblock-reactivation-failure:1838"
     transcript = ActivityTranscript(
         inspections={
             unblock_key: InspectionKind.MORTAL_UNBLOCKED,
@@ -1372,7 +1358,7 @@ async def test_unblock_stays_silent_when_reset_fails(
         },
         failing_inspection=None,
         failing_cleanup=False,
-        failing_reset=True,
+        failing_registration=True,
     )
     async with await WorkflowStory.open(
         pool=workflow_worker_pool,
@@ -1390,12 +1376,12 @@ async def test_unblock_stays_silent_when_reset_fails(
     assert events == [
         ("inspect", unblock_key, 173_357),
         ("cleanup", unblock_key, 173_357),
-    ], "failed unblock reset leaked a response or entered ordinary processing"
+    ], "failed unblock reactivation leaked a response or entered ordinary processing"
 
 
-@pytest.mark.parametrize("failing_deactivation", [False, True])
-async def test_block_deactivates_the_mortal_and_completes_parent(
-    failing_deactivation: bool,
+@pytest.mark.parametrize("failing_mark_unreachable", [False, True])
+async def test_block_marks_the_mortal_unreachable_and_completes_parent(
+    failing_mark_unreachable: bool,
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
     update_key = "redis:blocked:1847"
@@ -1403,7 +1389,7 @@ async def test_block_deactivates_the_mortal_and_completes_parent(
         inspections={update_key: InspectionKind.MORTAL_BLOCKED},
         failing_inspection=None,
         failing_cleanup=False,
-        failing_deactivation=failing_deactivation,
+        failing_mark_unreachable=failing_mark_unreachable,
     )
     async with await WorkflowStory.open(
         pool=workflow_worker_pool,
@@ -1415,11 +1401,11 @@ async def test_block_deactivates_the_mortal_and_completes_parent(
     assert transcript.events == [
         ("inspect", update_key, 173_357),
         ("cleanup", update_key, 173_357),
-        ("deactivate", "mortal-lifecycle", 173_357),
-    ], "block update did not clean Redis, deactivate the Mortal, and stop its parent"
+        ("mark_unreachable", "mortal-lifecycle", 173_357),
+    ], "block update did not clean Redis, mark the Mortal unreachable, and stop its parent"
 
 
-async def test_forbidden_delivery_deactivates_and_completes_parent(
+async def test_forbidden_delivery_marks_unreachable_and_completes_parent(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
     update_key = "redis:forbidden:1861"
@@ -1440,12 +1426,12 @@ async def test_forbidden_delivery_deactivates_and_completes_parent(
         "inspect",
         "prepare_unsupported",
         "deliver",
-        "deactivate",
+        "mark_unreachable",
         "cleanup",
-    ], "Telegram Forbidden did not run fallback Mortal deletion before parent completion"
+    ], "Telegram Forbidden did not mark the Mortal unreachable before parent completion"
 
 
-async def test_block_cancels_an_active_questionnaire_before_deactivation(
+async def test_block_cancels_an_active_questionnaire_before_marking_unreachable(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
     begin_key = "redis:begin-before-block:1867"
@@ -1475,8 +1461,8 @@ async def test_block_cancels_an_active_questionnaire_before_deactivation(
     assert [event[0] for event in transcript.events[-3:]] == [
         "inspect",
         "cleanup",
-        "deactivate",
-    ], "block left an active questionnaire child or skipped Mortal deactivation"
+        "mark_unreachable",
+    ], "block left an active questionnaire child or skipped the reachability update"
 
 
 async def test_waits_for_a_finished_child_before_routing_the_next_update(

@@ -27,7 +27,7 @@ from sein_zum_tode.broadcasts.models import (
 )
 from sein_zum_tode.broadcasts.workflow import TelegramScreamWorkflow
 from sein_zum_tode.mortals.activities import (
-    DEACTIVATE_MORTAL_ACTIVITY_NAME,
+    MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME,
     MortalActivityInput,
 )
 
@@ -49,13 +49,13 @@ class ScreamTranscript:
         *,
         pages: dict[int | None, ScreamRecipients | BaseException],
         deliveries: dict[int, BaseException] | None = None,
-        deactivations: Sequence[BaseException | None] = (),
+        reachability_updates: Sequence[BaseException | None] = (),
         report_delivery: BaseException | None = None,
         cleanup: BaseException | None = None,
     ) -> None:
         self.pages = pages
         self.deliveries = dict(deliveries or {})
-        self.deactivations = list(deactivations)
+        self.reachability_updates = list(reachability_updates)
         self.report_delivery = report_delivery
         self.cleanup_outcome = cleanup
         self.events: list[tuple[object, ...]] = []
@@ -77,10 +77,10 @@ class ScreamTranscript:
         )
         result_or_raise(self.deliveries.get(input.recipient_id))
 
-    @activity.defn(name=DEACTIVATE_MORTAL_ACTIVITY_NAME)
-    async def deactivate(self, input: MortalActivityInput) -> None:
-        self.events.append(("deactivate", input.mortal_id))
-        outcome = self.deactivations.pop(0) if self.deactivations else None
+    @activity.defn(name=MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME)
+    async def mark_unreachable(self, input: MortalActivityInput) -> None:
+        self.events.append(("mark_unreachable", input.mortal_id))
+        outcome = self.reachability_updates.pop(0) if self.reachability_updates else None
         result_or_raise(outcome)
 
     @activity.defn(name=PREPARE_SCREAM_REPORT_ACTIVITY_NAME)
@@ -101,7 +101,7 @@ class ScreamTranscript:
         return [
             self.list_recipients,
             self.deliver_scream,
-            self.deactivate,
+            self.mark_unreachable,
             self.prepare_report,
             self.deliver_report,
             self.cleanup,
@@ -178,7 +178,7 @@ async def test_pages_recipients_delivers_each_message_and_reports_totals(
     ], "scream workflow skipped a page, recipient, report, or Redis cleanup"
 
 
-async def test_counts_failures_and_deactivates_only_blocked_recipients(
+async def test_counts_failures_and_marks_only_blocked_recipients_unreachable(
     temporal_environment: WorkflowEnvironment,
 ) -> None:
     blocked = ApplicationError(
@@ -200,7 +200,7 @@ async def test_counts_failures_and_deactivates_only_blocked_recipients(
                 non_retryable=True,
             ),
         },
-        deactivations=(
+        reachability_updates=(
             None,
             ApplicationError("PostgreSQL unavailable", non_retryable=True),
         ),
@@ -211,11 +211,11 @@ async def test_counts_failures_and_deactivates_only_blocked_recipients(
     await execute(temporal_environment, transcript)
 
     assert (
-        [event for event in transcript.events if event[0] == "deactivate"],
+        [event for event in transcript.events if event[0] == "mark_unreachable"],
         [event for event in transcript.events if event[0] == "report"],
         transcript.events[-1][0],
     ) == (
-        [("deactivate", 190_043), ("deactivate", 190_051)],
+        [("mark_unreachable", 190_043), ("mark_unreachable", 190_051)],
         [("report", 0, 3, "Scream completed: 0 delivered, 3 failed.")],
         "cleanup",
     ), "blocked recipients, permanent failures, or best-effort cleanup were misclassified"

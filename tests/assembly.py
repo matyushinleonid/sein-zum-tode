@@ -554,9 +554,7 @@ class WorkerAssembly:
                 options["schedules"] is self.schedules,
             )
         )
-        return ActivityDefinitions(
-            ("ensure", "reset", "has_quota", "deactivate", "delete_schedule")
-        )
+        return ActivityDefinitions(("ensure", "has_quota", "mark_unreachable", "delete_schedule"))
 
     def create_prepare_notification(self, **options: object) -> ActivityDefinitions:
         self.events.append(

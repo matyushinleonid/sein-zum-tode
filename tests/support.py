@@ -2,7 +2,7 @@ import asyncio
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Protocol, cast
 
 from aiogram.types import InlineKeyboardMarkup, Update
@@ -713,7 +713,10 @@ class MortalMemory:
 
     async def ensure(self, mortal_id: int) -> Mortal:
         self.events.append(("ensure", mortal_id))
-        mortal = self.mortals.setdefault(mortal_id, Mortal(id=mortal_id))
+        mortal = self.mortals.setdefault(mortal_id, Mortal(id=mortal_id)).model_copy(
+            update={"telegram_unreachable_at": None}
+        )
+        self.mortals[mortal_id] = mortal
         return mortal
 
     async def get(self, mortal_id: int) -> Mortal | None:
@@ -731,14 +734,10 @@ class MortalMemory:
         return tuple(
             mortal.id
             for mortal in sorted(self.mortals.values(), key=lambda current: current.id)
-            if mortal.locale == locale and (after_mortal_id is None or mortal.id > after_mortal_id)
+            if mortal.locale == locale
+            and mortal.telegram_unreachable_at is None
+            and (after_mortal_id is None or mortal.id > after_mortal_id)
         )[:limit]
-
-    async def reset(self, mortal_id: int) -> Mortal:
-        self.events.append(("reset", mortal_id))
-        mortal = Mortal(id=mortal_id)
-        self.mortals[mortal_id] = mortal
-        return mortal
 
     async def set_death_date(self, mortal_id: int, death_date: date) -> Mortal:
         self.events.append(("set_death_date", mortal_id, death_date))
@@ -785,9 +784,13 @@ class MortalMemory:
         self.mortals[mortal_id] = updated
         return updated
 
-    async def delete(self, mortal_id: int) -> None:
-        self.events.append(("delete", mortal_id))
-        self.mortals.pop(mortal_id, None)
+    async def mark_unreachable(self, mortal_id: int) -> None:
+        self.events.append(("mark_unreachable", mortal_id))
+        mortal = self.mortals.get(mortal_id)
+        if mortal is not None:
+            self.mortals[mortal_id] = mortal.model_copy(
+                update={"telegram_unreachable_at": datetime.now(UTC)}
+            )
 
 
 class MortalScheduleMemory:

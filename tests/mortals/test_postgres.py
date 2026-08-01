@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 import pytest
@@ -79,6 +79,7 @@ def mortal_row(
     death_date: date | None = None,
     notification_cron: str | None = "0 9 * * *",
     llm_requests_remaining: int = 50,
+    telegram_unreachable_at: datetime | None = None,
 ) -> Mapping[str, Any]:
     return {
         "id": mortal_id,
@@ -86,6 +87,7 @@ def mortal_row(
         "timezone": "Europe/Moscow",
         "notification_cron": notification_cron,
         "death_date": death_date,
+        "telegram_unreachable_at": telegram_unreachable_at,
         "llm_requests_remaining": llm_requests_remaining,
     }
 
@@ -115,7 +117,9 @@ async def test_registers_a_mortal_idempotently_with_fixed_defaults() -> None:
             "timezone": "Europe/Moscow",
             "notification_cron": "0 9 * * *",
             "death_date": None,
+            "telegram_unreachable_at": None,
             "llm_requests_remaining": 50,
+            "param_1": None,
         },
         True,
         "fetch_one",
@@ -155,10 +159,12 @@ async def test_lists_localized_mortal_ids_by_keyset_page() -> None:
         client.events[0][0],
         parameters(statement),
         "ORDER BY mortals.id" in str(statement),
+        "mortals.telegram_unreachable_at IS NULL" in str(statement),
     ) == (
         (320_013, 320_017),
         "fetch_all",
         {"locale_1": "ru", "id_1": 320_011, "param_1": 2},
+        True,
         True,
     ), "localized Mortal paging lost its locale, cursor, limit, or stable order"
 
@@ -188,49 +194,56 @@ async def test_sets_the_configured_death_date_with_an_upsert() -> None:
     ), "death date activation did not use an idempotent PostgreSQL upsert"
 
 
-async def test_resets_all_preferences_and_death_date_after_unblock() -> None:
-    client = PostgresStatementClientDouble(fetch_outcomes=[mortal_row(mortal_id=320_019)])
-
-    actual = await client.repository().reset(320_019)
-
-    statement = client.events[0][1]
-    assert (
-        actual,
-        parameters(statement),
-        "DO UPDATE" in str(statement),
-    ) == (
-        Mortal(id=320_019),
-        {
-            "id": 320_019,
-            "locale": None,
-            "timezone": "Europe/Moscow",
-            "notification_cron": "0 9 * * *",
-            "death_date": None,
-            "llm_requests_remaining": 50,
-            "param_1": None,
-            "param_2": "Europe/Moscow",
-            "param_3": "0 9 * * *",
-            "param_4": None,
-            "param_5": 50,
-        },
-        True,
-    ), "unblock reset retained old Mortal preferences or death date"
-
-
-async def test_deletes_a_mortal_idempotently() -> None:
+async def test_marks_a_mortal_unreachable_without_deleting_it() -> None:
     client = PostgresStatementClientDouble()
 
-    await client.repository().delete(320_023)
+    await client.repository().mark_unreachable(320_023)
 
     assert (
         client.events[0][0],
-        "DELETE FROM mortals" in str(client.events[0][1]),
+        "UPDATE mortals" in str(client.events[0][1]),
+        "now()" in str(client.events[0][1]),
         parameters(client.events[0][1]),
     ) == (
         "execute",
         True,
+        True,
         {"id_1": 320_023},
-    ), "Mortal deletion targeted the wrong table or id"
+    ), "Mortal unavailability deleted data or targeted the wrong id"
+
+
+async def test_restores_reachability_without_resetting_mortal_data() -> None:
+    death_date = date(2099, 12, 17)
+    client = PostgresStatementClientDouble(
+        fetch_outcomes=[
+            mortal_row(
+                mortal_id=320_019,
+                locale="ru",
+                death_date=death_date,
+                notification_cron="0 9 * * 1",
+                llm_requests_remaining=37,
+            )
+        ]
+    )
+
+    actual = await client.repository().ensure(320_019)
+
+    statement = client.events[0][1]
+    assert (
+        actual,
+        "DO UPDATE" in str(statement),
+        parameters(statement)["param_1"],
+    ) == (
+        Mortal(
+            id=320_019,
+            locale="ru",
+            death_date=death_date,
+            notification_cron="0 9 * * 1",
+            llm_requests_remaining=37,
+        ),
+        True,
+        None,
+    ), "reachability restoration reset Mortal preferences, prediction, or quota"
 
 
 async def test_updates_notification_cron_and_reads_the_mortal_back() -> None:
@@ -337,12 +350,11 @@ async def test_rejects_a_new_request_after_quota_exhaustion() -> None:
         "ensure",
         "get",
         "list_ids",
-        "reset",
+        "mark_unreachable",
         "set_death_date",
         "set_notification_cron",
         "set_locale",
         "consume_llm_request",
-        "delete",
     ],
 )
 async def test_translates_postgres_failures(operation: str) -> None:
@@ -362,23 +374,21 @@ async def test_translates_postgres_failures(operation: str) -> None:
             await repository.get(320_027)
         elif operation == "list_ids":
             await repository.list_ids(locale="en", after_mortal_id=None, limit=100)
-        elif operation == "reset":
-            await repository.reset(320_027)
+        elif operation == "mark_unreachable":
+            await repository.mark_unreachable(320_027)
         elif operation == "set_death_date":
             await repository.set_death_date(320_027, date(2100, 1, 1))
         elif operation == "set_notification_cron":
             await repository.set_notification_cron(320_027, None)
         elif operation == "set_locale":
             await repository.set_locale(320_027, "ru")
-        elif operation == "consume_llm_request":
-            await repository.consume_llm_request(320_027, "request-32027")
         else:
-            await repository.delete(320_027)
+            await repository.consume_llm_request(320_027, "request-32027")
 
 
 @pytest.mark.parametrize(
     "operation",
-    ["ensure", "reset", "set_death_date", "set_notification_cron", "set_locale"],
+    ["ensure", "set_death_date", "set_notification_cron", "set_locale"],
 )
 async def test_rejects_a_write_that_cannot_be_read_back(operation: str) -> None:
     client = PostgresStatementClientDouble(fetch_outcomes=[None])
@@ -387,8 +397,6 @@ async def test_rejects_a_write_that_cannot_be_read_back(operation: str) -> None:
     with pytest.raises(MortalRepositoryError, match="was not found"):
         if operation == "ensure":
             await repository.ensure(320_039)
-        elif operation == "reset":
-            await repository.reset(320_039)
         elif operation == "set_death_date":
             await repository.set_death_date(320_039, date(2100, 1, 1))
         elif operation == "set_notification_cron":

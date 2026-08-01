@@ -108,8 +108,8 @@ deathPrediction:
     mock:
       days_left: 26837
     yandex:
-      model: yandexgpt
-      model_version: rc
+      model: aliceai-llm
+      model_version: latest
       temperature: 0.3
       max_tokens: 1000
       request_timeout_seconds: 180

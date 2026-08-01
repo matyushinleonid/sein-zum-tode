@@ -11,7 +11,10 @@ from sein_zum_tode.bot.models import (
     CleanupPayloadsInput,
     DeliverResponseInput,
 )
-from sein_zum_tode.mortals.activities import DEACTIVATE_MORTAL_ACTIVITY_NAME, MortalActivityInput
+from sein_zum_tode.mortals.activities import (
+    MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME,
+    MortalActivityInput,
+)
 from sein_zum_tode.observability import LogContext
 from sein_zum_tode.prediction.activities import (
     APPLY_DEATH_PREDICTION_ACTIVITY_NAME,
@@ -185,7 +188,7 @@ class TelegramQuestionnaireWorkflow:
             except ActivityError as error:
                 self._raise_if_cancelled(error)
                 if self._recipient_unavailable(error):
-                    await self._deactivate_mortal()
+                    await self._mark_mortal_unreachable()
                 self._log_failure(
                     "telegram_questionnaire_delivery_failed",
                     update_key=update_key,
@@ -254,16 +257,16 @@ class TelegramQuestionnaireWorkflow:
         self._privacy_response_key = None
         await self._notify_finished()
 
-    async def _deactivate_mortal(self) -> None:
+    async def _mark_mortal_unreachable(self) -> None:
         try:
             await workflow.execute_activity(
-                DEACTIVATE_MORTAL_ACTIVITY_NAME,
+                MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME,
                 MortalActivityInput(mortal_id=self._user_id),
                 schedule_to_close_timeout=self._activity_timeout,
             )
         except ActivityError as error:
             self._raise_if_cancelled(error)
-            self._log_failure("mortal_deactivation_failed")
+            self._log_failure("mortal_mark_unreachable_failed")
 
     async def _notify_finished(self) -> None:
         if not self._owner_workflow_id:

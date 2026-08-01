@@ -49,7 +49,11 @@ class PrepareMortalNotificationActivity:
         input: PrepareMortalNotificationInput,
     ) -> PreparedMortalNotification | None:
         mortal = await self._mortals.get(input.mortal_id)
-        if mortal is None or mortal.notification_cron is None:
+        if (
+            mortal is None
+            or mortal.notification_cron is None
+            or mortal.telegram_unreachable_at is not None
+        ):
             return None
         days_left = mortal.days_left(self._clock.now())
         if days_left is None:

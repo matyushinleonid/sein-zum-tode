@@ -1,16 +1,17 @@
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger,
     Column,
     Date,
+    DateTime,
     ForeignKey,
     Integer,
     MetaData,
     String,
     Table,
-    delete,
     exists,
+    func,
     literal,
     select,
     text,
@@ -60,6 +61,11 @@ mortal_death_date_column: Column[date] = Column(
     Date,
     nullable=True,
 )
+mortal_telegram_unreachable_at_column: Column[datetime] = Column(
+    "telegram_unreachable_at",
+    DateTime(timezone=True),
+    nullable=True,
+)
 mortal_llm_requests_remaining_column: Column[int] = Column(
     "llm_requests_remaining",
     Integer,
@@ -75,6 +81,7 @@ mortals = Table(
     mortal_timezone_column,
     mortal_notification_cron_column,
     mortal_death_date_column,
+    mortal_telegram_unreachable_at_column,
     mortal_llm_requests_remaining_column,
 )
 
@@ -111,9 +118,13 @@ class PostgresMortalRepository:
                 timezone=DEFAULT_MORTAL_TIMEZONE,
                 notification_cron=DEFAULT_MORTAL_NOTIFICATION_CRON,
                 death_date=None,
+                telegram_unreachable_at=None,
                 llm_requests_remaining=DEFAULT_LLM_REQUESTS_REMAINING,
             )
-            .on_conflict_do_nothing(index_elements=[mortal_id_column])
+            .on_conflict_do_update(
+                index_elements=[mortal_id_column],
+                set_={"telegram_unreachable_at": None},
+            )
         )
         try:
             await self._postgres.execute(statement)
@@ -141,6 +152,7 @@ class PostgresMortalRepository:
             select(mortal_id_column)
             .where(
                 mortal_locale_column == locale,
+                mortal_telegram_unreachable_at_column.is_(None),
                 mortal_id_column > (after_mortal_id or 0),
             )
             .order_by(mortal_id_column)
@@ -152,31 +164,6 @@ class PostgresMortalRepository:
             raise MortalRepositoryError(f"Failed to list Mortals for locale {locale}") from error
         return tuple(int(row["id"]) for row in rows)
 
-    async def reset(self, mortal_id: int) -> Mortal:
-        defaults = {
-            "locale": None,
-            "timezone": DEFAULT_MORTAL_TIMEZONE,
-            "notification_cron": DEFAULT_MORTAL_NOTIFICATION_CRON,
-            "death_date": None,
-            "llm_requests_remaining": DEFAULT_LLM_REQUESTS_REMAINING,
-        }
-        statement = (
-            insert(mortals)
-            .values(id=mortal_id, **defaults)
-            .on_conflict_do_update(
-                index_elements=[mortal_id_column],
-                set_=defaults,
-            )
-        )
-        try:
-            await self._postgres.execute(statement)
-            mortal = await self._get(mortal_id)
-        except PostgresClientError as error:
-            raise MortalRepositoryError(f"Failed to reset Mortal {mortal_id}") from error
-        if mortal is None:
-            raise MortalRepositoryError(f"Reset Mortal {mortal_id} was not found")
-        return mortal
-
     async def set_death_date(self, mortal_id: int, death_date: date) -> Mortal:
         statement = (
             insert(mortals)
@@ -186,6 +173,7 @@ class PostgresMortalRepository:
                 timezone=DEFAULT_MORTAL_TIMEZONE,
                 notification_cron=DEFAULT_MORTAL_NOTIFICATION_CRON,
                 death_date=death_date,
+                telegram_unreachable_at=None,
                 llm_requests_remaining=DEFAULT_LLM_REQUESTS_REMAINING,
             )
             .on_conflict_do_update(
@@ -279,11 +267,16 @@ class PostgresMortalRepository:
             return mortal
         raise MortalQuotaExhaustedError(f"Mortal {mortal_id} exhausted the LLM request limit")
 
-    async def delete(self, mortal_id: int) -> None:
+    async def mark_unreachable(self, mortal_id: int) -> None:
+        statement = (
+            update(mortals)
+            .where(mortal_id_column == mortal_id)
+            .values(telegram_unreachable_at=func.now())
+        )
         try:
-            await self._postgres.execute(delete(mortals).where(mortal_id_column == mortal_id))
+            await self._postgres.execute(statement)
         except PostgresClientError as error:
-            raise MortalRepositoryError(f"Failed to delete Mortal {mortal_id}") from error
+            raise MortalRepositoryError(f"Failed to mark Mortal {mortal_id} unreachable") from error
 
     async def _get(self, mortal_id: int) -> Mortal | None:
         row = await self._postgres.fetch_one(select(mortals).where(mortal_id_column == mortal_id))

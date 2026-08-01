@@ -11,8 +11,8 @@ from sein_zum_tode.bot.models import (
     DeliverResponseInput,
 )
 from sein_zum_tode.mortals.activities import (
-    DEACTIVATE_MORTAL_ACTIVITY_NAME,
     DELETE_MORTAL_SCHEDULE_ACTIVITY_NAME,
+    MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME,
     MortalActivityInput,
 )
 from sein_zum_tode.notifications.models import (
@@ -86,7 +86,7 @@ class MortalNotificationWorkflow:
             )
         except ActivityError as error:
             if self._recipient_unavailable(error):
-                await self._deactivate(mortal_id, activity_timeout)
+                await self._mark_unreachable(mortal_id, activity_timeout)
             self._log_failure(mortal_id, "mortal_notification_delivery_failed")
             return False
         return True
@@ -109,19 +109,19 @@ class MortalNotificationWorkflow:
         except ActivityError:
             self._log_failure(mortal_id, "mortal_notification_cleanup_failed")
 
-    async def _deactivate(
+    async def _mark_unreachable(
         self,
         mortal_id: int,
         activity_timeout: timedelta,
     ) -> None:
         try:
             await workflow.execute_activity(
-                DEACTIVATE_MORTAL_ACTIVITY_NAME,
+                MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME,
                 MortalActivityInput(mortal_id=mortal_id),
                 schedule_to_close_timeout=activity_timeout,
             )
         except ActivityError:
-            self._log_failure(mortal_id, "mortal_deactivation_failed")
+            self._log_failure(mortal_id, "mortal_mark_unreachable_failed")
 
     async def _delete_schedule(
         self,
