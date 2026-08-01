@@ -26,6 +26,7 @@ from sein_zum_tode.config import WorkerSettings
 from sein_zum_tode.infrastructure.postgres import PostgresClient
 from sein_zum_tode.infrastructure.redis import RedisClient
 from sein_zum_tode.infrastructure.yandex_ai import YandexAIStudioClient
+from sein_zum_tode.localization.settings import ConfigureMortalLocalizationActivity
 from sein_zum_tode.log_config import configure_logging
 from sein_zum_tode.mortals.activities import MortalActivities
 from sein_zum_tode.mortals.postgres import PostgresMortalRepository
@@ -174,6 +175,13 @@ async def run(settings: WorkerSettings) -> None:
         content=content,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
     )
+    configure_localization = ConfigureMortalLocalizationActivity(
+        updates=payloads,
+        responses=payloads,
+        mortals=mortals,
+        content=content,
+        response_ttl_seconds=settings.telegram_update_ttl_seconds,
+    )
     generate_prediction = GenerateDeathPredictionActivity(
         predictor=predictor,
         predictions=predictions,
@@ -213,6 +221,7 @@ async def run(settings: WorkerSettings) -> None:
             prepare.prepare_echo,
             prepare.prepare_help,
             prepare.prepare_about,
+            prepare.prepare_localization,
             prepare.prepare_notifications,
             prepare.prepare_limit_exhausted,
             prepare.prepare_unsupported,
@@ -227,6 +236,7 @@ async def run(settings: WorkerSettings) -> None:
             mortal_activities.deactivate,
             mortal_activities.delete_schedule,
             prepare_notification.prepare,
+            configure_localization.configure,
             configure_notifications.configure,
             generate_prediction.generate,
             apply_prediction.apply,

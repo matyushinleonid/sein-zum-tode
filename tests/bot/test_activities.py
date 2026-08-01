@@ -98,6 +98,17 @@ def memory(update: object, response: object = None) -> TelegramMemory:
         ),
         ActivityCase(
             update=TelegramUpdates.message(
+                update_id=1281,
+                user_id=128_181,
+                chat_id=128_189,
+                text="/localization",
+                chat_type="private",
+            ),
+            expected_kind=InspectionKind.LOCALIZATION,
+            expected_chat_id=128_189,
+        ),
+        ActivityCase(
+            update=TelegramUpdates.message(
                 update_id=1279,
                 user_id=127_981,
                 chat_id=127_987,
@@ -159,6 +170,18 @@ def memory(update: object, response: object = None) -> TelegramMemory:
             ),
             expected_kind=InspectionKind.NOTIFICATION_SELECTION,
             expected_chat_id=132_021,
+            expected_callback_query_id="callback-Sphinx-915",
+        ),
+        ActivityCase(
+            update=TelegramUpdates.callback(
+                update_id=1322,
+                user_id=132_223,
+                chat_id=132_223,
+                chat_type="private",
+                data="localization:ru",
+            ),
+            expected_kind=InspectionKind.LOCALIZATION_SELECTION,
+            expected_chat_id=132_223,
             expected_callback_query_id="callback-Sphinx-915",
         ),
         ActivityCase(
@@ -359,7 +382,7 @@ async def test_prepares_each_static_response(
     ], "static response activity stored an unexpected Telegram message"
 
 
-async def test_prepares_html_about_and_notification_keyboard() -> None:
+async def test_prepares_html_about_and_callback_keyboards() -> None:
     payloads = memory(None)
     subject = PrepareTelegramResponseActivities(
         update_reader=payloads,
@@ -381,16 +404,25 @@ async def test_prepares_html_about_and_notification_keyboard() -> None:
         chat_id=145_459,
         user_id=145_459,
     )
+    localization = PrepareResponseInput(
+        update_key="telegram:localization:1460",
+        response_key="telegram:localization:1460:response",
+        chat_id=145_459,
+        user_id=145_459,
+    )
 
     await subject.prepare_about(about)
     await subject.prepare_notifications(notifications)
+    await subject.prepare_localization(localization)
 
     about_response = payloads.responses[about.response_key]
     notification_response = payloads.responses[notifications.response_key]
+    localization_response = payloads.responses[localization.response_key]
     assert (
         about_response.parse_mode,
         "github" in about_response.text,
         tuple(button.callback_data for row in notification_response.keyboard for button in row),
+        tuple(button.callback_data for row in localization_response.keyboard for button in row),
     ) == (
         "HTML",
         True,
@@ -400,7 +432,11 @@ async def test_prepares_html_about_and_notification_keyboard() -> None:
             "notifications:monthly",
             "notifications:never",
         ),
-    ), "about formatting or notification callback keyboard changed"
+        (
+            "localization:ru",
+            "localization:en",
+        ),
+    ), "about formatting or callback keyboard changed"
 
 
 async def test_delivers_the_response_loaded_from_redis() -> None:

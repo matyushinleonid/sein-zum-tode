@@ -25,7 +25,6 @@ from sein_zum_tode.infrastructure.postgres import (
 from sein_zum_tode.mortals.errors import MortalQuotaExhaustedError, MortalRepositoryError
 from sein_zum_tode.mortals.models import (
     DEFAULT_LLM_REQUESTS_REMAINING,
-    DEFAULT_MORTAL_LOCALE,
     DEFAULT_MORTAL_NOTIFICATION_CRON,
     DEFAULT_MORTAL_TIMEZONE,
     Mortal,
@@ -43,8 +42,7 @@ mortal_id_column: Column[int] = Column(
 mortal_locale_column: Column[str] = Column(
     "locale",
     String(16),
-    nullable=False,
-    server_default=text("'en'"),
+    nullable=True,
 )
 mortal_timezone_column: Column[str] = Column(
     "timezone",
@@ -110,7 +108,7 @@ class PostgresMortalRepository(MortalRepository):
             insert(mortals)
             .values(
                 id=mortal_id,
-                locale=DEFAULT_MORTAL_LOCALE,
+                locale=None,
                 timezone=DEFAULT_MORTAL_TIMEZONE,
                 notification_cron=DEFAULT_MORTAL_NOTIFICATION_CRON,
                 death_date=None,
@@ -135,7 +133,7 @@ class PostgresMortalRepository(MortalRepository):
 
     async def reset(self, mortal_id: int) -> Mortal:
         defaults = {
-            "locale": DEFAULT_MORTAL_LOCALE,
+            "locale": None,
             "timezone": DEFAULT_MORTAL_TIMEZONE,
             "notification_cron": DEFAULT_MORTAL_NOTIFICATION_CRON,
             "death_date": None,
@@ -163,7 +161,7 @@ class PostgresMortalRepository(MortalRepository):
             insert(mortals)
             .values(
                 id=mortal_id,
-                locale=DEFAULT_MORTAL_LOCALE,
+                locale=None,
                 timezone=DEFAULT_MORTAL_TIMEZONE,
                 notification_cron=DEFAULT_MORTAL_NOTIFICATION_CRON,
                 death_date=death_date,
@@ -200,6 +198,17 @@ class PostgresMortalRepository(MortalRepository):
             raise MortalRepositoryError(
                 f"Failed to set notification frequency for Mortal {mortal_id}"
             ) from error
+        if mortal is None:
+            raise MortalRepositoryError(f"Mortal {mortal_id} was not found")
+        return mortal
+
+    async def set_locale(self, mortal_id: int, locale: str) -> Mortal:
+        statement = update(mortals).where(mortal_id_column == mortal_id).values(locale=locale)
+        try:
+            await self._postgres.execute(statement)
+            mortal = await self._get(mortal_id)
+        except PostgresClientError as error:
+            raise MortalRepositoryError(f"Failed to set locale for Mortal {mortal_id}") from error
         if mortal is None:
             raise MortalRepositoryError(f"Mortal {mortal_id} was not found")
         return mortal

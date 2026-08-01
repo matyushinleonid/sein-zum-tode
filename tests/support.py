@@ -11,6 +11,7 @@ from temporalio.common import WorkflowIDConflictPolicy
 from sein_zum_tode.bot.content import (
     BotContent,
     ConversationContent,
+    LocalizationContent,
     LocalizedBotContent,
     NotificationSettingsContent,
     PredictionContent,
@@ -69,6 +70,12 @@ class BotContents:
                     unsupported="I cannot process this input.",
                     group_unsupported="Group chats are not supported.",
                     notification="mock notification: {days_left}",
+                    localization=LocalizationContent(
+                        prompt="Choose your language / Выберите язык",
+                        russian="🇷🇺 RU",
+                        english="🇺🇸 EN",
+                        updated="Language changed to English.",
+                    ),
                     notification_settings=NotificationSettingsContent(
                         prompt="Choose a notification frequency",
                         daily="Daily",
@@ -91,7 +98,45 @@ class BotContents:
                             QuestionContent(id="q2", text=second_question),
                         ),
                     ),
-                )
+                ),
+                "ru": LocalizedBotContent(
+                    help="Путь укажут созвездия",
+                    about=(
+                        'О боте: <a href="https://github.com/matyushinleonid/'
+                        'sein-zum-tode">github</a>'
+                    ),
+                    unsupported="Не получается обработать это сообщение.",
+                    group_unsupported="Групповые чаты не поддерживаются.",
+                    notification="Осталось дней: {days_left}",
+                    localization=LocalizationContent(
+                        prompt="Выберите язык.",
+                        russian="🇷🇺 RU",
+                        english="🇺🇸 EN",
+                        updated="Язык изменён на русский.",
+                    ),
+                    notification_settings=NotificationSettingsContent(
+                        prompt="Выберите частоту уведомлений",
+                        daily="Ежедневно",
+                        weekly="Еженедельно",
+                        monthly="Ежемесячно",
+                        never="Никогда",
+                        updated="Уведомления: {frequency}",
+                    ),
+                    prediction=PredictionContent(
+                        limit_exhausted="Лимит предсказаний исчерпан",
+                        failed="Ошибка предсказания",
+                        mock="Тестовое предсказание: {answers}",
+                    ),
+                    conversation=ConversationContent(
+                        started="Тестовая анкета начата",
+                        completed="Спасибо за ваши ответы!",
+                        deleted="Ваши ответы удалены из нашей системы",
+                        questions=(
+                            QuestionContent(id="q1", text="Первый вопрос?"),
+                            QuestionContent(id="q2", text="Второй вопрос?"),
+                        ),
+                    ),
+                ),
             },
         )
 
@@ -607,6 +652,14 @@ class MortalMemory:
         self.events.append(("set_notification_cron", mortal_id, cron))
         mortal = self.mortals.get(mortal_id, Mortal(id=mortal_id)).model_copy(
             update={"notification_cron": cron}
+        )
+        self.mortals[mortal_id] = mortal
+        return mortal
+
+    async def set_locale(self, mortal_id: int, locale: str) -> Mortal:
+        self.events.append(("set_locale", mortal_id, locale))
+        mortal = self.mortals.get(mortal_id, Mortal(id=mortal_id)).model_copy(
+            update={"locale": locale}
         )
         self.mortals[mortal_id] = mortal
         return mortal

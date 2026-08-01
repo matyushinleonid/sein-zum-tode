@@ -35,6 +35,7 @@ from sein_zum_tode.bot.models import (
     PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
     PREPARE_HELP_ACTIVITY_NAME,
     PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
+    PREPARE_LOCALIZATION_ACTIVITY_NAME,
     PREPARE_UNSUPPORTED_ACTIVITY_NAME,
     TELEGRAM_UPDATE_SIGNAL_NAME,
     TELEGRAM_USER_WORKFLOW_NAME,
@@ -48,12 +49,16 @@ from sein_zum_tode.bot.models import (
     UserWorkflowInput,
 )
 from sein_zum_tode.bot.workflow import TelegramUserWorkflow
+from sein_zum_tode.localization.models import (
+    CONFIGURE_MORTAL_LOCALIZATION_ACTIVITY_NAME,
+)
 from sein_zum_tode.mortals.activities import (
     CHECK_MORTAL_QUOTA_ACTIVITY_NAME,
     DEACTIVATE_MORTAL_ACTIVITY_NAME,
     ENSURE_MORTAL_ACTIVITY_NAME,
     RESET_MORTAL_ACTIVITY_NAME,
     MortalActivityInput,
+    MortalRegistration,
 )
 from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.notifications.models import CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME
@@ -132,6 +137,7 @@ class ActivityTranscript:
         forbidden_delivery: str | None = None,
         failing_reset: bool = False,
         quota_outcomes: list[object] | None = None,
+        localization_required: bool = False,
     ) -> None:
         self.inspections = inspections
         self.failing_inspection = failing_inspection
@@ -143,6 +149,7 @@ class ActivityTranscript:
         self.forbidden_delivery = forbidden_delivery
         self.failing_reset = failing_reset
         self.quota_outcomes = list(quota_outcomes or [])
+        self.localization_required = localization_required
         self.events: list[tuple[str, str, int | None]] = []
         self.changed = asyncio.Event()
         self.inspection_started = asyncio.Event()
@@ -188,6 +195,14 @@ class ActivityTranscript:
             user_id=input.user_id,
         )
 
+    @activity.defn(name=PREPARE_LOCALIZATION_ACTIVITY_NAME)
+    async def prepare_localization(self, input: PrepareResponseInput) -> None:
+        self.record(
+            operation="prepare_localization",
+            update_key=input.update_key,
+            user_id=input.user_id,
+        )
+
     @activity.defn(name=PREPARE_UNSUPPORTED_ACTIVITY_NAME)
     async def prepare_unsupported(self, input: PrepareResponseInput) -> None:
         self.record(
@@ -220,6 +235,15 @@ class ActivityTranscript:
             user_id=input.user_id,
         )
 
+    @activity.defn(name=CONFIGURE_MORTAL_LOCALIZATION_ACTIVITY_NAME)
+    async def configure_localization(self, input: PrepareResponseInput) -> None:
+        self.record(
+            operation="configure_localization",
+            update_key=input.update_key,
+            user_id=input.user_id,
+        )
+        self.localization_required = False
+
     @activity.defn(name=DELIVER_RESPONSE_ACTIVITY_NAME)
     async def deliver(self, input: DeliverResponseInput) -> None:
         self.record(
@@ -245,9 +269,10 @@ class ActivityTranscript:
             raise ApplicationError("cleanup rejected", non_retryable=True)
 
     @activity.defn(name=ENSURE_MORTAL_ACTIVITY_NAME)
-    async def ensure_mortal(self, input: MortalActivityInput) -> None:
+    async def ensure_mortal(self, input: MortalActivityInput) -> MortalRegistration:
         if self.failing_registration:
             raise ApplicationError("PostgreSQL unavailable", non_retryable=True)
+        return MortalRegistration(localization_required=self.localization_required)
 
     @activity.defn(name=DEACTIVATE_MORTAL_ACTIVITY_NAME)
     async def deactivate_mortal(self, input: MortalActivityInput) -> None:
@@ -276,10 +301,12 @@ class ActivityTranscript:
             self.inspect,
             self.prepare_echo,
             self.prepare_help,
+            self.prepare_localization,
             self.prepare_unsupported,
             self.prepare_group_unsupported,
             self.prepare_limit_exhausted,
             self.configure_notifications,
+            self.configure_localization,
             self.deliver,
             self.cleanup,
             self.ensure_mortal,
@@ -328,6 +355,10 @@ class ActivityRouter:
     async def prepare_help(self, input: PrepareResponseInput) -> None:
         await self.selected("prepare_help")(input)
 
+    @activity.defn(name=PREPARE_LOCALIZATION_ACTIVITY_NAME)
+    async def prepare_localization(self, input: PrepareResponseInput) -> None:
+        await self.selected("prepare_localization")(input)
+
     @activity.defn(name=PREPARE_UNSUPPORTED_ACTIVITY_NAME)
     async def prepare_unsupported(self, input: PrepareResponseInput) -> None:
         await self.selected("prepare_unsupported")(input)
@@ -344,6 +375,10 @@ class ActivityRouter:
     async def configure_notifications(self, input: PrepareResponseInput) -> None:
         await self.selected("configure_notifications")(input)
 
+    @activity.defn(name=CONFIGURE_MORTAL_LOCALIZATION_ACTIVITY_NAME)
+    async def configure_localization(self, input: PrepareResponseInput) -> None:
+        await self.selected("configure_localization")(input)
+
     @activity.defn(name=DELIVER_RESPONSE_ACTIVITY_NAME)
     async def deliver(self, input: DeliverResponseInput) -> None:
         await self.selected("deliver")(input)
@@ -353,8 +388,8 @@ class ActivityRouter:
         await self.selected("cleanup")(input)
 
     @activity.defn(name=ENSURE_MORTAL_ACTIVITY_NAME)
-    async def ensure_mortal(self, input: MortalActivityInput) -> None:
-        await self.selected("ensure_mortal")(input)
+    async def ensure_mortal(self, input: MortalActivityInput) -> MortalRegistration:
+        return cast(MortalRegistration, await self.selected("ensure_mortal")(input))
 
     @activity.defn(name=DEACTIVATE_MORTAL_ACTIVITY_NAME)
     async def deactivate_mortal(self, input: MortalActivityInput) -> None:
@@ -373,10 +408,12 @@ class ActivityRouter:
             self.inspect,
             self.prepare_echo,
             self.prepare_help,
+            self.prepare_localization,
             self.prepare_unsupported,
             self.prepare_group_unsupported,
             self.prepare_limit_exhausted,
             self.configure_notifications,
+            self.configure_localization,
             self.deliver,
             self.cleanup,
             self.ensure_mortal,
@@ -608,6 +645,63 @@ async def test_routes_notification_callback_without_entering_a_conversation(
         ("deliver", update_key, 173_357),
         ("cleanup", update_key, 173_357),
     ], "notification callback was signalled to a questionnaire or skipped delivery"
+
+
+async def test_requires_localization_before_processing_a_new_mortal(
+    workflow_worker_pool: WorkflowWorkerPool,
+) -> None:
+    first_key = "redis:first-contact:1758"
+    selection_key = "redis:localization-selection:1759"
+    echo_key = "redis:echo-after-localization:1763"
+    stop_key = "redis:stop-after-localization:1769"
+    transcript = ActivityTranscript(
+        inspections={
+            first_key: InspectionKind.ECHO,
+            selection_key: InspectionKind.LOCALIZATION_SELECTION,
+            echo_key: InspectionKind.ECHO,
+            stop_key: InspectionKind.MORTAL_BLOCKED,
+        },
+        failing_inspection=None,
+        failing_cleanup=False,
+        localization_required=True,
+    )
+    async with await WorkflowStory.open(
+        pool=workflow_worker_pool,
+        activities=transcript.definitions(),
+    ) as story:
+        handle = await story.start(first_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=selection_key),
+        )
+        await transcript.wait_for("cleanup", 2)
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=echo_key),
+        )
+        await transcript.wait_for("cleanup", 3)
+        events = transcript.events[:12]
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=stop_key),
+        )
+        await handle.result()
+
+    assert events == [
+        ("inspect", first_key, 173_357),
+        ("prepare_localization", first_key, 173_357),
+        ("deliver", first_key, 173_357),
+        ("cleanup", first_key, 173_357),
+        ("inspect", selection_key, 173_357),
+        ("configure_localization", selection_key, 173_357),
+        ("deliver", selection_key, 173_357),
+        ("cleanup", selection_key, 173_357),
+        ("inspect", echo_key, 173_357),
+        ("prepare_echo", echo_key, 173_357),
+        ("deliver", echo_key, 173_357),
+        ("cleanup", echo_key, 173_357),
+    ], "first contact was processed before explicit localization or lost after selection"
 
 
 @pytest.mark.parametrize(

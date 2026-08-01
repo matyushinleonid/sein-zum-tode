@@ -53,6 +53,10 @@ class MortalRepositoryDouble:
         self.events.append(("set_notification_cron", mortal_id, cron))
         return Mortal(id=mortal_id, notification_cron=cron)
 
+    async def set_locale(self, mortal_id: int, locale: str) -> Mortal:
+        self.events.append(("set_locale", mortal_id, locale))
+        return Mortal(id=mortal_id, locale=locale)
+
     async def consume_llm_request(self, mortal_id: int, request_id: str) -> Mortal:
         self.events.append(("consume_llm_request", mortal_id, request_id))
         return Mortal(id=mortal_id, llm_requests_remaining=49)

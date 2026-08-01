@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from sein_zum_tode.bot.content import (
     BotContent,
     ConversationContent,
+    LocalizationContent,
     LocalizedBotContent,
     NotificationSettingsContent,
     PredictionContent,
@@ -24,6 +25,12 @@ def localized_content(notification: str = "Days left: {days_left}") -> Localized
         unsupported="Unsupported",
         group_unsupported="Groups unsupported",
         notification=notification,
+        localization=LocalizationContent(
+            prompt="Choose your language",
+            russian="🇷🇺 RU",
+            english="🇺🇸 EN",
+            updated="Language changed",
+        ),
         notification_settings=NotificationSettingsContent(
             prompt="Frequency?",
             daily="Daily",
@@ -59,6 +66,11 @@ locales:
     unsupported: Unsupported
     group_unsupported: Groups unsupported
     notification: "Days left: {days_left}"
+    localization:
+      prompt: Choose your language
+      russian: "🇷🇺 RU"
+      english: "🇺🇸 EN"
+      updated: Language changed
     notification_settings:
       prompt: Frequency?
       daily: Daily

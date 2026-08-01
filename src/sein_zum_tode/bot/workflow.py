@@ -23,6 +23,7 @@ from sein_zum_tode.bot.models import (
     PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
     PREPARE_HELP_ACTIVITY_NAME,
     PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
+    PREPARE_LOCALIZATION_ACTIVITY_NAME,
     PREPARE_NOTIFICATIONS_ACTIVITY_NAME,
     PREPARE_UNSUPPORTED_ACTIVITY_NAME,
     TELEGRAM_UPDATE_SIGNAL_NAME,
@@ -36,12 +37,16 @@ from sein_zum_tode.bot.models import (
     TelegramUpdateSignal,
     UserWorkflowInput,
 )
+from sein_zum_tode.localization.models import (
+    CONFIGURE_MORTAL_LOCALIZATION_ACTIVITY_NAME,
+)
 from sein_zum_tode.mortals.activities import (
     CHECK_MORTAL_QUOTA_ACTIVITY_NAME,
     DEACTIVATE_MORTAL_ACTIVITY_NAME,
     ENSURE_MORTAL_ACTIVITY_NAME,
     RESET_MORTAL_ACTIVITY_NAME,
     MortalActivityInput,
+    MortalRegistration,
 )
 from sein_zum_tode.notifications.models import (
     CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME,
@@ -53,6 +58,8 @@ PREPARE_ACTIVITY_NAMES = {
     InspectionKind.ECHO: PREPARE_ECHO_ACTIVITY_NAME,
     InspectionKind.HELP: PREPARE_HELP_ACTIVITY_NAME,
     InspectionKind.ABOUT: PREPARE_ABOUT_ACTIVITY_NAME,
+    InspectionKind.LOCALIZATION: PREPARE_LOCALIZATION_ACTIVITY_NAME,
+    InspectionKind.LOCALIZATION_SELECTION: CONFIGURE_MORTAL_LOCALIZATION_ACTIVITY_NAME,
     InspectionKind.NOTIFICATIONS: PREPARE_NOTIFICATIONS_ACTIVITY_NAME,
     InspectionKind.NOTIFICATION_SELECTION: CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME,
     InspectionKind.LIMIT_EXHAUSTED: PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
@@ -79,6 +86,7 @@ class TelegramUserWorkflow:
         self._conversation_key: str | None = None
         self._conversation_accepting_updates = False
         self._mortal_registered = False
+        self._localization_required: bool | None = None
 
     @workflow.signal(name=TELEGRAM_UPDATE_SIGNAL_NAME)
     def accept_update(self, input: TelegramUpdateSignal) -> None:
@@ -128,11 +136,19 @@ class TelegramUserWorkflow:
             await self._reset_mortal(update_key)
             await self._cleanup(update_key, f"{update_key}:response")
             return True
+        if inspected.kind == InspectionKind.GROUP_UNSUPPORTED:
+            return await self._respond(inspected)
         if not await self._ensure_mortal(update_key):
             await self._cleanup(update_key, f"{update_key}:response")
             return True
 
-        if inspected.kind == InspectionKind.NOTIFICATION_SELECTION:
+        if self._localization_required and inspected.kind != InspectionKind.LOCALIZATION_SELECTION:
+            return await self._respond(self._localization(inspected))
+
+        if inspected.kind in {
+            InspectionKind.LOCALIZATION_SELECTION,
+            InspectionKind.NOTIFICATION_SELECTION,
+        }:
             return await self._respond(inspected)
 
         if self._conversation is not None and self._conversation_accepting_updates:
@@ -150,6 +166,7 @@ class TelegramUserWorkflow:
                 InspectionKind.ECHO,
                 InspectionKind.HELP,
                 InspectionKind.ABOUT,
+                InspectionKind.LOCALIZATION,
                 InspectionKind.NOTIFICATIONS,
             }:
                 conversation = await self._release_finished_conversation()
@@ -240,13 +257,17 @@ class TelegramUserWorkflow:
         return recipient_available
 
     async def _ensure_mortal(self, update_key: str) -> bool:
-        if self._mortal_registered:
+        if self._mortal_registered and self._localization_required is False:
             return True
         try:
-            await workflow.execute_activity(
-                ENSURE_MORTAL_ACTIVITY_NAME,
-                MortalActivityInput(mortal_id=self._user_id),
-                schedule_to_close_timeout=self._activity_timeout,
+            registration = cast(
+                MortalRegistration,
+                await workflow.execute_activity(
+                    ENSURE_MORTAL_ACTIVITY_NAME,
+                    MortalActivityInput(mortal_id=self._user_id),
+                    result_type=MortalRegistration,
+                    schedule_to_close_timeout=self._activity_timeout,
+                ),
             )
         except ActivityError:
             context = LogContext(
@@ -260,6 +281,7 @@ class TelegramUserWorkflow:
             )
             return False
         self._mortal_registered = True
+        self._localization_required = registration.localization_required
         return True
 
     async def _prediction_quota(self, update_key: str) -> bool | None:
@@ -293,6 +315,14 @@ class TelegramUserWorkflow:
             callback_query_id=inspected.callback_query_id,
         )
 
+    def _localization(self, inspected: InspectedUpdate) -> InspectedUpdate:
+        return InspectedUpdate(
+            kind=InspectionKind.LOCALIZATION,
+            update_key=inspected.update_key,
+            chat_id=inspected.chat_id,
+            callback_query_id=inspected.callback_query_id,
+        )
+
     async def _deactivate_mortal(self, update_key: str | None) -> None:
         try:
             await workflow.execute_activity(
@@ -311,6 +341,7 @@ class TelegramUserWorkflow:
                 extra=context.event("mortal_deactivation_failed"),
             )
         self._mortal_registered = False
+        self._localization_required = None
 
     async def _reset_mortal(self, update_key: str) -> None:
         try:
@@ -330,8 +361,10 @@ class TelegramUserWorkflow:
                 extra=context.event("mortal_reset_failed"),
             )
             self._mortal_registered = False
+            self._localization_required = None
             return
         self._mortal_registered = True
+        self._localization_required = True
 
     async def _start_conversation(self, inspected: InspectedUpdate) -> None:
         conversation_key = f"{inspected.update_key}:conversation"

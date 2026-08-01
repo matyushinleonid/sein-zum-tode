@@ -19,6 +19,11 @@ class MortalActivityInput:
     mortal_id: int
 
 
+@dataclass(frozen=True, slots=True)
+class MortalRegistration:
+    localization_required: bool
+
+
 class MortalActivities:
     def __init__(
         self,
@@ -32,14 +37,15 @@ class MortalActivities:
         self._logger = logger or logging.getLogger(__name__)
 
     @activity.defn(name=ENSURE_MORTAL_ACTIVITY_NAME)
-    async def ensure(self, input: MortalActivityInput) -> None:
-        await self._mortals.ensure(input.mortal_id)
+    async def ensure(self, input: MortalActivityInput) -> MortalRegistration:
+        mortal = await self._mortals.ensure(input.mortal_id)
         self._logger.info(
             "Mortal registered",
             extra=LogContext(component="worker", user_id=input.mortal_id).event(
                 "mortal_registered"
             ),
         )
+        return MortalRegistration(localization_required=mortal.locale is None)
 
     @activity.defn(name=RESET_MORTAL_ACTIVITY_NAME)
     async def reset(self, input: MortalActivityInput) -> None:
