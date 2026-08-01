@@ -28,14 +28,22 @@ def result_or_raise[T](value: T | BaseException) -> T:
 
 
 class ResultDouble(PostgresStatementResult, PostgresMappingResult):
-    def __init__(self, row: Mapping[str, Any] | None) -> None:
+    def __init__(
+        self,
+        row: Mapping[str, Any] | None,
+        rows: tuple[Mapping[str, Any], ...] = (),
+    ) -> None:
         self.row = row
+        self.rows = rows
 
     def mappings(self) -> Self:
         return self
 
     def one_or_none(self) -> Mapping[str, Any] | None:
         return self.row
+
+    def all(self) -> tuple[Mapping[str, Any], ...]:
+        return self.rows
 
 
 class ConnectionDouble(PostgresConnection):
@@ -194,11 +202,24 @@ async def test_executes_a_returning_statement_inside_a_transaction() -> None:
     )
 
 
+async def test_reads_all_query_mappings() -> None:
+    rows = (
+        {"id": 3173, "locale": "en"},
+        {"id": 3181, "locale": "en"},
+    )
+    engine = EngineDouble(outcomes=[ResultDouble(None, rows)])
+
+    actual = await engine.client().fetch_all(text("SELECT id, locale FROM mortals"))
+
+    assert actual == rows, "PostgresClient discarded or changed rows from a paged query"
+
+
 @pytest.mark.parametrize(
     ("operation", "expected_message"),
     [
         ("execute", "PostgreSQL statement failed"),
         ("fetch_one", "PostgreSQL query failed"),
+        ("fetch_all", "PostgreSQL query failed"),
         ("execute_returning_one", "PostgreSQL statement failed"),
     ],
 )
@@ -214,5 +235,7 @@ async def test_translates_sqlalchemy_failures(
             await client.execute(text("DELETE FROM mortals"))
         elif operation == "fetch_one":
             await client.fetch_one(text("SELECT id FROM mortals"))
+        elif operation == "fetch_all":
+            await client.fetch_all(text("SELECT id FROM mortals"))
         else:
             await client.execute_returning_one(text("UPDATE mortals RETURNING id"))

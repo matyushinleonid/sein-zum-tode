@@ -97,6 +97,7 @@ class LocalizedBotContent(BaseModel):
     about: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     unsupported: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     group_unsupported: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    scream_denied: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     notification: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     localization: LocalizationContent
     notification_settings: NotificationSettingsContent

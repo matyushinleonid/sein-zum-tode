@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from typing import Any, Protocol, Self
 from uuid import uuid4
@@ -16,6 +16,8 @@ class PostgresClientError(Exception):
 
 class PostgresMappingResult(Protocol):
     def one_or_none(self) -> Mapping[str, Any] | None: ...
+
+    def all(self) -> Sequence[Mapping[str, Any]]: ...
 
 
 class PostgresStatementResult(Protocol):
@@ -38,6 +40,8 @@ class PostgresStatementClient(Protocol):
     async def execute(self, statement: Executable) -> None: ...
 
     async def fetch_one(self, statement: Executable) -> Mapping[str, Any] | None: ...
+
+    async def fetch_all(self, statement: Executable) -> tuple[Mapping[str, Any], ...]: ...
 
     async def execute_returning_one(
         self,
@@ -118,6 +122,14 @@ class PostgresClient:
                 result = await connection.execute(statement)
                 row = result.mappings().one_or_none()
                 return {str(key): value for key, value in row.items()} if row is not None else None
+        except SQLAlchemyError as error:
+            raise PostgresClientError("PostgreSQL query failed") from error
+
+    async def fetch_all(self, statement: Executable) -> tuple[Mapping[str, Any], ...]:
+        try:
+            async with self._engine.connect() as connection:
+                rows = (await connection.execute(statement)).mappings().all()
+                return tuple({str(key): value for key, value in row.items()} for row in rows)
         except SQLAlchemyError as error:
             raise PostgresClientError("PostgreSQL query failed") from error
 

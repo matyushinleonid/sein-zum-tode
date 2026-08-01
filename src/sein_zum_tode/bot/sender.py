@@ -15,6 +15,7 @@ from sein_zum_tode.bot.errors import (
 )
 from sein_zum_tode.bot.models import TelegramResponse
 from sein_zum_tode.bot.ports import TelegramSendingClient
+from sein_zum_tode.broadcasts.models import ScreamRequest
 
 
 class AiogramTelegramMessageSender:
@@ -63,4 +64,29 @@ class AiogramTelegramMessageSender:
         except AiogramError as error:
             raise TelegramDeliveryError(
                 f"Failed to send Telegram message to chat {response.chat_id}"
+            ) from error
+
+    async def copy(self, request: ScreamRequest, recipient_id: int) -> None:
+        try:
+            await self._bot.copy_message(
+                chat_id=recipient_id,
+                from_chat_id=request.source_chat_id,
+                message_id=request.source_message_id,
+            )
+        except TelegramForbiddenError as error:
+            raise TelegramRecipientUnavailableError(
+                f"Telegram recipient {recipient_id} is unavailable"
+            ) from error
+        except (
+            TelegramBadRequest,
+            TelegramEntityTooLarge,
+            TelegramNotFound,
+            TelegramUnauthorizedError,
+        ) as error:
+            raise PermanentTelegramDeliveryError(
+                f"Telegram rejected copied message for chat {recipient_id}"
+            ) from error
+        except AiogramError as error:
+            raise TelegramDeliveryError(
+                f"Failed to copy Telegram message to chat {recipient_id}"
             ) from error

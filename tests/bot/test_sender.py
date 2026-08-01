@@ -6,7 +6,7 @@ from aiogram.exceptions import (
     TelegramForbiddenError,
     TelegramNetworkError,
 )
-from aiogram.methods import SendMessage
+from aiogram.methods import CopyMessage, SendMessage
 from aiogram.types import InlineKeyboardMarkup
 
 from sein_zum_tode.bot.errors import (
@@ -16,6 +16,7 @@ from sein_zum_tode.bot.errors import (
 )
 from sein_zum_tode.bot.models import TelegramButton, TelegramResponse
 from sein_zum_tode.bot.sender import AiogramTelegramMessageSender
+from sein_zum_tode.broadcasts.models import ScreamRequest
 from tests.support import TelegramBotDouble
 
 pytestmark = pytest.mark.fast
@@ -134,4 +135,74 @@ async def test_classifies_a_network_problem_as_a_retryable_failure() -> None:
                 chat_id=172_337,
                 text="Pack my red box with five dozen quality jugs",
             )
+        )
+
+
+async def test_copies_a_replied_message_without_rebuilding_its_media() -> None:
+    bot = TelegramBotDouble(
+        updates=[],
+        delete_result=None,
+        receive_result=None,
+        send_result=None,
+    )
+
+    await AiogramTelegramMessageSender(bot).copy(
+        ScreamRequest(
+            locale="ru",
+            source_chat_id=172_411,
+            source_message_id=172_421,
+        ),
+        172_423,
+    )
+
+    assert bot.events == [("copy_message", (172_423, 172_411, 172_421))], (
+        "scream delivery changed the source or destination message identifiers"
+    )
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_error"),
+    [
+        (
+            TelegramForbiddenError(
+                method=CopyMessage(chat_id=172_427, from_chat_id=172_429, message_id=172_433),
+                message="recipient unavailable",
+            ),
+            TelegramRecipientUnavailableError,
+        ),
+        (
+            TelegramBadRequest(
+                method=CopyMessage(chat_id=172_427, from_chat_id=172_429, message_id=172_433),
+                message="source rejected",
+            ),
+            PermanentTelegramDeliveryError,
+        ),
+        (
+            TelegramNetworkError(
+                method=CopyMessage(chat_id=172_427, from_chat_id=172_429, message_id=172_433),
+                message="network unavailable",
+            ),
+            TelegramDeliveryError,
+        ),
+    ],
+)
+async def test_classifies_copy_failures_for_temporal_retries(
+    failure: BaseException,
+    expected_error: type[BaseException],
+) -> None:
+    bot = TelegramBotDouble(
+        updates=[],
+        delete_result=None,
+        receive_result=None,
+        send_result=failure,
+    )
+
+    with pytest.raises(expected_error):
+        await AiogramTelegramMessageSender(bot).copy(
+            ScreamRequest(
+                locale="en",
+                source_chat_id=172_429,
+                source_message_id=172_433,
+            ),
+            172_427,
         )

@@ -24,6 +24,7 @@ def localized_content(notification: str = "Days left: {days_left}") -> Localized
         about="About",
         unsupported="Unsupported",
         group_unsupported="Groups unsupported",
+        scream_denied="Scream denied",
         notification=notification,
         localization=LocalizationContent(
             prompt="Choose your language",
@@ -65,6 +66,7 @@ locales:
     about: About the constellations
     unsupported: Unsupported
     group_unsupported: Groups unsupported
+    scream_denied: Scream denied
     notification: "Days left: {days_left}"
     localization:
       prompt: Choose your language

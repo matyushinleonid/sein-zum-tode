@@ -18,6 +18,7 @@ def explicit_settings() -> WorkerSettings:
         telegram_polling_timeout_seconds=43,
         telegram_request_timeout_seconds=59,
         telegram_update_ttl_seconds=1823,
+        telegram_admin_user_ids=frozenset({181_081, 181_087}),
         questionnaire_ttl_seconds=1877,
         bot_content_path=Path("config/cosmos-content.yaml"),
         retry_initial_delay_seconds=0.73,
@@ -316,6 +317,17 @@ class WorkerAssembly:
         )
         monkeypatch.setattr(module, "DeliverTelegramResponseActivity", self.create_delivery)
         monkeypatch.setattr(module, "CleanupTelegramPayloadsActivity", self.create_cleanup)
+        monkeypatch.setattr(
+            module,
+            "ListScreamRecipientsActivity",
+            self.create_list_scream_recipients,
+        )
+        monkeypatch.setattr(module, "DeliverScreamActivity", self.create_deliver_scream)
+        monkeypatch.setattr(
+            module,
+            "PrepareScreamReportActivity",
+            self.create_scream_report,
+        )
         monkeypatch.setattr(module, "MortalActivities", self.create_mortal_activities)
         monkeypatch.setattr(
             module,
@@ -440,15 +452,20 @@ class WorkerAssembly:
         )
         return self.predictor
 
-    def create_inspect(self, updates: object) -> ActivityDefinitions:
-        self.events.append(("inspect", updates is self.update_documents))
+    def create_inspect(self, **options: object) -> ActivityDefinitions:
+        self.events.append(
+            (
+                "inspect",
+                options["update_reader"] is self.update_documents,
+                options["admin_user_ids"],
+            )
+        )
         return ActivityDefinitions(("inspect",))
 
     def create_prepare(self, **options: object) -> ActivityDefinitions:
         self.events.append(
             (
                 "prepare",
-                options["update_reader"] is self.update_documents,
                 options["response_store"] is self.response_documents,
                 options["ttl_seconds"],
                 options["content"] is self.content,
@@ -457,7 +474,6 @@ class WorkerAssembly:
         )
         return ActivityDefinitions(
             (
-                "prepare_echo",
                 "prepare_help",
                 "prepare_about",
                 "prepare_localization",
@@ -465,6 +481,7 @@ class WorkerAssembly:
                 "prepare_limit_exhausted",
                 "prepare_unsupported",
                 "prepare_group_unsupported",
+                "prepare_scream_denied",
             )
         )
 
@@ -510,6 +527,24 @@ class WorkerAssembly:
     def create_cleanup(self, **options: object) -> ActivityDefinitions:
         self.events.append(("cleanup", options["cleaner"] is self.cleaner))
         return ActivityDefinitions(("cleanup",))
+
+    def create_list_scream_recipients(self, **options: object) -> ActivityDefinitions:
+        self.events.append(("list_scream_recipients", options["mortals"] is self.mortals))
+        return ActivityDefinitions(("list",))
+
+    def create_deliver_scream(self, **options: object) -> ActivityDefinitions:
+        self.events.append(("deliver_scream", options["copier"] is self.sender))
+        return ActivityDefinitions(("deliver",))
+
+    def create_scream_report(self, **options: object) -> ActivityDefinitions:
+        self.events.append(
+            (
+                "scream_report",
+                options["responses"] is self.response_documents,
+                options["ttl_seconds"],
+            )
+        )
+        return ActivityDefinitions(("prepare",))
 
     def create_mortal_activities(self, **options: object) -> ActivityDefinitions:
         self.events.append(

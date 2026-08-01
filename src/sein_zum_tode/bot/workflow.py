@@ -10,12 +10,12 @@ from sein_zum_tode.bot.models import (
     DELIVER_RESPONSE_ACTIVITY_NAME,
     INSPECT_UPDATE_ACTIVITY_NAME,
     PREPARE_ABOUT_ACTIVITY_NAME,
-    PREPARE_ECHO_ACTIVITY_NAME,
     PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
     PREPARE_HELP_ACTIVITY_NAME,
     PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
     PREPARE_LOCALIZATION_ACTIVITY_NAME,
     PREPARE_NOTIFICATIONS_ACTIVITY_NAME,
+    PREPARE_SCREAM_DENIED_ACTIVITY_NAME,
     PREPARE_UNSUPPORTED_ACTIVITY_NAME,
     TELEGRAM_UPDATE_SIGNAL_NAME,
     TELEGRAM_USER_WORKFLOW_NAME,
@@ -27,6 +27,11 @@ from sein_zum_tode.bot.models import (
     PrepareResponseInput,
     TelegramUpdateSignal,
     UserWorkflowInput,
+)
+from sein_zum_tode.broadcasts.models import (
+    TELEGRAM_SCREAM_WORKFLOW_NAME,
+    ScreamRequest,
+    ScreamWorkflowInput,
 )
 from sein_zum_tode.localization.models import (
     CONFIGURE_MORTAL_LOCALIZATION_ACTIVITY_NAME,
@@ -55,7 +60,7 @@ from sein_zum_tode.questionnaire.workflow import TelegramQuestionnaireWorkflow
 
 RECENT_UPDATE_KEYS_LIMIT = 256
 PREPARE_ACTIVITY_NAMES = {
-    InspectionKind.ECHO: PREPARE_ECHO_ACTIVITY_NAME,
+    InspectionKind.TEXT: PREPARE_UNSUPPORTED_ACTIVITY_NAME,
     InspectionKind.HELP: PREPARE_HELP_ACTIVITY_NAME,
     InspectionKind.ABOUT: PREPARE_ABOUT_ACTIVITY_NAME,
     InspectionKind.LOCALIZATION: PREPARE_LOCALIZATION_ACTIVITY_NAME,
@@ -64,6 +69,8 @@ PREPARE_ACTIVITY_NAMES = {
     InspectionKind.NOTIFICATION_SELECTION: CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME,
     InspectionKind.LIMIT_EXHAUSTED: PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
     InspectionKind.GROUP_UNSUPPORTED: PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
+    InspectionKind.SCREAM_DENIED: PREPARE_SCREAM_DENIED_ACTIVITY_NAME,
+    InspectionKind.SCREAM_UNSUPPORTED: PREPARE_UNSUPPORTED_ACTIVITY_NAME,
     InspectionKind.UNSUPPORTED: PREPARE_UNSUPPORTED_ACTIVITY_NAME,
 }
 
@@ -142,6 +149,13 @@ class TelegramUserWorkflow:
             await self._cleanup(update_key, f"{update_key}:response")
             return True
 
+        if inspected.kind in {
+            InspectionKind.SCREAM,
+            InspectionKind.SCREAM_DENIED,
+            InspectionKind.SCREAM_UNSUPPORTED,
+        }:
+            return await self._route_scream(inspected)
+
         if self._localization_required and inspected.kind != InspectionKind.LOCALIZATION_SELECTION:
             return await self._respond(self._localization(inspected))
 
@@ -162,13 +176,7 @@ class TelegramUserWorkflow:
                 await self._restart_questionnaire(inspected)
                 await self._cleanup(update_key, f"{update_key}:response")
                 return True
-            if inspected.kind in {
-                InspectionKind.ECHO,
-                InspectionKind.HELP,
-                InspectionKind.ABOUT,
-                InspectionKind.LOCALIZATION,
-                InspectionKind.NOTIFICATIONS,
-            }:
+            if inspected.kind == InspectionKind.TEXT:
                 questionnaire = await self._release_finished_questionnaire()
                 if questionnaire is None:
                     return await self._respond(inspected)
@@ -189,6 +197,24 @@ class TelegramUserWorkflow:
             await self._cleanup(update_key, f"{update_key}:response")
             return True
         return await self._respond(inspected)
+
+    async def _route_scream(self, inspected: InspectedUpdate) -> bool:
+        if inspected.kind != InspectionKind.SCREAM:
+            return await self._respond(inspected)
+        request = cast(ScreamRequest, inspected.scream_request)
+        await workflow.start_child_workflow(
+            TELEGRAM_SCREAM_WORKFLOW_NAME,
+            ScreamWorkflowInput(
+                request=request,
+                admin_user_id=self._user_id,
+                admin_chat_id=inspected.chat_id,
+                update_key=inspected.update_key,
+                activity_retry_timeout_seconds=int(self._activity_timeout.total_seconds()),
+            ),
+            id=f"telegram-scream:{inspected.update_key}",
+            parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+        )
+        return True
 
     async def _inspect(self, update_key: str) -> InspectedUpdate | None:
         try:

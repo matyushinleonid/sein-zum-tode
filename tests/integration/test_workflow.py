@@ -24,11 +24,11 @@ from sein_zum_tode.bot.models import (
     CLEANUP_PAYLOADS_ACTIVITY_NAME,
     DELIVER_RESPONSE_ACTIVITY_NAME,
     INSPECT_UPDATE_ACTIVITY_NAME,
-    PREPARE_ECHO_ACTIVITY_NAME,
     PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
     PREPARE_HELP_ACTIVITY_NAME,
     PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
     PREPARE_LOCALIZATION_ACTIVITY_NAME,
+    PREPARE_SCREAM_DENIED_ACTIVITY_NAME,
     PREPARE_UNSUPPORTED_ACTIVITY_NAME,
     TELEGRAM_UPDATE_SIGNAL_NAME,
     TELEGRAM_USER_WORKFLOW_NAME,
@@ -42,6 +42,11 @@ from sein_zum_tode.bot.models import (
     UserWorkflowInput,
 )
 from sein_zum_tode.bot.workflow import TelegramUserWorkflow
+from sein_zum_tode.broadcasts.models import (
+    TELEGRAM_SCREAM_WORKFLOW_NAME,
+    ScreamRequest,
+    ScreamWorkflowInput,
+)
 from sein_zum_tode.localization.models import (
     CONFIGURE_MORTAL_LOCALIZATION_ACTIVITY_NAME,
 )
@@ -57,8 +62,10 @@ from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.notifications.models import CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME
 from sein_zum_tode.questionnaire.models import (
     QUESTIONNAIRE_FINISHED_SIGNAL_NAME,
+    QUESTIONNAIRE_UPDATE_SIGNAL_NAME,
     TELEGRAM_QUESTIONNAIRE_WORKFLOW_NAME,
     QuestionnaireFinishedSignal,
+    QuestionnaireUpdateSignal,
     QuestionnaireWorkflowInput,
 )
 from sein_zum_tode.questionnaire.workflow import TelegramQuestionnaireWorkflow
@@ -124,6 +131,31 @@ class DelayedFinishedTelegramQuestionnaireWorkflow:
         await workflow.wait_condition(lambda: self._released)
 
 
+@workflow.defn(name=TELEGRAM_QUESTIONNAIRE_WORKFLOW_NAME, sandboxed=False)
+class RecordingTelegramQuestionnaireWorkflow:
+    def __init__(self) -> None:
+        self._update_keys: list[str] = []
+
+    @workflow.signal(name=QUESTIONNAIRE_UPDATE_SIGNAL_NAME)
+    def accept_update(self, input: QuestionnaireUpdateSignal) -> None:
+        self._update_keys.append(input.update_key)
+
+    @workflow.query
+    def received_update_keys(self) -> tuple[str, ...]:
+        return tuple(self._update_keys)
+
+    @workflow.run
+    async def run(self, input: QuestionnaireWorkflowInput) -> None:
+        await workflow.wait_condition(lambda: False)
+
+
+@workflow.defn(name=TELEGRAM_SCREAM_WORKFLOW_NAME, sandboxed=False)
+class FinishedTelegramScreamWorkflow:
+    @workflow.run
+    async def run(self, input: ScreamWorkflowInput) -> None:
+        return None
+
+
 class ActivityTranscript:
     def __init__(
         self,
@@ -138,6 +170,7 @@ class ActivityTranscript:
         failing_reset: bool = False,
         quota_outcomes: list[object] | None = None,
         localization_required: bool = False,
+        scream_requests: dict[str, ScreamRequest] | None = None,
     ) -> None:
         self.inspections = inspections
         self.failing_inspection = failing_inspection
@@ -150,6 +183,7 @@ class ActivityTranscript:
         self.failing_reset = failing_reset
         self.quota_outcomes = list(quota_outcomes or [])
         self.localization_required = localization_required
+        self.scream_requests = dict(scream_requests or {})
         self.events: list[tuple[str, str, int | None]] = []
         self.changed = asyncio.Event()
         self.inspection_started = asyncio.Event()
@@ -175,17 +209,8 @@ class ActivityTranscript:
             kind=self.inspections[input.update_key],
             update_key=input.update_key,
             chat_id=input.user_id + 17,
+            scream_request=self.scream_requests.get(input.update_key),
         )
-
-    @activity.defn(name=PREPARE_ECHO_ACTIVITY_NAME)
-    async def prepare_echo(self, input: PrepareResponseInput) -> None:
-        self.record(
-            operation="prepare_echo",
-            update_key=input.update_key,
-            user_id=input.user_id,
-        )
-        if input.update_key == self.failing_response:
-            raise ApplicationError("response rejected", non_retryable=True)
 
     @activity.defn(name=PREPARE_HELP_ACTIVITY_NAME)
     async def prepare_help(self, input: PrepareResponseInput) -> None:
@@ -210,11 +235,21 @@ class ActivityTranscript:
             update_key=input.update_key,
             user_id=input.user_id,
         )
+        if input.update_key == self.failing_response:
+            raise ApplicationError("response rejected", non_retryable=True)
 
     @activity.defn(name=PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME)
     async def prepare_group_unsupported(self, input: PrepareResponseInput) -> None:
         self.record(
             operation="prepare_group_unsupported",
+            update_key=input.update_key,
+            user_id=input.user_id,
+        )
+
+    @activity.defn(name=PREPARE_SCREAM_DENIED_ACTIVITY_NAME)
+    async def prepare_scream_denied(self, input: PrepareResponseInput) -> None:
+        self.record(
+            operation="prepare_scream_denied",
             update_key=input.update_key,
             user_id=input.user_id,
         )
@@ -299,11 +334,11 @@ class ActivityTranscript:
     def definitions(self) -> Sequence[Callable[..., object]]:
         return [
             self.inspect,
-            self.prepare_echo,
             self.prepare_help,
             self.prepare_localization,
             self.prepare_unsupported,
             self.prepare_group_unsupported,
+            self.prepare_scream_denied,
             self.prepare_limit_exhausted,
             self.configure_notifications,
             self.configure_localization,
@@ -347,10 +382,6 @@ class ActivityRouter:
     async def inspect(self, input: InspectUpdateInput) -> InspectedUpdate:
         return cast(InspectedUpdate, await self.selected("inspect")(input))
 
-    @activity.defn(name=PREPARE_ECHO_ACTIVITY_NAME)
-    async def prepare_echo(self, input: PrepareResponseInput) -> None:
-        await self.selected("prepare_echo")(input)
-
     @activity.defn(name=PREPARE_HELP_ACTIVITY_NAME)
     async def prepare_help(self, input: PrepareResponseInput) -> None:
         await self.selected("prepare_help")(input)
@@ -366,6 +397,10 @@ class ActivityRouter:
     @activity.defn(name=PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME)
     async def prepare_group_unsupported(self, input: PrepareResponseInput) -> None:
         await self.selected("prepare_group_unsupported")(input)
+
+    @activity.defn(name=PREPARE_SCREAM_DENIED_ACTIVITY_NAME)
+    async def prepare_scream_denied(self, input: PrepareResponseInput) -> None:
+        await self.selected("prepare_scream_denied")(input)
 
     @activity.defn(name=PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME)
     async def prepare_limit_exhausted(self, input: PrepareResponseInput) -> None:
@@ -406,11 +441,11 @@ class ActivityRouter:
     def definitions(self) -> Sequence[Callable[..., object]]:
         return [
             self.inspect,
-            self.prepare_echo,
             self.prepare_help,
             self.prepare_localization,
             self.prepare_unsupported,
             self.prepare_group_unsupported,
+            self.prepare_scream_denied,
             self.prepare_limit_exhausted,
             self.configure_notifications,
             self.configure_localization,
@@ -451,13 +486,18 @@ class WorkflowWorkerPool:
             FailingTelegramQuestionnaireWorkflow,
             DelayedFailingTelegramQuestionnaireWorkflow,
             DelayedFinishedTelegramQuestionnaireWorkflow,
+            RecordingTelegramQuestionnaireWorkflow,
         )
         for questionnaire_workflow in questionnaire_workflows:
             task_queue = f"deep-telegram-{uuid4()}"
             worker = Worker(
                 environment.client,
                 task_queue=task_queue,
-                workflows=[TelegramUserWorkflow, questionnaire_workflow],
+                workflows=[
+                    TelegramUserWorkflow,
+                    questionnaire_workflow,
+                    FinishedTelegramScreamWorkflow,
+                ],
                 activities=activities.definitions(),
             )
             await worker.__aenter__()
@@ -577,7 +617,7 @@ async def test_routes_unique_signals_through_the_complete_pipeline(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
     kinds = {
-        "redis:echo:1733": InspectionKind.ECHO,
+        "redis:text:1733": InspectionKind.TEXT,
         "redis:help:1741": InspectionKind.HELP,
         "redis:unsupported:1747": InspectionKind.UNSUPPORTED,
         "redis:group:1753": InspectionKind.GROUP_UNSUPPORTED,
@@ -591,10 +631,10 @@ async def test_routes_unique_signals_through_the_complete_pipeline(
         pool=workflow_worker_pool,
         activities=transcript.definitions(),
     ) as story:
-        handle = await story.start("redis:echo:1733", continue_after=None)
+        handle = await story.start("redis:text:1733", continue_after=None)
         await handle.signal(
             TELEGRAM_UPDATE_SIGNAL_NAME,
-            TelegramUpdateSignal(redis_key="redis:echo:1733"),
+            TelegramUpdateSignal(redis_key="redis:text:1733"),
         )
         for key in ("redis:help:1741", "redis:unsupported:1747", "redis:group:1753"):
             await handle.signal(
@@ -604,10 +644,10 @@ async def test_routes_unique_signals_through_the_complete_pipeline(
         await transcript.wait_for("cleanup", 4)
 
         assert transcript.events == [
-            ("inspect", "redis:echo:1733", 173_357),
-            ("prepare_echo", "redis:echo:1733", 173_357),
-            ("deliver", "redis:echo:1733", 173_357),
-            ("cleanup", "redis:echo:1733", 173_357),
+            ("inspect", "redis:text:1733", 173_357),
+            ("prepare_unsupported", "redis:text:1733", 173_357),
+            ("deliver", "redis:text:1733", 173_357),
+            ("cleanup", "redis:text:1733", 173_357),
             ("inspect", "redis:help:1741", 173_357),
             ("prepare_help", "redis:help:1741", 173_357),
             ("deliver", "redis:help:1741", 173_357),
@@ -621,6 +661,156 @@ async def test_routes_unique_signals_through_the_complete_pipeline(
             ("deliver", "redis:group:1753", 173_357),
             ("cleanup", "redis:group:1753", 173_357),
         ], "workflow duplicated a signal or selected an incorrect Activity pipeline"
+
+
+async def test_denies_a_non_admin_scream_through_the_normal_response_pipeline(
+    workflow_worker_pool: WorkflowWorkerPool,
+) -> None:
+    update_key = "redis:scream-denied:1754"
+    transcript = ActivityTranscript(
+        inspections={update_key: InspectionKind.SCREAM_DENIED},
+        failing_inspection=None,
+        failing_cleanup=False,
+    )
+    async with await WorkflowStory.open(
+        pool=workflow_worker_pool,
+        activities=transcript.definitions(),
+    ) as story:
+        await story.start(update_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+
+    assert transcript.events == [
+        ("inspect", update_key, 173_357),
+        ("prepare_scream_denied", update_key, 173_357),
+        ("deliver", update_key, 173_357),
+        ("cleanup", update_key, 173_357),
+    ], "non-admin scream bypassed denial or skipped ordinary payload cleanup"
+
+
+async def test_rejects_an_unsupported_admin_scream_outside_questionnaire(
+    workflow_worker_pool: WorkflowWorkerPool,
+) -> None:
+    update_key = "redis:scream-unsupported:17545"
+    transcript = ActivityTranscript(
+        inspections={update_key: InspectionKind.SCREAM_UNSUPPORTED},
+        failing_inspection=None,
+        failing_cleanup=False,
+    )
+    async with await WorkflowStory.open(
+        pool=workflow_worker_pool,
+        activities=transcript.definitions(),
+    ) as story:
+        await story.start(update_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+
+    assert [event[0] for event in transcript.events] == [
+        "inspect",
+        "prepare_unsupported",
+        "deliver",
+        "cleanup",
+    ], "unsupported admin scream started a broadcast or bypassed the standard response"
+
+
+async def test_starts_an_abandoned_scream_child_for_an_admin_reply(
+    workflow_worker_pool: WorkflowWorkerPool,
+) -> None:
+    update_key = "redis:scream-admin:1755"
+    request = ScreamRequest(
+        locale="en",
+        source_chat_id=173_357,
+        source_message_id=175_519,
+    )
+    transcript = ActivityTranscript(
+        inspections={update_key: InspectionKind.SCREAM},
+        failing_inspection=None,
+        failing_cleanup=False,
+        scream_requests={update_key: request},
+    )
+    async with await WorkflowStory.open(
+        pool=workflow_worker_pool,
+        activities=transcript.definitions(),
+    ) as story:
+        await story.start(update_key, continue_after=None)
+        child = story.environment.client.get_workflow_handle(f"telegram-scream:{update_key}")
+        async with asyncio.timeout(TEST_TIMEOUT_SECONDS):
+            while True:
+                try:
+                    await child.result()
+                except RPCError as error:
+                    if error.status is not RPCStatusCode.NOT_FOUND:
+                        raise
+                else:
+                    break
+
+    assert transcript.events == [("inspect", update_key, 173_357)], (
+        "parent delivered, cleaned, or otherwise consumed a scream owned by its child"
+    )
+
+
+async def test_routes_commands_without_advancing_an_active_questionnaire(
+    workflow_worker_pool: WorkflowWorkerPool,
+) -> None:
+    begin_key = "redis:begin-before-commands:1756"
+    help_key = "redis:help-during-questionnaire:1757"
+    unknown_key = "redis:unknown-command-during-questionnaire:1758"
+    scream_key = "redis:scream-during-questionnaire:1759"
+    transcript = ActivityTranscript(
+        inspections={
+            begin_key: InspectionKind.BEGIN,
+            help_key: InspectionKind.HELP,
+            unknown_key: InspectionKind.UNSUPPORTED,
+            scream_key: InspectionKind.SCREAM_UNSUPPORTED,
+        },
+        failing_inspection=None,
+        failing_cleanup=False,
+    )
+    async with await WorkflowStory.open(
+        pool=workflow_worker_pool,
+        activities=transcript.definitions(),
+        questionnaire_workflow=RecordingTelegramQuestionnaireWorkflow,
+    ) as story:
+        handle = await story.start(begin_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+        child = story.environment.client.get_workflow_handle(
+            f"{handle.id}:questionnaire:{begin_key}"
+        )
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=help_key),
+        )
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=unknown_key),
+        )
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=scream_key),
+        )
+        await transcript.wait_for("cleanup", 4)
+        actual = await child.query("received_update_keys")
+
+    assert (
+        actual,
+        [event[0] for event in transcript.events],
+    ) == (
+        [],
+        [
+            "inspect",
+            "cleanup",
+            "inspect",
+            "prepare_help",
+            "deliver",
+            "cleanup",
+            "inspect",
+            "prepare_unsupported",
+            "deliver",
+            "cleanup",
+            "inspect",
+            "prepare_unsupported",
+            "deliver",
+            "cleanup",
+        ],
+    ), "a command reached the questionnaire or bypassed its parent-level response"
 
 
 async def test_routes_notification_callback_without_entering_a_questionnaire(
@@ -652,13 +842,13 @@ async def test_requires_localization_before_processing_a_new_mortal(
 ) -> None:
     first_key = "redis:first-contact:1758"
     selection_key = "redis:localization-selection:1759"
-    echo_key = "redis:echo-after-localization:1763"
+    text_key = "redis:text-after-localization:1763"
     stop_key = "redis:stop-after-localization:1769"
     transcript = ActivityTranscript(
         inspections={
-            first_key: InspectionKind.ECHO,
+            first_key: InspectionKind.TEXT,
             selection_key: InspectionKind.LOCALIZATION_SELECTION,
-            echo_key: InspectionKind.ECHO,
+            text_key: InspectionKind.TEXT,
             stop_key: InspectionKind.MORTAL_BLOCKED,
         },
         failing_inspection=None,
@@ -678,7 +868,7 @@ async def test_requires_localization_before_processing_a_new_mortal(
         await transcript.wait_for("cleanup", 2)
         await handle.signal(
             TELEGRAM_UPDATE_SIGNAL_NAME,
-            TelegramUpdateSignal(redis_key=echo_key),
+            TelegramUpdateSignal(redis_key=text_key),
         )
         await transcript.wait_for("cleanup", 3)
         events = transcript.events[:12]
@@ -697,10 +887,10 @@ async def test_requires_localization_before_processing_a_new_mortal(
         ("configure_localization", selection_key, 173_357),
         ("deliver", selection_key, 173_357),
         ("cleanup", selection_key, 173_357),
-        ("inspect", echo_key, 173_357),
-        ("prepare_echo", echo_key, 173_357),
-        ("deliver", echo_key, 173_357),
-        ("cleanup", echo_key, 173_357),
+        ("inspect", text_key, 173_357),
+        ("prepare_unsupported", text_key, 173_357),
+        ("deliver", text_key, 173_357),
+        ("cleanup", text_key, 173_357),
     ], "first contact was processed before explicit localization or lost after selection"
 
 
@@ -809,7 +999,7 @@ async def test_keeps_processing_after_activity_and_cleanup_failures(
 ) -> None:
     transcript = ActivityTranscript(
         inspections={
-            "redis:fractured:1759": InspectionKind.ECHO,
+            "redis:fractured:1759": InspectionKind.TEXT,
             "redis:survivor:1777": InspectionKind.HELP,
         },
         failing_inspection="redis:fractured:1759",
@@ -843,7 +1033,7 @@ async def test_keeps_processing_after_response_preparation_failure(
     stop_key = "redis:stop-after-response-survivor:1782"
     transcript = ActivityTranscript(
         inspections={
-            failed_key: InspectionKind.ECHO,
+            failed_key: InspectionKind.TEXT,
             survivor_key: InspectionKind.HELP,
             stop_key: InspectionKind.MORTAL_BLOCKED,
         },
@@ -871,7 +1061,7 @@ async def test_keeps_processing_after_response_preparation_failure(
 
     assert events == [
         ("inspect", failed_key, 173_357),
-        ("prepare_echo", failed_key, 173_357),
+        ("prepare_unsupported", failed_key, 173_357),
         ("cleanup", failed_key, 173_357),
         ("inspect", survivor_key, 173_357),
         ("prepare_help", survivor_key, 173_357),
@@ -882,11 +1072,11 @@ async def test_recovers_when_a_child_questionnaire_workflow_fails(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
     begin_key = "redis:begin-failed-child:1783"
-    echo_key = "redis:echo-after-failed-child:1787"
+    text_key = "redis:text-after-failed-child:1787"
     transcript = ActivityTranscript(
         inspections={
             begin_key: InspectionKind.BEGIN,
-            echo_key: InspectionKind.ECHO,
+            text_key: InspectionKind.TEXT,
         },
         failing_inspection=None,
         failing_cleanup=False,
@@ -904,15 +1094,15 @@ async def test_recovers_when_a_child_questionnaire_workflow_fails(
             await child.result()
         await handle.signal(
             TELEGRAM_UPDATE_SIGNAL_NAME,
-            TelegramUpdateSignal(redis_key=echo_key),
+            TelegramUpdateSignal(redis_key=text_key),
         )
         await transcript.wait_for("cleanup", 2)
 
         assert transcript.events[-4:] == [
-            ("inspect", echo_key, 173_357),
-            ("prepare_echo", echo_key, 173_357),
-            ("deliver", echo_key, 173_357),
-            ("cleanup", echo_key, 173_357),
+            ("inspect", text_key, 173_357),
+            ("prepare_unsupported", text_key, 173_357),
+            ("deliver", text_key, 173_357),
+            ("cleanup", text_key, 173_357),
         ], "failed child questionnaire prevented later updates from using normal routing"
 
 
@@ -920,15 +1110,15 @@ async def test_reroutes_an_update_when_child_fails_during_inspection(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
     begin_key = "redis:begin-delayed-failure:1789"
-    echo_key = "redis:echo-during-child-failure:1801"
+    text_key = "redis:text-during-child-failure:1801"
     transcript = ActivityTranscript(
         inspections={
             begin_key: InspectionKind.BEGIN,
-            echo_key: InspectionKind.ECHO,
+            text_key: InspectionKind.TEXT,
         },
         failing_inspection=None,
         failing_cleanup=False,
-        blocked_inspection=echo_key,
+        blocked_inspection=text_key,
     )
     async with await WorkflowStory.open(
         pool=workflow_worker_pool,
@@ -940,7 +1130,7 @@ async def test_reroutes_an_update_when_child_fails_during_inspection(
             await transcript.wait_for("cleanup", 1)
             await handle.signal(
                 TELEGRAM_UPDATE_SIGNAL_NAME,
-                TelegramUpdateSignal(redis_key=echo_key),
+                TelegramUpdateSignal(redis_key=text_key),
             )
             await asyncio.wait_for(
                 transcript.inspection_started.wait(),
@@ -955,11 +1145,11 @@ async def test_reroutes_an_update_when_child_fails_during_inspection(
             await transcript.wait_for("cleanup", 2)
 
         assert transcript.events[-4:] == [
-            ("inspect", echo_key, 173_357),
-            ("prepare_echo", echo_key, 173_357),
-            ("deliver", echo_key, 173_357),
-            ("cleanup", echo_key, 173_357),
-        ], "update inspected during child failure was not rerouted to normal echo processing"
+            ("inspect", text_key, 173_357),
+            ("prepare_unsupported", text_key, 173_357),
+            ("deliver", text_key, 173_357),
+            ("cleanup", text_key, 173_357),
+        ], "update inspected during child failure was not rerouted to normal text processing"
 
 
 async def test_carries_deduplication_state_through_continue_as_new(
@@ -967,7 +1157,7 @@ async def test_carries_deduplication_state_through_continue_as_new(
 ) -> None:
     transcript = ActivityTranscript(
         inspections={
-            "redis:first:1783": InspectionKind.ECHO,
+            "redis:first:1783": InspectionKind.TEXT,
             "redis:second:1787": InspectionKind.HELP,
         },
         failing_inspection=None,
@@ -1029,7 +1219,6 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
         logger=SilentLogger(),
     )
     prepare = PrepareTelegramResponseActivities(
-        update_reader=telegram.update_documents,
         response_store=telegram.response_documents,
         ttl_seconds=1801,
         content=BotContents.debug(),
@@ -1052,7 +1241,6 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
     )
     definitions: Sequence[Callable[..., object]] = [
         inspect.inspect,
-        prepare.prepare_echo,
         prepare.prepare_help,
         prepare.prepare_unsupported,
         prepare.prepare_group_unsupported,
@@ -1085,9 +1273,15 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
         await handle.result()
 
     assert (
-        ("send_text", 179_297, secret) in telegram.events,
+        (
+            "send_text",
+            179_297,
+            "Use /help to learn how to use the bot",
+        )
+        in telegram.events,
+        all(secret not in str(event) for event in telegram.events),
         secret not in json.dumps(history.to_json_dict()),
-    ) == (True, True), "Temporal persisted sensitive text or delivery changed it"
+    ) == (True, True, True), "plain text was returned or persisted in Temporal history"
 
 
 async def test_skips_processing_when_mortal_registration_fails(
@@ -1097,7 +1291,7 @@ async def test_skips_processing_when_mortal_registration_fails(
     stop_key = "redis:stop-after-registration-failure:1812"
     transcript = ActivityTranscript(
         inspections={
-            update_key: InspectionKind.ECHO,
+            update_key: InspectionKind.TEXT,
             stop_key: InspectionKind.MORTAL_BLOCKED,
         },
         failing_inspection=None,
@@ -1123,16 +1317,16 @@ async def test_skips_processing_when_mortal_registration_fails(
     ], "response pipeline ran without a successfully registered Mortal"
 
 
-async def test_unblock_registers_silently_before_later_echo(
+async def test_unblock_registers_silently_before_later_text(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
     unblock_key = "redis:unblocked:1823"
-    echo_key = "redis:echo-after-unblock:1831"
+    text_key = "redis:text-after-unblock:1831"
     stop_key = "redis:stop-after-unblock:1832"
     transcript = ActivityTranscript(
         inspections={
             unblock_key: InspectionKind.MORTAL_UNBLOCKED,
-            echo_key: InspectionKind.ECHO,
+            text_key: InspectionKind.TEXT,
             stop_key: InspectionKind.MORTAL_BLOCKED,
         },
         failing_inspection=None,
@@ -1146,7 +1340,7 @@ async def test_unblock_registers_silently_before_later_echo(
         await transcript.wait_for("cleanup", 1)
         await handle.signal(
             TELEGRAM_UPDATE_SIGNAL_NAME,
-            TelegramUpdateSignal(redis_key=echo_key),
+            TelegramUpdateSignal(redis_key=text_key),
         )
         await transcript.wait_for("cleanup", 2)
         events = list(transcript.events)
@@ -1159,10 +1353,10 @@ async def test_unblock_registers_silently_before_later_echo(
     assert events == [
         ("inspect", unblock_key, 173_357),
         ("cleanup", unblock_key, 173_357),
-        ("inspect", echo_key, 173_357),
-        ("prepare_echo", echo_key, 173_357),
-        ("deliver", echo_key, 173_357),
-        ("cleanup", echo_key, 173_357),
+        ("inspect", text_key, 173_357),
+        ("prepare_unsupported", text_key, 173_357),
+        ("deliver", text_key, 173_357),
+        ("cleanup", text_key, 173_357),
     ], "unblock produced a Telegram response or failed to restore normal routing"
 
 
@@ -1230,7 +1424,7 @@ async def test_forbidden_delivery_deactivates_and_completes_parent(
 ) -> None:
     update_key = "redis:forbidden:1861"
     transcript = ActivityTranscript(
-        inspections={update_key: InspectionKind.ECHO},
+        inspections={update_key: InspectionKind.TEXT},
         failing_inspection=None,
         failing_cleanup=False,
         forbidden_delivery=update_key,
@@ -1244,7 +1438,7 @@ async def test_forbidden_delivery_deactivates_and_completes_parent(
 
     assert [event[0] for event in transcript.events] == [
         "inspect",
-        "prepare_echo",
+        "prepare_unsupported",
         "deliver",
         "deactivate",
         "cleanup",
@@ -1289,11 +1483,11 @@ async def test_waits_for_a_finished_child_before_routing_the_next_update(
     workflow_worker_pool: WorkflowWorkerPool,
 ) -> None:
     begin_key = "redis:begin-finishing-child:1873"
-    echo_key = "redis:echo-after-finished-signal:1877"
+    text_key = "redis:text-after-finished-signal:1877"
     transcript = ActivityTranscript(
         inspections={
             begin_key: InspectionKind.BEGIN,
-            echo_key: InspectionKind.ECHO,
+            text_key: InspectionKind.TEXT,
         },
         failing_inspection=None,
         failing_cleanup=False,
@@ -1313,14 +1507,14 @@ async def test_waits_for_a_finished_child_before_routing_the_next_update(
                     pass
             await handle.signal(
                 TELEGRAM_UPDATE_SIGNAL_NAME,
-                TelegramUpdateSignal(redis_key=echo_key),
+                TelegramUpdateSignal(redis_key=text_key),
             )
             await child.signal("release_completion")
             await transcript.wait_for("cleanup", 2)
 
     assert transcript.events[-4:] == [
-        ("inspect", echo_key, 173_357),
-        ("prepare_echo", echo_key, 173_357),
-        ("deliver", echo_key, 173_357),
-        ("cleanup", echo_key, 173_357),
+        ("inspect", text_key, 173_357),
+        ("prepare_unsupported", text_key, 173_357),
+        ("deliver", text_key, 173_357),
+        ("cleanup", text_key, 173_357),
     ], "parent routed an update into a child that had stopped accepting signals"

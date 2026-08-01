@@ -27,10 +27,12 @@ class PostgresStatementClientDouble:
         *,
         execute_outcomes: list[BaseException | None] | None = None,
         fetch_outcomes: list[Mapping[str, Any] | BaseException | None] | None = None,
+        fetch_all_outcomes: list[tuple[Mapping[str, Any], ...] | BaseException] | None = None,
         returning_outcomes: list[Mapping[str, Any] | BaseException | None] | None = None,
     ) -> None:
         self.execute_outcomes = list(execute_outcomes or [])
         self.fetch_outcomes = list(fetch_outcomes or [])
+        self.fetch_all_outcomes = list(fetch_all_outcomes or [])
         self.returning_outcomes = list(returning_outcomes or [])
         self.events: list[tuple[str, ClauseElement]] = []
 
@@ -53,6 +55,13 @@ class PostgresStatementClientDouble:
         self.record("fetch_one", statement)
         outcome = self.fetch_outcomes.pop(0)
         return result_or_raise(outcome)
+
+    async def fetch_all(
+        self,
+        statement: Executable,
+    ) -> tuple[Mapping[str, Any], ...]:
+        self.record("fetch_all", statement)
+        return result_or_raise(self.fetch_all_outcomes.pop(0))
 
     async def execute_returning_one(
         self,
@@ -129,6 +138,29 @@ async def test_loads_an_existing_or_absent_mortal(
     actual = await client.repository().get(320_011)
 
     assert actual == expected, "Mortal lookup changed an existing row or fabricated one"
+
+
+async def test_lists_localized_mortal_ids_by_keyset_page() -> None:
+    client = PostgresStatementClientDouble(fetch_all_outcomes=[({"id": 320_013}, {"id": 320_017})])
+
+    actual = await client.repository().list_ids(
+        locale="ru",
+        after_mortal_id=320_011,
+        limit=2,
+    )
+
+    statement = client.events[0][1]
+    assert (
+        actual,
+        client.events[0][0],
+        parameters(statement),
+        "ORDER BY mortals.id" in str(statement),
+    ) == (
+        (320_013, 320_017),
+        "fetch_all",
+        {"locale_1": "ru", "id_1": 320_011, "param_1": 2},
+        True,
+    ), "localized Mortal paging lost its locale, cursor, limit, or stable order"
 
 
 async def test_sets_the_configured_death_date_with_an_upsert() -> None:
@@ -304,6 +336,7 @@ async def test_rejects_a_new_request_after_quota_exhaustion() -> None:
     [
         "ensure",
         "get",
+        "list_ids",
         "reset",
         "set_death_date",
         "set_notification_cron",
@@ -318,6 +351,7 @@ async def test_translates_postgres_failures(operation: str) -> None:
         execute_outcomes=[failure],
         fetch_outcomes=[failure],
         returning_outcomes=[failure],
+        fetch_all_outcomes=[failure],
     )
     repository = client.repository()
 
@@ -326,6 +360,8 @@ async def test_translates_postgres_failures(operation: str) -> None:
             await repository.ensure(320_027)
         elif operation == "get":
             await repository.get(320_027)
+        elif operation == "list_ids":
+            await repository.list_ids(locale="en", after_mortal_id=None, limit=100)
         elif operation == "reset":
             await repository.reset(320_027)
         elif operation == "set_death_date":
