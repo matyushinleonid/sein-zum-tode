@@ -5,6 +5,7 @@ from typing import Protocol
 from aiogram.types import Update
 from temporalio.common import WorkflowIDConflictPolicy
 
+from sein_zum_tode.bot.models import TelegramUpdateSignal, UserWorkflowInput
 from sein_zum_tode.ingress.models import StoredUpdate
 
 
@@ -44,26 +45,26 @@ class UpdateHandoff(Protocol):
 
 
 class UserWorkflowStarter(Protocol):
-    async def signal_with_start(
+    def signal_with_start(
         self,
         *,
         user_id: int,
         update_key: str,
-    ) -> None: ...
+    ) -> Awaitable[None]: ...
 
 
 class TemporalWorkflowClient(Protocol):
-    async def start_workflow(
+    def start_workflow(
         self,
         workflow: str,
-        arg: object,
+        arg: UserWorkflowInput,
         *,
         id: str,
         task_queue: str,
         id_conflict_policy: WorkflowIDConflictPolicy,
         start_signal: str | None,
-        start_signal_args: Sequence[object],
-    ) -> object: ...
+        start_signal_args: Sequence[TelegramUpdateSignal],
+    ) -> Awaitable[object]: ...
 
 
 class RetryWaiter(Protocol):

@@ -24,7 +24,6 @@ yandex:
   temperature: 0.2
   max_tokens: 777
   request_timeout_seconds: 61
-  enable_server_data_logging: false
   system_prompt: Return structured mortality data
 """.strip(),
         encoding="utf-8",
@@ -37,13 +36,13 @@ yandex:
         actual.mock.days_left,
         actual.yandex.model,
         actual.yandex.max_tokens,
-        actual.yandex.enable_server_data_logging,
+        actual.yandex.system_prompt,
     ) == (
         PredictionProvider.YANDEX,
         17,
         "yandexgpt",
         777,
-        False,
+        "Return structured mortality data",
     )
 
 

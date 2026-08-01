@@ -47,8 +47,8 @@ async def test_configures_each_notification_frequency(
     mortals = MortalMemory({user_id: Mortal(id=user_id)})
     schedules = MortalScheduleMemory()
     subject = ConfigureMortalNotificationsActivity(
-        updates=payloads,
-        responses=payloads,
+        updates=payloads.update_documents,
+        responses=payloads.response_documents,
         mortals=mortals,
         schedules=schedules,
         content=BotContents.debug(),
@@ -94,8 +94,8 @@ async def test_rejects_an_unknown_notification_callback() -> None:
         delete_result=None,
     )
     subject = ConfigureMortalNotificationsActivity(
-        updates=payloads,
-        responses=payloads,
+        updates=payloads.update_documents,
+        responses=payloads.response_documents,
         mortals=MortalMemory(),
         schedules=MortalScheduleMemory(),
         content=BotContents.debug(),

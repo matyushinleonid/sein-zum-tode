@@ -8,14 +8,14 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from sein_zum_tode.bot.content import BotContent
-from sein_zum_tode.bot.conversation.ports import ConversationStateRepository
 from sein_zum_tode.bot.models import TelegramResponse
-from sein_zum_tode.bot.ports import TelegramResponseStore
 from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.notifications.ports import MortalSchedule
 from sein_zum_tode.observability import LogContext
+from sein_zum_tode.ports.documents import DocumentStore, DocumentWriter
 from sein_zum_tode.prediction.models import DeathPredictionRequest, StoredDeathPrediction
-from sein_zum_tode.prediction.ports import DeathPredictionRepository, DeathPredictor
+from sein_zum_tode.prediction.ports import DeathPredictor
+from sein_zum_tode.questionnaire.models import QuestionnaireState
 
 GENERATE_DEATH_PREDICTION_ACTIVITY_NAME = "generate_death_prediction"
 APPLY_DEATH_PREDICTION_ACTIVITY_NAME = "apply_death_prediction"
@@ -33,7 +33,7 @@ class SystemClock:
 
 @dataclass(frozen=True, slots=True)
 class GenerateDeathPredictionInput:
-    conversation_key: str
+    questionnaire_key: str
     prediction_key: str
     user_id: int
 
@@ -58,8 +58,8 @@ class GenerateDeathPredictionActivity:
         self,
         *,
         predictor: DeathPredictor,
-        predictions: DeathPredictionRepository,
-        conversations: ConversationStateRepository,
+        predictions: DocumentStore[StoredDeathPrediction],
+        questionnaires: DocumentStore[QuestionnaireState],
         mortals: MortalRepository,
         ttl_seconds: int,
         clock: Clock | None = None,
@@ -67,7 +67,7 @@ class GenerateDeathPredictionActivity:
     ) -> None:
         self._predictor = predictor
         self._predictions = predictions
-        self._conversations = conversations
+        self._questionnaires = questionnaires
         self._mortals = mortals
         self._ttl_seconds = ttl_seconds
         self._clock = clock or SystemClock()
@@ -77,7 +77,7 @@ class GenerateDeathPredictionActivity:
     async def generate(self, input: GenerateDeathPredictionInput) -> None:
         stored = await self._predictions.load(input.prediction_key)
         if stored is None:
-            state = await self._conversations.load_conversation(input.conversation_key)
+            state = await self._questionnaires.load(input.questionnaire_key)
             mortal = await self._mortals.get(input.user_id)
             if state is None or mortal is None:
                 raise ApplicationError(
@@ -118,10 +118,10 @@ class ApplyDeathPredictionActivity:
     def __init__(
         self,
         *,
-        predictions: DeathPredictionRepository,
+        predictions: DocumentStore[StoredDeathPrediction],
         mortals: MortalRepository,
         schedules: MortalSchedule,
-        responses: TelegramResponseStore,
+        responses: DocumentWriter[TelegramResponse],
         response_ttl_seconds: int,
         logger: logging.Logger | None = None,
     ) -> None:
@@ -146,7 +146,7 @@ class ApplyDeathPredictionActivity:
             stored.death_date(),
         )
         await self._schedules.ensure(mortal)
-        await self._responses.store_response(
+        await self._responses.store(
             input.response_key,
             TelegramResponse(chat_id=input.chat_id, text=stored.prediction.message),
             self._response_ttl_seconds,
@@ -166,7 +166,7 @@ class PreparePredictionFailureActivity:
         self,
         *,
         mortals: MortalRepository,
-        responses: TelegramResponseStore,
+        responses: DocumentWriter[TelegramResponse],
         content: BotContent,
         response_ttl_seconds: int,
     ) -> None:
@@ -183,7 +183,7 @@ class PreparePredictionFailureActivity:
             if mortal is not None and mortal.locale is not None
             else self._content.default_locale
         )
-        await self._responses.store_response(
+        await self._responses.store(
             input.response_key,
             TelegramResponse(
                 chat_id=input.chat_id,

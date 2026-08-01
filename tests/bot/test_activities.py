@@ -231,7 +231,10 @@ def memory(update: object, response: object = None) -> TelegramMemory:
     ],
 )
 async def test_classifies_each_supported_update_story(case: ActivityCase) -> None:
-    subject = InspectTelegramUpdateActivity(memory(case.update), SilentLogger())
+    subject = InspectTelegramUpdateActivity(
+        memory(case.update).update_documents,
+        SilentLogger(),
+    )
 
     actual = await subject.inspect(InspectUpdateInput("telegram:cosmos:1321", 132_127))
 
@@ -255,7 +258,10 @@ async def test_classifies_each_supported_update_story(case: ActivityCase) -> Non
 async def test_falls_back_to_the_user_when_update_cannot_be_inspected(
     update_outcome: object,
 ) -> None:
-    subject = InspectTelegramUpdateActivity(memory(update_outcome), SilentLogger())
+    subject = InspectTelegramUpdateActivity(
+        memory(update_outcome).update_documents,
+        SilentLogger(),
+    )
 
     actual = await subject.inspect(InspectUpdateInput("telegram:cosmos:1367", 136_777))
 
@@ -299,8 +305,8 @@ async def test_prepares_echo_or_safe_fallback(
 ) -> None:
     payloads = memory(update_outcome)
     subject = PrepareTelegramResponseActivities(
-        update_reader=payloads,
-        response_store=payloads,
+        update_reader=payloads.update_documents,
+        response_store=payloads.response_documents,
         ttl_seconds=1409,
         content=BotContents.debug(),
         mortals=MortalMemory(),
@@ -356,8 +362,8 @@ async def test_prepares_each_static_response(
 ) -> None:
     payloads = memory(None)
     subject = PrepareTelegramResponseActivities(
-        update_reader=payloads,
-        response_store=payloads,
+        update_reader=payloads.update_documents,
+        response_store=payloads.response_documents,
         ttl_seconds=1433,
         content=BotContents.debug(),
         mortals=MortalMemory(),
@@ -385,8 +391,8 @@ async def test_prepares_each_static_response(
 async def test_prepares_html_about_and_callback_keyboards() -> None:
     payloads = memory(None)
     subject = PrepareTelegramResponseActivities(
-        update_reader=payloads,
-        response_store=payloads,
+        update_reader=payloads.update_documents,
+        response_store=payloads.response_documents,
         ttl_seconds=1451,
         content=BotContents.debug(),
         mortals=MortalMemory(),
@@ -443,7 +449,7 @@ async def test_delivers_the_response_loaded_from_redis() -> None:
     response = TelegramResponse(chat_id=145_459, text="Sixty zippers were quickly picked")
     payloads = memory(None, response)
     subject = DeliverTelegramResponseActivity(
-        response_reader=payloads,
+        response_reader=payloads.response_documents,
         sender=payloads,
         logger=SilentLogger(),
     )
@@ -469,7 +475,7 @@ async def test_delivers_the_response_loaded_from_redis() -> None:
 async def test_rejects_an_unavailable_delivery_payload(response_outcome: object) -> None:
     payloads = memory(None, response_outcome)
     subject = DeliverTelegramResponseActivity(
-        response_reader=payloads,
+        response_reader=payloads.response_documents,
         sender=payloads,
         logger=SilentLogger(),
     )
@@ -494,7 +500,7 @@ async def test_rejects_a_permanent_telegram_delivery_failure() -> None:
         delete_result=None,
     )
     subject = DeliverTelegramResponseActivity(
-        response_reader=payloads,
+        response_reader=payloads.response_documents,
         sender=payloads,
         logger=SilentLogger(),
     )
@@ -519,7 +525,7 @@ async def test_marks_a_forbidden_recipient_for_mortal_deactivation() -> None:
         delete_result=None,
     )
     subject = DeliverTelegramResponseActivity(
-        response_reader=payloads,
+        response_reader=payloads.response_documents,
         sender=payloads,
         logger=SilentLogger(),
     )

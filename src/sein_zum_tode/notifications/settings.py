@@ -1,14 +1,11 @@
 import logging
 
+from aiogram.types import Update
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from sein_zum_tode.bot.content import BotContent
 from sein_zum_tode.bot.models import PrepareResponseInput, TelegramResponse
-from sein_zum_tode.bot.ports import (
-    TelegramResponseStore,
-    TelegramUpdateReader,
-)
 from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.notifications.models import (
     CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME,
@@ -16,14 +13,15 @@ from sein_zum_tode.notifications.models import (
 )
 from sein_zum_tode.notifications.ports import MortalSchedule
 from sein_zum_tode.observability import LogContext
+from sein_zum_tode.ports.documents import DocumentReader, DocumentWriter
 
 
 class ConfigureMortalNotificationsActivity:
     def __init__(
         self,
         *,
-        updates: TelegramUpdateReader,
-        responses: TelegramResponseStore,
+        updates: DocumentReader[Update],
+        responses: DocumentWriter[TelegramResponse],
         mortals: MortalRepository,
         schedules: MortalSchedule,
         content: BotContent,
@@ -40,7 +38,7 @@ class ConfigureMortalNotificationsActivity:
 
     @activity.defn(name=CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME)
     async def configure(self, input: PrepareResponseInput) -> None:
-        update = await self._updates.load_update(input.update_key)
+        update = await self._updates.load(input.update_key)
         callback = update.callback_query if update is not None else None
         frequency = NotificationFrequency.from_callback_data(
             callback.data if callback is not None else None
@@ -63,7 +61,7 @@ class ConfigureMortalNotificationsActivity:
             NotificationFrequency.MONTHLY: localized.notification_settings.monthly,
             NotificationFrequency.NEVER: localized.notification_settings.never,
         }[frequency]
-        await self._responses.store_response(
+        await self._responses.store(
             input.response_key,
             TelegramResponse(
                 chat_id=input.chat_id,

@@ -1,12 +1,21 @@
-class PayloadRepositoryError(Exception):
-    pass
+from sein_zum_tode.infrastructure.redis_documents import (
+    DocumentStoreError as PayloadRepositoryError,
+)
+from sein_zum_tode.infrastructure.redis_documents import (
+    InvalidStoredDocumentError as InvalidStoredPayloadError,
+)
+
+__all__ = [
+    "ContentConfigurationError",
+    "InvalidStoredPayloadError",
+    "PayloadRepositoryError",
+    "PermanentTelegramDeliveryError",
+    "TelegramDeliveryError",
+    "TelegramRecipientUnavailableError",
+]
 
 
 class ContentConfigurationError(Exception):
-    pass
-
-
-class InvalidStoredPayloadError(Exception):
     pass
 
 

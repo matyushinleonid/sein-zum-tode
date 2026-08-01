@@ -1,6 +1,7 @@
 import asyncio
 
 from aiogram import Bot
+from aiogram.types import Update
 from redis.asyncio import Redis
 from temporalio.client import Client
 from temporalio.worker import Worker
@@ -13,19 +14,21 @@ from sein_zum_tode.bot.activities import (
     PrepareTelegramResponseActivities,
 )
 from sein_zum_tode.bot.content import BotContent, YamlBotContentLoader
-from sein_zum_tode.bot.conversation.activities import (
-    RecordTelegramConversationAnswerActivity,
-    StartTelegramConversationActivity,
-)
-from sein_zum_tode.bot.conversation.redis import RedisConversationStateRepository
-from sein_zum_tode.bot.conversation.workflow import TelegramConversationWorkflow
-from sein_zum_tode.bot.redis import RedisTelegramPayloadRepository
+from sein_zum_tode.bot.models import TelegramResponse
 from sein_zum_tode.bot.sender import AiogramTelegramMessageSender
 from sein_zum_tode.bot.workflow import TelegramUserWorkflow
 from sein_zum_tode.config import WorkerSettings
 from sein_zum_tode.infrastructure.postgres import PostgresClient
 from sein_zum_tode.infrastructure.redis import RedisClient
-from sein_zum_tode.infrastructure.yandex_ai import YandexAIStudioClient
+from sein_zum_tode.infrastructure.redis_documents import (
+    PydanticJsonCodec,
+    RedisJsonDocumentStore,
+    RedisKeyCleaner,
+)
+from sein_zum_tode.infrastructure.yandex_ai import (
+    YandexAIStudioClient,
+    YandexCompletionProfile,
+)
 from sein_zum_tode.localization.settings import ConfigureMortalLocalizationActivity
 from sein_zum_tode.log_config import configure_logging
 from sein_zum_tode.mortals.activities import MortalActivities
@@ -45,10 +48,16 @@ from sein_zum_tode.prediction.config import (
     PredictionProvider,
     YamlDeathPredictionConfigLoader,
 )
+from sein_zum_tode.prediction.llm import LLMDeathPredictor
 from sein_zum_tode.prediction.mock import MockDeathPredictor
+from sein_zum_tode.prediction.models import DeathPrediction, StoredDeathPrediction
 from sein_zum_tode.prediction.ports import DeathPredictor
-from sein_zum_tode.prediction.redis import RedisDeathPredictionRepository
-from sein_zum_tode.prediction.yandex import YandexDeathPredictor
+from sein_zum_tode.questionnaire.activities import (
+    RecordTelegramQuestionnaireAnswerActivity,
+    StartTelegramQuestionnaireActivity,
+)
+from sein_zum_tode.questionnaire.models import QuestionnaireState
+from sein_zum_tode.questionnaire.workflow import TelegramQuestionnaireWorkflow
 from sein_zum_tode.runtime import install_signal_handlers
 
 
@@ -74,12 +83,20 @@ def create_death_predictor(
     sdk = AsyncAIStudio(
         folder_id=settings.yandex_ai_studio_folder_id,
         auth=settings.yandex_ai_studio_api_key.get_secret_value(),
-        enable_server_data_logging=config.yandex.enable_server_data_logging,
+        enable_server_data_logging=settings.yandex_ai_studio_enable_server_data_logging,
     )
-    return YandexDeathPredictor(
+    return LLMDeathPredictor(
         client=YandexAIStudioClient(
             sdk=sdk,
-            config=config.yandex,
+            profile=YandexCompletionProfile(
+                model=config.yandex.model,
+                model_version=config.yandex.model_version,
+                temperature=config.yandex.temperature,
+                max_tokens=config.yandex.max_tokens,
+                request_timeout_seconds=config.yandex.request_timeout_seconds,
+                system_prompt=config.yandex.system_prompt,
+            ),
+            response_type=DeathPrediction,
         )
     )
 
@@ -109,9 +126,27 @@ async def run(settings: WorkerSettings) -> None:
         namespace=settings.temporal_namespace,
         tls=settings.temporal_tls,
     )
-    payloads = RedisTelegramPayloadRepository(redis)
-    conversations = RedisConversationStateRepository(redis)
-    predictions = RedisDeathPredictionRepository(redis)
+    update_documents = RedisJsonDocumentStore(
+        redis=redis,
+        codec=PydanticJsonCodec(model=Update),
+        document_name="Telegram update",
+    )
+    response_documents = RedisJsonDocumentStore(
+        redis=redis,
+        codec=PydanticJsonCodec(model=TelegramResponse),
+        document_name="Telegram response",
+    )
+    questionnaires = RedisJsonDocumentStore(
+        redis=redis,
+        codec=PydanticJsonCodec(model=QuestionnaireState),
+        document_name="Telegram questionnaire",
+    )
+    predictions = RedisJsonDocumentStore(
+        redis=redis,
+        codec=PydanticJsonCodec(model=StoredDeathPrediction),
+        document_name="death prediction",
+    )
+    cleaner = RedisKeyCleaner(redis)
     postgres = PostgresClient.create(
         host=settings.postgres_host,
         port=settings.postgres_port,
@@ -129,55 +164,55 @@ async def run(settings: WorkerSettings) -> None:
         activity_retry_timeout_seconds=settings.temporal_activity_retry_timeout_seconds,
     )
     sender = AiogramTelegramMessageSender(bot)
-    inspect = InspectTelegramUpdateActivity(payloads)
+    inspect = InspectTelegramUpdateActivity(update_documents)
     prepare = PrepareTelegramResponseActivities(
-        update_reader=payloads,
-        response_store=payloads,
+        update_reader=update_documents,
+        response_store=response_documents,
         ttl_seconds=settings.telegram_update_ttl_seconds,
         content=content,
         mortals=mortals,
     )
-    start_conversation = StartTelegramConversationActivity(
+    start_questionnaire = StartTelegramQuestionnaireActivity(
         content=content,
         mortals=mortals,
-        conversations=conversations,
-        responses=payloads,
-        conversation_ttl_seconds=settings.conversation_ttl_seconds,
+        questionnaires=questionnaires,
+        responses=response_documents,
+        questionnaire_ttl_seconds=settings.questionnaire_ttl_seconds,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
         privacy_response_ttl_seconds=(
-            settings.conversation_ttl_seconds + settings.temporal_activity_retry_timeout_seconds
+            settings.questionnaire_ttl_seconds + settings.temporal_activity_retry_timeout_seconds
         ),
     )
-    record_answer = RecordTelegramConversationAnswerActivity(
-        updates=payloads,
-        conversations=conversations,
-        responses=payloads,
-        conversation_ttl_seconds=settings.conversation_ttl_seconds,
+    record_answer = RecordTelegramQuestionnaireAnswerActivity(
+        updates=update_documents,
+        questionnaires=questionnaires,
+        responses=response_documents,
+        questionnaire_ttl_seconds=settings.questionnaire_ttl_seconds,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
         privacy_response_ttl_seconds=(
-            settings.conversation_ttl_seconds + settings.temporal_activity_retry_timeout_seconds
+            settings.questionnaire_ttl_seconds + settings.temporal_activity_retry_timeout_seconds
         ),
     )
     deliver = DeliverTelegramResponseActivity(
-        response_reader=payloads,
+        response_reader=response_documents,
         sender=sender,
     )
-    cleanup = CleanupTelegramPayloadsActivity(cleaner=payloads)
+    cleanup = CleanupTelegramPayloadsActivity(cleaner=cleaner)
     mortal_activities = MortalActivities(
         mortals=mortals,
         schedules=schedules,
     )
     configure_notifications = ConfigureMortalNotificationsActivity(
-        updates=payloads,
-        responses=payloads,
+        updates=update_documents,
+        responses=response_documents,
         mortals=mortals,
         schedules=schedules,
         content=content,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
     )
     configure_localization = ConfigureMortalLocalizationActivity(
-        updates=payloads,
-        responses=payloads,
+        updates=update_documents,
+        responses=response_documents,
         mortals=mortals,
         content=content,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
@@ -185,26 +220,26 @@ async def run(settings: WorkerSettings) -> None:
     generate_prediction = GenerateDeathPredictionActivity(
         predictor=predictor,
         predictions=predictions,
-        conversations=conversations,
+        questionnaires=questionnaires,
         mortals=mortals,
-        ttl_seconds=settings.conversation_ttl_seconds,
+        ttl_seconds=settings.questionnaire_ttl_seconds,
     )
     apply_prediction = ApplyDeathPredictionActivity(
         predictions=predictions,
         mortals=mortals,
         schedules=schedules,
-        responses=payloads,
+        responses=response_documents,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
     )
     prepare_prediction_failure = PreparePredictionFailureActivity(
         mortals=mortals,
-        responses=payloads,
+        responses=response_documents,
         content=content,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
     )
     prepare_notification = PrepareMortalNotificationActivity(
         mortals=mortals,
-        responses=payloads,
+        responses=response_documents,
         content=content,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
     )
@@ -213,7 +248,7 @@ async def run(settings: WorkerSettings) -> None:
         task_queue=settings.temporal_task_queue,
         workflows=[
             TelegramUserWorkflow,
-            TelegramConversationWorkflow,
+            TelegramQuestionnaireWorkflow,
             MortalNotificationWorkflow,
         ],
         activities=[
@@ -226,7 +261,7 @@ async def run(settings: WorkerSettings) -> None:
             prepare.prepare_limit_exhausted,
             prepare.prepare_unsupported,
             prepare.prepare_group_unsupported,
-            start_conversation.start,
+            start_questionnaire.start,
             record_answer.record,
             deliver.deliver,
             cleanup.cleanup,

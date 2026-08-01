@@ -117,7 +117,7 @@ class PostgresClient:
             async with self._engine.connect() as connection:
                 result = await connection.execute(statement)
                 row = result.mappings().one_or_none()
-                return dict(row) if row is not None else None
+                return {str(key): value for key, value in row.items()} if row is not None else None
         except SQLAlchemyError as error:
             raise PostgresClientError("PostgreSQL query failed") from error
 
@@ -129,7 +129,7 @@ class PostgresClient:
             async with self._engine.begin() as connection:
                 result = await connection.execute(statement)
                 row = result.mappings().one_or_none()
-                return dict(row) if row is not None else None
+                return {str(key): value for key, value in row.items()} if row is not None else None
         except SQLAlchemyError as error:
             raise PostgresClientError("PostgreSQL statement failed") from error
 

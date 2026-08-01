@@ -2,17 +2,15 @@ from datetime import date
 from typing import cast
 
 import pytest
-from pydantic import BaseModel
 
 from sein_zum_tode.prediction.config import MockPredictionConfig
+from sein_zum_tode.prediction.llm import LLMDeathPredictor
 from sein_zum_tode.prediction.mock import MockDeathPredictor
 from sein_zum_tode.prediction.models import (
     DeathPrediction,
     DeathPredictionRequest,
     PredictionAnswer,
 )
-from sein_zum_tode.prediction.ports import StructuredCompletionClient
-from sein_zum_tode.prediction.yandex import YandexDeathPredictor
 from tests.support import BotContents
 
 pytestmark = pytest.mark.fast
@@ -32,19 +30,22 @@ def request() -> DeathPredictionRequest:
     )
 
 
-class StructuredClientDouble(StructuredCompletionClient):
-    def __init__(self, response: DeathPrediction) -> None:
-        self.response = response
-        self.events: list[tuple[object, ...]] = []
-
-    async def complete[ResponseT: BaseModel](
+class CompletionClientDouble:
+    def __init__(
         self,
         *,
-        user_prompt: str,
-        response_format: type[ResponseT],
-    ) -> ResponseT:
-        self.events.append((user_prompt, response_format))
-        return response_format.model_validate(self.response.model_dump())
+        response: DeathPrediction,
+        provider_name: str,
+        consumes_quota: bool,
+    ) -> None:
+        self.response = response
+        self.provider_name = provider_name
+        self.consumes_quota = consumes_quota
+        self.events: list[tuple[object, ...]] = []
+
+    async def complete(self, *, user_prompt: str) -> DeathPrediction:
+        self.events.append((user_prompt,))
+        return self.response
 
 
 async def test_mock_prediction_includes_local_answers_without_consuming_quota() -> None:
@@ -69,10 +70,14 @@ async def test_mock_prediction_includes_local_answers_without_consuming_quota() 
     )
 
 
-async def test_yandex_adapter_requests_the_enforced_prediction_schema() -> None:
+async def test_llm_adapter_delegates_prompt_response_and_provider_metadata() -> None:
     expected = DeathPrediction(days_left=3631, message="Structured prediction")
-    client = StructuredClientDouble(expected)
-    predictor = YandexDeathPredictor(client=client)
+    client = CompletionClientDouble(
+        response=expected,
+        provider_name="structured-nebula",
+        consumes_quota=True,
+    )
+    predictor = LLMDeathPredictor(client=client)
 
     actual = await predictor.predict(request())
 
@@ -80,12 +85,10 @@ async def test_yandex_adapter_requests_the_enforced_prediction_schema() -> None:
         predictor.provider_name,
         predictor.consumes_quota,
         actual,
-        client.events[0][1],
         "Current date: 2026-07-30" in cast(str, client.events[0][0]),
     ) == (
-        "yandex",
+        "structured-nebula",
         True,
         expected,
-        DeathPrediction,
         True,
-    ), "Yandex adapter did not enforce DeathPrediction as structured response_format"
+    ), "LLM predictor did not delegate the prompt or client metadata"

@@ -25,7 +25,6 @@ class YandexPredictionConfig(BaseModel):
     temperature: float = Field(default=0.3, ge=0, le=1)
     max_tokens: int = Field(default=1000, ge=1)
     request_timeout_seconds: int = Field(default=180, ge=1)
-    enable_server_data_logging: bool = False
     system_prompt: str = Field(min_length=1)
 
 

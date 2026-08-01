@@ -16,7 +16,6 @@ from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.notifications.models import MortalNotificationWorkflowInput
 from sein_zum_tode.notifications.temporal import (
     TemporalMortalSchedule,
-    TemporalScheduleClient,
     TemporalScheduleHandle,
 )
 
@@ -29,7 +28,7 @@ def result_or_raise(value: object) -> object:
     return value
 
 
-class ScheduleHandleDouble(TemporalScheduleHandle):
+class ScheduleHandleDouble:
     def __init__(self, delete_outcome: object = None) -> None:
         self.delete_outcome = delete_outcome
         self.events: list[tuple[object, ...]] = []
@@ -48,7 +47,7 @@ class ScheduleHandleDouble(TemporalScheduleHandle):
         result_or_raise(self.delete_outcome)
 
 
-class ScheduleClientDouble(TemporalScheduleClient):
+class ScheduleClientDouble:
     def __init__(
         self,
         *,
@@ -75,7 +74,7 @@ class ScheduleClientDouble(TemporalScheduleClient):
         return self.schedule_handle
 
 
-def schedule(client: ScheduleClientDouble) -> TemporalMortalSchedule:
+def mortal_schedule(client: ScheduleClientDouble) -> TemporalMortalSchedule:
     return TemporalMortalSchedule(
         client=client,
         bot_id=350_003,
@@ -92,7 +91,7 @@ async def test_creates_a_timezone_aware_daily_schedule() -> None:
         death_date=date(2100, 1, 1),
     )
 
-    await schedule(client).ensure(mortal)
+    await mortal_schedule(client).ensure(mortal)
 
     created = cast(Schedule, client.created_schedule)
     action = cast(ScheduleActionStartWorkflow, created.action)
@@ -132,7 +131,7 @@ async def test_updates_an_existing_schedule_idempotently() -> None:
         death_date=date(2100, 1, 1),
     )
 
-    await schedule(client).ensure(mortal)
+    await mortal_schedule(client).ensure(mortal)
 
     assert (
         client.events,
@@ -151,7 +150,7 @@ async def test_updates_an_existing_schedule_idempotently() -> None:
 async def test_null_cron_deletes_instead_of_creating_a_schedule() -> None:
     client = ScheduleClientDouble()
 
-    await schedule(client).ensure(Mortal(id=350_033, notification_cron=None))
+    await mortal_schedule(client).ensure(Mortal(id=350_033, notification_cron=None))
 
     assert (
         client.events,
@@ -173,7 +172,7 @@ async def test_deletion_is_idempotent(delete_outcome: object) -> None:
     handle = ScheduleHandleDouble(delete_outcome=delete_outcome)
     client = ScheduleClientDouble(handle=handle)
 
-    await schedule(client).delete(350_039)
+    await mortal_schedule(client).delete(350_039)
 
     assert handle.events == [("delete",)], (
         "Schedule deletion did not attempt the stable Mortal schedule id"
@@ -185,6 +184,6 @@ async def test_propagates_a_schedule_deletion_transport_failure() -> None:
     client = ScheduleClientDouble(handle=ScheduleHandleDouble(delete_outcome=failure))
 
     with pytest.raises(RPCError) as raised:
-        await schedule(client).delete(350_041)
+        await mortal_schedule(client).delete(350_041)
 
     assert raised.value is failure

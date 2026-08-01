@@ -16,7 +16,6 @@ from sein_zum_tode.notifications.models import (
     MORTAL_NOTIFICATION_WORKFLOW_NAME,
     MortalNotificationWorkflowInput,
 )
-from sein_zum_tode.notifications.ports import MortalSchedule
 
 
 class TemporalScheduleHandle(Protocol):
@@ -38,7 +37,7 @@ class TemporalScheduleClient(Protocol):
     def get_schedule_handle(self, id: str) -> TemporalScheduleHandle: ...
 
 
-class TemporalMortalSchedule(MortalSchedule):
+class TemporalMortalSchedule:
     def __init__(
         self,
         *,

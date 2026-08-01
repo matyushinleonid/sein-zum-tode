@@ -29,7 +29,6 @@ from sein_zum_tode.mortals.models import (
     DEFAULT_MORTAL_TIMEZONE,
     Mortal,
 )
-from sein_zum_tode.mortals.ports import MortalRepository
 
 metadata = MetaData()
 
@@ -99,7 +98,7 @@ llm_request_consumptions = Table(
 )
 
 
-class PostgresMortalRepository(MortalRepository):
+class PostgresMortalRepository:
     def __init__(self, postgres: PostgresStatementClient) -> None:
         self._postgres = postgres
 

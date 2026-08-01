@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Literal, Self
+from typing import Literal, Self
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -12,9 +12,6 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    def __init__(self, **values: Any) -> None:
-        super().__init__(**values)
-
     app_name: str = "sein-zum-tode-telegram-ingress"
     log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"] = "INFO"
     log_format: Literal["console", "json"] = "console"
@@ -23,7 +20,7 @@ class Settings(BaseSettings):
     telegram_polling_timeout_seconds: int = Field(default=30, ge=1)
     telegram_request_timeout_seconds: int = Field(default=40, ge=1)
     telegram_update_ttl_seconds: int = Field(default=3600, ge=1)
-    conversation_ttl_seconds: int = Field(default=3600, ge=1)
+    questionnaire_ttl_seconds: int = Field(default=3600, ge=1)
     bot_content_path: Path = Path("config/bot-content.yaml")
     death_prediction_config_path: Path = Path("config/death-prediction.yaml")
 
@@ -45,12 +42,12 @@ class Settings(BaseSettings):
     def validate_activity_retry_timeout(self) -> Self:
         shortest_payload_ttl = min(
             self.telegram_update_ttl_seconds,
-            self.conversation_ttl_seconds,
+            self.questionnaire_ttl_seconds,
         )
         if self.temporal_activity_retry_timeout_seconds >= shortest_payload_ttl:
             raise ValueError(
                 "TEMPORAL_ACTIVITY_RETRY_TIMEOUT_SECONDS must be less than "
-                "TELEGRAM_UPDATE_TTL_SECONDS and CONVERSATION_TTL_SECONDS"
+                "TELEGRAM_UPDATE_TTL_SECONDS and QUESTIONNAIRE_TTL_SECONDS"
             )
         return self
 
@@ -65,3 +62,4 @@ class WorkerSettings(Settings):
     postgres_pgbouncer: bool = False
     yandex_ai_studio_api_key: SecretStr | None = None
     yandex_ai_studio_folder_id: str | None = None
+    yandex_ai_studio_enable_server_data_logging: bool = False

@@ -23,7 +23,7 @@ locales:
       limit_exhausted: Your prediction request limit is exhausted.
       failed: Something went wrong. Please try again later.
       mock: "Mock prediction: {answers}"
-    conversation:
+    questionnaire:
       started: mock conversation started
       completed: thanks for your answers!
       deleted: your answers were deleted from our system
@@ -54,7 +54,7 @@ locales:
       limit_exhausted: Лимит запросов на предсказание исчерпан.
       failed: Что-то пошло не так. Попробуйте ещё раз позднее.
       mock: "Тестовое предсказание: {answers}"
-    conversation:
+    questionnaire:
       started: Тестовая анкета начата.
       completed: Спасибо за ваши ответы!
       deleted: Ваши ответы удалены из нашей системы.

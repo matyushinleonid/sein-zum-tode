@@ -5,15 +5,6 @@ from typing import cast
 from temporalio import workflow
 from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflowError
 
-from sein_zum_tode.bot.conversation.models import (
-    CONVERSATION_FINISHED_SIGNAL_NAME,
-    CONVERSATION_UPDATE_SIGNAL_NAME,
-    TELEGRAM_CONVERSATION_WORKFLOW_NAME,
-    ConversationFinishedSignal,
-    ConversationUpdateSignal,
-    ConversationWorkflowInput,
-)
-from sein_zum_tode.bot.conversation.workflow import TelegramConversationWorkflow
 from sein_zum_tode.bot.models import (
     CLEANUP_PAYLOADS_ACTIVITY_NAME,
     DELIVER_RESPONSE_ACTIVITY_NAME,
@@ -52,6 +43,15 @@ from sein_zum_tode.notifications.models import (
     CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME,
 )
 from sein_zum_tode.observability import LogContext
+from sein_zum_tode.questionnaire.models import (
+    QUESTIONNAIRE_FINISHED_SIGNAL_NAME,
+    QUESTIONNAIRE_UPDATE_SIGNAL_NAME,
+    TELEGRAM_QUESTIONNAIRE_WORKFLOW_NAME,
+    QuestionnaireFinishedSignal,
+    QuestionnaireUpdateSignal,
+    QuestionnaireWorkflowInput,
+)
+from sein_zum_tode.questionnaire.workflow import TelegramQuestionnaireWorkflow
 
 RECENT_UPDATE_KEYS_LIMIT = 256
 PREPARE_ACTIVITY_NAMES = {
@@ -74,17 +74,17 @@ class TelegramUserWorkflow:
     def __init__(self, input: UserWorkflowInput) -> None:
         self._user_id = input.user_id
         self._activity_timeout = timedelta(seconds=input.activity_retry_timeout_seconds)
-        self._conversation_ttl_seconds = input.conversation_ttl_seconds
+        self._questionnaire_ttl_seconds = input.questionnaire_ttl_seconds
         self._pending_update_keys = list(input.pending_update_keys)
         self._recent_update_keys = list(input.recent_update_keys)
         self._active_update_key: str | None = None
         self._continue_as_new_after_updates = input.continue_as_new_after_updates
         self._processed_since_continue = 0
-        self._conversation: (
-            workflow.ChildWorkflowHandle[TelegramConversationWorkflow, None] | None
+        self._questionnaire: (
+            workflow.ChildWorkflowHandle[TelegramQuestionnaireWorkflow, None] | None
         ) = None
-        self._conversation_key: str | None = None
-        self._conversation_accepting_updates = False
+        self._questionnaire_key: str | None = None
+        self._questionnaire_accepting_updates = False
         self._mortal_registered = False
         self._localization_required: bool | None = None
 
@@ -98,10 +98,10 @@ class TelegramUserWorkflow:
             return
         self._pending_update_keys.append(input.redis_key)
 
-    @workflow.signal(name=CONVERSATION_FINISHED_SIGNAL_NAME)
-    def finish_conversation(self, input: ConversationFinishedSignal) -> None:
-        if input.conversation_key == self._conversation_key:
-            self._conversation_accepting_updates = False
+    @workflow.signal(name=QUESTIONNAIRE_FINISHED_SIGNAL_NAME)
+    def finish_questionnaire(self, input: QuestionnaireFinishedSignal) -> None:
+        if input.questionnaire_key == self._questionnaire_key:
+            self._questionnaire_accepting_updates = False
 
     @workflow.run
     async def run(self, input: UserWorkflowInput) -> None:
@@ -118,17 +118,17 @@ class TelegramUserWorkflow:
             await self._continue_as_new_if_needed()
 
     async def _route(self, update_key: str) -> bool:
-        await self._release_finished_conversation()
-        if self._conversation is not None and not self._conversation_accepting_updates:
-            await self._release_conversation()
+        await self._release_finished_questionnaire()
+        if self._questionnaire is not None and not self._questionnaire_accepting_updates:
+            await self._release_questionnaire()
         inspected = await self._inspect(update_key)
         if inspected is None:
             await self._cleanup(update_key, f"{update_key}:response")
             return True
 
         if inspected.kind == InspectionKind.MORTAL_BLOCKED:
-            if self._conversation is not None:
-                await self._cancel_conversation()
+            if self._questionnaire is not None:
+                await self._cancel_questionnaire()
             await self._cleanup(update_key, f"{update_key}:response")
             await self._deactivate_mortal(update_key)
             return False
@@ -151,7 +151,7 @@ class TelegramUserWorkflow:
         }:
             return await self._respond(inspected)
 
-        if self._conversation is not None and self._conversation_accepting_updates:
+        if self._questionnaire is not None and self._questionnaire_accepting_updates:
             if inspected.kind == InspectionKind.BEGIN:
                 quota = await self._prediction_quota(update_key)
                 if quota is None:
@@ -159,7 +159,7 @@ class TelegramUserWorkflow:
                     return True
                 if not quota:
                     return await self._respond(self._limit_exhausted(inspected))
-                await self._restart_conversation(inspected)
+                await self._restart_questionnaire(inspected)
                 await self._cleanup(update_key, f"{update_key}:response")
                 return True
             if inspected.kind in {
@@ -169,12 +169,12 @@ class TelegramUserWorkflow:
                 InspectionKind.LOCALIZATION,
                 InspectionKind.NOTIFICATIONS,
             }:
-                conversation = await self._release_finished_conversation()
-                if conversation is None:
+                questionnaire = await self._release_finished_questionnaire()
+                if questionnaire is None:
                     return await self._respond(inspected)
-                await conversation.signal(
-                    CONVERSATION_UPDATE_SIGNAL_NAME,
-                    ConversationUpdateSignal(update_key=update_key),
+                await questionnaire.signal(
+                    QUESTIONNAIRE_UPDATE_SIGNAL_NAME,
+                    QuestionnaireUpdateSignal(update_key=update_key),
                 )
                 return True
 
@@ -185,7 +185,7 @@ class TelegramUserWorkflow:
                 return True
             if not quota:
                 return await self._respond(self._limit_exhausted(inspected))
-            await self._start_conversation(inspected)
+            await self._start_questionnaire(inspected)
             await self._cleanup(update_key, f"{update_key}:response")
             return True
         return await self._respond(inspected)
@@ -366,61 +366,61 @@ class TelegramUserWorkflow:
         self._mortal_registered = True
         self._localization_required = True
 
-    async def _start_conversation(self, inspected: InspectedUpdate) -> None:
-        conversation_key = f"{inspected.update_key}:conversation"
-        child_id = f"{workflow.info().workflow_id}:conversation:{inspected.update_key}"
-        self._conversation_key = conversation_key
-        self._conversation_accepting_updates = True
-        self._conversation = await workflow.start_child_workflow(
-            TELEGRAM_CONVERSATION_WORKFLOW_NAME,
-            ConversationWorkflowInput(
-                conversation_key=conversation_key,
+    async def _start_questionnaire(self, inspected: InspectedUpdate) -> None:
+        questionnaire_key = f"{inspected.update_key}:questionnaire"
+        child_id = f"{workflow.info().workflow_id}:questionnaire:{inspected.update_key}"
+        self._questionnaire_key = questionnaire_key
+        self._questionnaire_accepting_updates = True
+        self._questionnaire = await workflow.start_child_workflow(
+            TELEGRAM_QUESTIONNAIRE_WORKFLOW_NAME,
+            QuestionnaireWorkflowInput(
+                questionnaire_key=questionnaire_key,
                 user_id=self._user_id,
                 chat_id=inspected.chat_id,
-                inactivity_timeout_seconds=self._conversation_ttl_seconds,
+                inactivity_timeout_seconds=self._questionnaire_ttl_seconds,
                 activity_retry_timeout_seconds=int(self._activity_timeout.total_seconds()),
                 owner_workflow_id=workflow.info().workflow_id,
             ),
             id=child_id,
         )
 
-    async def _restart_conversation(self, inspected: InspectedUpdate) -> None:
-        await self._cancel_conversation()
-        await self._start_conversation(inspected)
+    async def _restart_questionnaire(self, inspected: InspectedUpdate) -> None:
+        await self._cancel_questionnaire()
+        await self._start_questionnaire(inspected)
 
-    async def _cancel_conversation(self) -> None:
-        conversation = cast(
-            workflow.ChildWorkflowHandle[TelegramConversationWorkflow, None],
-            self._conversation,
+    async def _cancel_questionnaire(self) -> None:
+        questionnaire = cast(
+            workflow.ChildWorkflowHandle[TelegramQuestionnaireWorkflow, None],
+            self._questionnaire,
         )
-        conversation.cancel()
+        questionnaire.cancel()
         try:
-            await conversation
+            await questionnaire
         except asyncio.CancelledError, ChildWorkflowError:
             pass
-        self._conversation = None
-        self._conversation_key = None
-        self._conversation_accepting_updates = False
+        self._questionnaire = None
+        self._questionnaire_key = None
+        self._questionnaire_accepting_updates = False
 
-    async def _release_finished_conversation(
+    async def _release_finished_questionnaire(
         self,
-    ) -> workflow.ChildWorkflowHandle[TelegramConversationWorkflow, None] | None:
-        if self._conversation is not None and self._conversation.done():
-            await self._release_conversation()
-        return self._conversation
+    ) -> workflow.ChildWorkflowHandle[TelegramQuestionnaireWorkflow, None] | None:
+        if self._questionnaire is not None and self._questionnaire.done():
+            await self._release_questionnaire()
+        return self._questionnaire
 
-    async def _release_conversation(self) -> None:
-        conversation = cast(
-            workflow.ChildWorkflowHandle[TelegramConversationWorkflow, None],
-            self._conversation,
+    async def _release_questionnaire(self) -> None:
+        questionnaire = cast(
+            workflow.ChildWorkflowHandle[TelegramQuestionnaireWorkflow, None],
+            self._questionnaire,
         )
         try:
-            await conversation
+            await questionnaire
         except asyncio.CancelledError, ChildWorkflowError:
             pass
-        self._conversation = None
-        self._conversation_key = None
-        self._conversation_accepting_updates = False
+        self._questionnaire = None
+        self._questionnaire_key = None
+        self._questionnaire_accepting_updates = False
 
     async def _cleanup(self, update_key: str, response_key: str) -> None:
         try:
@@ -451,9 +451,9 @@ class TelegramUserWorkflow:
         return PREPARE_ACTIVITY_NAMES[kind]
 
     def _recipient_unavailable(self, error: ActivityError) -> bool:
-        return (
-            isinstance(error.cause, ApplicationError)
-            and error.cause.type == "TelegramRecipientUnavailable"
+        cause = error.cause
+        return isinstance(cause, ApplicationError) and cause.type == (
+            "TelegramRecipientUnavailable"
         )
 
     def _remember(self, update_key: str) -> None:
@@ -461,7 +461,7 @@ class TelegramUserWorkflow:
         del self._recent_update_keys[:-RECENT_UPDATE_KEYS_LIMIT]
 
     async def _continue_as_new_if_needed(self) -> None:
-        if self._conversation is not None:
+        if self._questionnaire is not None:
             return
         forced = (
             self._continue_as_new_after_updates is not None
@@ -474,7 +474,7 @@ class TelegramUserWorkflow:
             UserWorkflowInput(
                 user_id=self._user_id,
                 activity_retry_timeout_seconds=int(self._activity_timeout.total_seconds()),
-                conversation_ttl_seconds=self._conversation_ttl_seconds,
+                questionnaire_ttl_seconds=self._questionnaire_ttl_seconds,
                 pending_update_keys=tuple(self._pending_update_keys),
                 recent_update_keys=tuple(self._recent_update_keys),
                 continue_as_new_after_updates=self._continue_as_new_after_updates,

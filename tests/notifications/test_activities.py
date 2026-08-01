@@ -94,7 +94,7 @@ async def test_skips_a_notification_without_complete_enabled_preferences(
     payloads = responses()
     subject = PrepareMortalNotificationActivity(
         mortals=repository,
-        responses=payloads,
+        responses=payloads.response_documents,
         content=BotContents.debug(),
         response_ttl_seconds=3407,
         clock=ClockDouble(datetime(2099, 12, 1, tzinfo=UTC)),
@@ -128,7 +128,7 @@ async def test_prepares_a_localized_countdown_in_redis() -> None:
     payloads = responses()
     subject = PrepareMortalNotificationActivity(
         mortals=repository,
-        responses=payloads,
+        responses=payloads.response_documents,
         content=BotContents.debug(),
         response_ttl_seconds=3413,
         clock=ClockDouble(datetime(2099, 12, 30, 20, 59, tzinfo=UTC)),

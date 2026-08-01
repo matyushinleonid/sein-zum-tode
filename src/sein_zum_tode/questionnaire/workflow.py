@@ -5,21 +5,6 @@ from typing import cast
 from temporalio import workflow
 from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
 
-from sein_zum_tode.bot.conversation.models import (
-    CONVERSATION_FINISHED_SIGNAL_NAME,
-    CONVERSATION_UPDATE_SIGNAL_NAME,
-    RECORD_CONVERSATION_ANSWER_ACTIVITY_NAME,
-    START_CONVERSATION_ACTIVITY_NAME,
-    TELEGRAM_CONVERSATION_WORKFLOW_NAME,
-    ConversationFinishedSignal,
-    ConversationStarted,
-    ConversationTurn,
-    ConversationTurnKind,
-    ConversationUpdateSignal,
-    ConversationWorkflowInput,
-    RecordConversationAnswerInput,
-    StartConversationInput,
-)
 from sein_zum_tode.bot.models import (
     CLEANUP_PAYLOADS_ACTIVITY_NAME,
     DELIVER_RESPONSE_ACTIVITY_NAME,
@@ -36,13 +21,28 @@ from sein_zum_tode.prediction.activities import (
     GenerateDeathPredictionInput,
     PreparePredictionFailureInput,
 )
+from sein_zum_tode.questionnaire.models import (
+    QUESTIONNAIRE_FINISHED_SIGNAL_NAME,
+    QUESTIONNAIRE_UPDATE_SIGNAL_NAME,
+    RECORD_QUESTIONNAIRE_ANSWER_ACTIVITY_NAME,
+    START_QUESTIONNAIRE_ACTIVITY_NAME,
+    TELEGRAM_QUESTIONNAIRE_WORKFLOW_NAME,
+    QuestionnaireFinishedSignal,
+    QuestionnaireStarted,
+    QuestionnaireTurn,
+    QuestionnaireTurnKind,
+    QuestionnaireUpdateSignal,
+    QuestionnaireWorkflowInput,
+    RecordQuestionnaireAnswerInput,
+    StartQuestionnaireInput,
+)
 
 
-@workflow.defn(name=TELEGRAM_CONVERSATION_WORKFLOW_NAME)
-class TelegramConversationWorkflow:
+@workflow.defn(name=TELEGRAM_QUESTIONNAIRE_WORKFLOW_NAME)
+class TelegramQuestionnaireWorkflow:
     @workflow.init
-    def __init__(self, input: ConversationWorkflowInput) -> None:
-        self._conversation_key = input.conversation_key
+    def __init__(self, input: QuestionnaireWorkflowInput) -> None:
+        self._questionnaire_key = input.questionnaire_key
         self._user_id = input.user_id
         self._chat_id = input.chat_id
         self._owner_workflow_id = input.owner_workflow_id
@@ -54,8 +54,8 @@ class TelegramConversationWorkflow:
         self._privacy_response_key: str | None = None
         self._prepared_response_keys: list[str] = []
 
-    @workflow.signal(name=CONVERSATION_UPDATE_SIGNAL_NAME)
-    def accept_update(self, input: ConversationUpdateSignal) -> None:
+    @workflow.signal(name=QUESTIONNAIRE_UPDATE_SIGNAL_NAME)
+    def accept_update(self, input: QuestionnaireUpdateSignal) -> None:
         if (
             input.update_key == self._active_update_key
             or input.update_key in self._pending_update_keys
@@ -65,7 +65,7 @@ class TelegramConversationWorkflow:
         self._pending_update_keys.append(input.update_key)
 
     @workflow.run
-    async def run(self, input: ConversationWorkflowInput) -> None:
+    async def run(self, input: QuestionnaireWorkflowInput) -> None:
         try:
             started = await self._start()
             if started is None:
@@ -86,7 +86,7 @@ class TelegramConversationWorkflow:
                     await workflow.wait_condition(
                         lambda: bool(self._pending_update_keys),
                         timeout=remaining,
-                        timeout_summary="telegram-conversation-inactivity",
+                        timeout_summary="telegram-questionnaire-inactivity",
                     )
                 except TimeoutError:
                     await self._finish(())
@@ -95,10 +95,10 @@ class TelegramConversationWorkflow:
                 update_key = self._pending_update_keys.pop(0)
                 self._active_update_key = update_key
                 turn = await self._record(update_key)
-                if turn is None or turn.kind == ConversationTurnKind.EXPIRED:
+                if turn is None or turn.kind == QuestionnaireTurnKind.EXPIRED:
                     await self._finish((update_key,))
                     return
-                if turn.kind == ConversationTurnKind.IGNORED:
+                if turn.kind == QuestionnaireTurnKind.IGNORED:
                     await self._cleanup((update_key,))
                     self._remember(update_key)
                     self._active_update_key = None
@@ -122,45 +122,45 @@ class TelegramConversationWorkflow:
             await asyncio.shield(self._cleanup_for_restart())
             raise
 
-    async def _start(self) -> ConversationStarted | None:
+    async def _start(self) -> QuestionnaireStarted | None:
         try:
             return cast(
-                ConversationStarted,
+                QuestionnaireStarted,
                 await workflow.execute_activity(
-                    START_CONVERSATION_ACTIVITY_NAME,
-                    StartConversationInput(
-                        conversation_key=self._conversation_key,
+                    START_QUESTIONNAIRE_ACTIVITY_NAME,
+                    StartQuestionnaireInput(
+                        questionnaire_key=self._questionnaire_key,
                         user_id=self._user_id,
                         chat_id=self._chat_id,
                     ),
-                    result_type=ConversationStarted,
+                    result_type=QuestionnaireStarted,
                     schedule_to_close_timeout=self._activity_timeout,
                 ),
             )
         except ActivityError as error:
             self._raise_if_cancelled(error)
-            self._log_failure("telegram_conversation_start_failed")
+            self._log_failure("telegram_questionnaire_start_failed")
             return None
 
-    async def _record(self, update_key: str) -> ConversationTurn | None:
+    async def _record(self, update_key: str) -> QuestionnaireTurn | None:
         try:
             return cast(
-                ConversationTurn,
+                QuestionnaireTurn,
                 await workflow.execute_activity(
-                    RECORD_CONVERSATION_ANSWER_ACTIVITY_NAME,
-                    RecordConversationAnswerInput(
-                        conversation_key=self._conversation_key,
+                    RECORD_QUESTIONNAIRE_ANSWER_ACTIVITY_NAME,
+                    RecordQuestionnaireAnswerInput(
+                        questionnaire_key=self._questionnaire_key,
                         update_key=update_key,
                         user_id=self._user_id,
                     ),
-                    result_type=ConversationTurn,
+                    result_type=QuestionnaireTurn,
                     schedule_to_close_timeout=self._activity_timeout,
                 ),
             )
         except ActivityError as error:
             self._raise_if_cancelled(error)
             self._log_failure(
-                "telegram_conversation_answer_failed",
+                "telegram_questionnaire_answer_failed",
                 update_key=update_key,
             )
             return None
@@ -187,7 +187,7 @@ class TelegramConversationWorkflow:
                 if self._recipient_unavailable(error):
                     await self._deactivate_mortal()
                 self._log_failure(
-                    "telegram_conversation_delivery_failed",
+                    "telegram_questionnaire_delivery_failed",
                     update_key=update_key,
                     response_key=response_key,
                 )
@@ -195,14 +195,14 @@ class TelegramConversationWorkflow:
         return True
 
     async def _predict(self) -> tuple[str, ...]:
-        prediction_key = f"{self._conversation_key}:prediction"
-        response_key = f"{self._conversation_key}:prediction-response"
+        prediction_key = f"{self._questionnaire_key}:prediction"
+        response_key = f"{self._questionnaire_key}:prediction-response"
         self._prepared_response_keys.append(response_key)
         try:
             await workflow.execute_activity(
                 GENERATE_DEATH_PREDICTION_ACTIVITY_NAME,
                 GenerateDeathPredictionInput(
-                    conversation_key=self._conversation_key,
+                    questionnaire_key=self._questionnaire_key,
                     prediction_key=prediction_key,
                     user_id=self._user_id,
                 ),
@@ -249,7 +249,7 @@ class TelegramConversationWorkflow:
             (privacy_response_key,),
             update_key=self._active_update_key,
         )
-        await self._cleanup((self._conversation_key, *keys, privacy_response_key))
+        await self._cleanup((self._questionnaire_key, *keys, privacy_response_key))
         self._forget_responses(keys)
         self._privacy_response_key = None
         await self._notify_finished()
@@ -270,13 +270,13 @@ class TelegramConversationWorkflow:
             return
         parent = workflow.get_external_workflow_handle(self._owner_workflow_id)
         await parent.signal(
-            CONVERSATION_FINISHED_SIGNAL_NAME,
-            ConversationFinishedSignal(conversation_key=self._conversation_key),
+            QUESTIONNAIRE_FINISHED_SIGNAL_NAME,
+            QuestionnaireFinishedSignal(questionnaire_key=self._questionnaire_key),
         )
 
     async def _cleanup_for_restart(self) -> None:
         keys = [
-            self._conversation_key,
+            self._questionnaire_key,
             *self._prepared_response_keys,
             *self._pending_update_keys,
         ]
@@ -303,7 +303,7 @@ class TelegramConversationWorkflow:
         except ActivityError as error:
             self._raise_if_cancelled(error)
             self._log_failure(
-                "telegram_conversation_cleanup_failed",
+                "telegram_questionnaire_cleanup_failed",
                 update_key=self._active_update_key,
             )
             return False
@@ -323,9 +323,9 @@ class TelegramConversationWorkflow:
             raise asyncio.CancelledError from error
 
     def _recipient_unavailable(self, error: ActivityError) -> bool:
-        return (
-            isinstance(error.cause, ApplicationError)
-            and error.cause.type == "TelegramRecipientUnavailable"
+        cause = error.cause
+        return isinstance(cause, ApplicationError) and cause.type == (
+            "TelegramRecipientUnavailable"
         )
 
     def _log_failure(
@@ -336,14 +336,14 @@ class TelegramConversationWorkflow:
         response_key: str | None = None,
     ) -> None:
         workflow.logger.exception(
-            "Telegram conversation processing failed",
+            "Telegram questionnaire processing failed",
             extra=LogContext(
                 component="worker",
                 user_id=self._user_id,
                 update_key=update_key,
             ).event(
                 event,
-                conversation_key=self._conversation_key,
+                questionnaire_key=self._questionnaire_key,
                 response_key=response_key,
             ),
         )

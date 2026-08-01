@@ -5,12 +5,12 @@ from pydantic import ValidationError
 
 from sein_zum_tode.bot.content import (
     BotContent,
-    ConversationContent,
     LocalizationContent,
     LocalizedBotContent,
     NotificationSettingsContent,
     PredictionContent,
     QuestionContent,
+    QuestionnaireContent,
     YamlBotContentLoader,
 )
 from sein_zum_tode.bot.errors import ContentConfigurationError
@@ -44,7 +44,7 @@ def localized_content(notification: str = "Days left: {days_left}") -> Localized
             failed="Failed",
             mock="Mock: {answers}",
         ),
-        conversation=ConversationContent(
+        questionnaire=QuestionnaireContent(
             started="Started",
             completed="Completed",
             deleted="Deleted",
@@ -82,7 +82,7 @@ locales:
       limit_exhausted: Limit exhausted
       failed: Failed
       mock: "Mock: {answers}"
-    conversation:
+    questionnaire:
       started: The survey has started
       completed: Survey complete
       deleted: Private answers deleted
@@ -99,7 +99,7 @@ locales:
         actual.version,
         actual.default().help,
         actual.default().notification_text(17),
-        actual.default().conversation.questions,
+        actual.default().questionnaire.questions,
     ) == (
         "stellar-v7",
         "Navigate by the constellations",
@@ -141,7 +141,7 @@ def test_rejects_a_default_locale_without_content() -> None:
 
 def test_rejects_duplicate_question_ids() -> None:
     with pytest.raises(ValidationError):
-        ConversationContent(
+        QuestionnaireContent(
             started="Started",
             completed="Completed",
             deleted="Deleted",

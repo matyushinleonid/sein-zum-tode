@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.sql import ClauseElement
 
 from sein_zum_tode.infrastructure.postgres import (
     PostgresClient,
@@ -47,6 +48,7 @@ class ConnectionDouble(PostgresConnection):
         self.events = events
 
     async def execute(self, statement: object) -> PostgresStatementResult:
+        assert isinstance(statement, ClauseElement)
         self.events.append(("execute", str(statement)))
         return result_or_raise(self.outcomes.pop(0))
 

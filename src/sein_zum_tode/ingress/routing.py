@@ -1,9 +1,7 @@
 from aiogram.types import Update, User
 
-from sein_zum_tode.ingress.ports import UpdateUserResolver
 
-
-class AiogramUpdateUserResolver(UpdateUserResolver):
+class AiogramUpdateUserResolver:
     def resolve(self, update: Update) -> int | None:
         try:
             event = update.event

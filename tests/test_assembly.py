@@ -5,8 +5,9 @@ from typing import cast
 import pytest
 from pydantic import SecretStr
 
-import sein_zum_tode.bot.worker as worker_module
 import sein_zum_tode.main as ingress_module
+import sein_zum_tode.worker as worker_module
+from sein_zum_tode.infrastructure.yandex_ai import YandexCompletionProfile
 from sein_zum_tode.prediction.config import (
     DeathPredictionConfig,
     MockPredictionConfig,
@@ -64,9 +65,12 @@ async def test_assembles_and_closes_the_ingress_process(
             {"namespace": "galactic-1837", "tls": True},
         ),
         ("source", 43, 59),
+        ("codec", "Update", True, True),
+        ("documents", "Telegram update"),
         ("resolver",),
-        ("store", 1871, 1823),
-        ("starter", 1871, "telegram-quasars-1847", 1801, 1877),
+        ("store", True, 1871, 1823),
+        ("temporal_adapter", True),
+        ("starter", True, 1871, "telegram-quasars-1847", 1801, 1877),
         ("handoff", True),
         ("waiter", 0.73, 18.29),
         ("poller", ("source", "store", "handoff", "retry_waiter")),
@@ -107,9 +111,15 @@ async def test_assembles_and_closes_the_temporal_worker(
             "temporal-nebula.internal:1831",
             {"namespace": "galactic-1837", "tls": True},
         ),
-        ("payloads", True),
-        ("conversations", True),
-        ("predictions", True),
+        ("codec", "Update"),
+        ("documents", "Telegram update", True, "Update"),
+        ("codec", "TelegramResponse"),
+        ("documents", "Telegram response", True, "TelegramResponse"),
+        ("codec", "QuestionnaireState"),
+        ("documents", "Telegram questionnaire", True, "QuestionnaireState"),
+        ("codec", "StoredDeathPrediction"),
+        ("documents", "death prediction", True, "StoredDeathPrediction"),
+        ("cleaner", True),
         (
             "postgres",
             {
@@ -132,8 +142,8 @@ async def test_assembles_and_closes_the_temporal_worker(
         ),
         ("sender", True),
         ("inspect", True),
-        ("prepare", 1823, True, True),
-        ("start_conversation", True, True, True, True, 1877, 1823, 3678),
+        ("prepare", True, True, 1823, True, True),
+        ("start_questionnaire", True, True, True, True, 1877, 1823, 3678),
         ("record_answer", True, True, True, 1877, 1823, 3678),
         ("delivery", True, True),
         ("cleanup", True),
@@ -161,7 +171,7 @@ async def test_assembles_and_closes_the_temporal_worker(
         ),
         (
             "generate_prediction",
-            ("predictor", "predictions", "conversations", "mortals", "ttl_seconds"),
+            ("predictor", "predictions", "questionnaires", "mortals", "ttl_seconds"),
         ),
         (
             "apply_prediction",
@@ -184,7 +194,7 @@ async def test_assembles_and_closes_the_temporal_worker(
             "telegram-quasars-1847",
             (
                 "TelegramUserWorkflow",
-                "TelegramConversationWorkflow",
+                "TelegramQuestionnaireWorkflow",
                 "MortalNotificationWorkflow",
             ),
             (
@@ -244,7 +254,7 @@ def test_builds_a_yandex_predictor_only_with_complete_credentials(
 
     monkeypatch.setattr(worker_module, "AsyncAIStudio", create_sdk)
     monkeypatch.setattr(worker_module, "YandexAIStudioClient", create_client)
-    monkeypatch.setattr(worker_module, "YandexDeathPredictor", create_predictor)
+    monkeypatch.setattr(worker_module, "LLMDeathPredictor", create_predictor)
     settings = explicit_settings().model_copy(
         update={
             "yandex_ai_studio_api_key": SecretStr("api-key-191"),
@@ -272,12 +282,21 @@ def test_builds_a_yandex_predictor_only_with_complete_credentials(
             {
                 "folder_id": "folder-193",
                 "auth": "api-key-191",
-                "enable_server_data_logging": False,
+                "enable_server_data_logging": True,
             },
         ),
         True,
         True,
     )
+    assert client_options["profile"] == YandexCompletionProfile(
+        model="yandexgpt",
+        model_version="rc",
+        temperature=0.3,
+        max_tokens=1000,
+        request_timeout_seconds=180,
+        system_prompt="Return structured data",
+    ), "composition root did not map prediction settings into a generic Yandex profile"
+    assert cast(type[object], client_options["response_type"]).__name__ == "DeathPrediction"
 
 
 def test_rejects_yandex_provider_without_credentials() -> None:

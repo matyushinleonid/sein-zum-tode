@@ -1,10 +1,9 @@
 from sein_zum_tode.bot.content import BotContent
 from sein_zum_tode.prediction.config import MockPredictionConfig
 from sein_zum_tode.prediction.models import DeathPrediction, DeathPredictionRequest
-from sein_zum_tode.prediction.ports import DeathPredictor
 
 
-class MockDeathPredictor(DeathPredictor):
+class MockDeathPredictor:
     def __init__(
         self,
         *,
