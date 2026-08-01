@@ -12,6 +12,7 @@ PREPARE_HELP_ACTIVITY_NAME = "prepare_help_response"
 PREPARE_ABOUT_ACTIVITY_NAME = "prepare_about_response"
 PREPARE_LOCALIZATION_ACTIVITY_NAME = "prepare_localization_response"
 PREPARE_NOTIFICATIONS_ACTIVITY_NAME = "prepare_notifications_response"
+PREPARE_CUSTOM_NOTIFICATION_ACTIVITY_NAME = "prepare_custom_notification_response"
 PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME = "prepare_limit_exhausted_response"
 PREPARE_UNSUPPORTED_ACTIVITY_NAME = "prepare_unsupported_response"
 PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME = "prepare_group_unsupported_response"
@@ -28,6 +29,7 @@ class InspectionKind(StrEnum):
     LOCALIZATION_SELECTION = "localization_selection"
     NOTIFICATIONS = "notifications"
     NOTIFICATION_SELECTION = "notification_selection"
+    CUSTOM_NOTIFICATION_SELECTION = "custom_notification_selection"
     BEGIN = "begin"
     SCREAM = "scream"
     SCREAM_DENIED = "scream_denied"
@@ -47,6 +49,7 @@ class UserWorkflowInput:
     pending_update_keys: tuple[str, ...] = ()
     recent_update_keys: tuple[str, ...] = ()
     continue_as_new_after_updates: int | None = None
+    awaiting_custom_notification: bool = False
 
 
 @dataclass(frozen=True, slots=True)

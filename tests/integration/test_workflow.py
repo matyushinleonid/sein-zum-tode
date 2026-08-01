@@ -24,6 +24,7 @@ from sein_zum_tode.bot.models import (
     CLEANUP_PAYLOADS_ACTIVITY_NAME,
     DELIVER_RESPONSE_ACTIVITY_NAME,
     INSPECT_UPDATE_ACTIVITY_NAME,
+    PREPARE_CUSTOM_NOTIFICATION_ACTIVITY_NAME,
     PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
     PREPARE_HELP_ACTIVITY_NAME,
     PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
@@ -58,6 +59,14 @@ from sein_zum_tode.mortals.activities import (
     MortalRegistration,
 )
 from sein_zum_tode.mortals.models import Mortal
+from sein_zum_tode.notifications.custom_schedule.models import (
+    APPLY_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME,
+    GENERATE_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME,
+    PREPARE_CUSTOM_NOTIFICATION_FAILURE_ACTIVITY_NAME,
+    ApplyCustomNotificationScheduleInput,
+    GenerateCustomNotificationScheduleInput,
+    PrepareCustomNotificationFailureInput,
+)
 from sein_zum_tode.notifications.models import CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME
 from sein_zum_tode.questionnaire.models import (
     QUESTIONNAIRE_FINISHED_SIGNAL_NAME,
@@ -169,6 +178,7 @@ class ActivityTranscript:
         quota_outcomes: list[object] | None = None,
         localization_required: bool = False,
         scream_requests: dict[str, ScreamRequest] | None = None,
+        failing_custom_schedule: bool = False,
     ) -> None:
         self.inspections = inspections
         self.failing_inspection = failing_inspection
@@ -181,6 +191,7 @@ class ActivityTranscript:
         self.quota_outcomes = list(quota_outcomes or [])
         self.localization_required = localization_required
         self.scream_requests = dict(scream_requests or {})
+        self.failing_custom_schedule = failing_custom_schedule
         self.events: list[tuple[str, str, int | None]] = []
         self.changed = asyncio.Event()
         self.inspection_started = asyncio.Event()
@@ -259,6 +270,49 @@ class ActivityTranscript:
             user_id=input.user_id,
         )
 
+    @activity.defn(name=PREPARE_CUSTOM_NOTIFICATION_ACTIVITY_NAME)
+    async def prepare_custom_notification(self, input: PrepareResponseInput) -> None:
+        self.record(
+            operation="prepare_custom_notification",
+            update_key=input.update_key,
+            user_id=input.user_id,
+        )
+
+    @activity.defn(name=GENERATE_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME)
+    async def generate_custom_notification_schedule(
+        self,
+        input: GenerateCustomNotificationScheduleInput,
+    ) -> None:
+        self.record(
+            operation="generate_custom_notification_schedule",
+            update_key=input.update_key,
+            user_id=input.user_id,
+        )
+        if self.failing_custom_schedule:
+            raise ApplicationError("schedule completion failed", non_retryable=True)
+
+    @activity.defn(name=APPLY_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME)
+    async def apply_custom_notification_schedule(
+        self,
+        input: ApplyCustomNotificationScheduleInput,
+    ) -> None:
+        self.record(
+            operation="apply_custom_notification_schedule",
+            update_key=input.proposal_key.removesuffix(":notification-schedule"),
+            user_id=input.user_id,
+        )
+
+    @activity.defn(name=PREPARE_CUSTOM_NOTIFICATION_FAILURE_ACTIVITY_NAME)
+    async def prepare_custom_notification_failure(
+        self,
+        input: PrepareCustomNotificationFailureInput,
+    ) -> None:
+        self.record(
+            operation="prepare_custom_notification_failure",
+            update_key=input.response_key.removesuffix(":response"),
+            user_id=input.user_id,
+        )
+
     @activity.defn(name=CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME)
     async def configure_notifications(self, input: PrepareResponseInput) -> None:
         self.record(
@@ -332,6 +386,10 @@ class ActivityTranscript:
             self.prepare_group_unsupported,
             self.prepare_scream_denied,
             self.prepare_limit_exhausted,
+            self.prepare_custom_notification,
+            self.generate_custom_notification_schedule,
+            self.apply_custom_notification_schedule,
+            self.prepare_custom_notification_failure,
             self.configure_notifications,
             self.configure_localization,
             self.deliver,
@@ -397,6 +455,31 @@ class ActivityRouter:
     async def prepare_limit_exhausted(self, input: PrepareResponseInput) -> None:
         await self.selected("prepare_limit_exhausted")(input)
 
+    @activity.defn(name=PREPARE_CUSTOM_NOTIFICATION_ACTIVITY_NAME)
+    async def prepare_custom_notification(self, input: PrepareResponseInput) -> None:
+        await self.selected("prepare_custom_notification")(input)
+
+    @activity.defn(name=GENERATE_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME)
+    async def generate_custom_notification_schedule(
+        self,
+        input: GenerateCustomNotificationScheduleInput,
+    ) -> None:
+        await self.selected("generate_custom_notification_schedule")(input)
+
+    @activity.defn(name=APPLY_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME)
+    async def apply_custom_notification_schedule(
+        self,
+        input: ApplyCustomNotificationScheduleInput,
+    ) -> None:
+        await self.selected("apply_custom_notification_schedule")(input)
+
+    @activity.defn(name=PREPARE_CUSTOM_NOTIFICATION_FAILURE_ACTIVITY_NAME)
+    async def prepare_custom_notification_failure(
+        self,
+        input: PrepareCustomNotificationFailureInput,
+    ) -> None:
+        await self.selected("prepare_custom_notification_failure")(input)
+
     @activity.defn(name=CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME)
     async def configure_notifications(self, input: PrepareResponseInput) -> None:
         await self.selected("configure_notifications")(input)
@@ -434,6 +517,10 @@ class ActivityRouter:
             self.prepare_group_unsupported,
             self.prepare_scream_denied,
             self.prepare_limit_exhausted,
+            self.prepare_custom_notification,
+            self.generate_custom_notification_schedule,
+            self.apply_custom_notification_schedule,
+            self.prepare_custom_notification_failure,
             self.configure_notifications,
             self.configure_localization,
             self.deliver,
@@ -821,6 +908,140 @@ async def test_routes_notification_callback_without_entering_a_questionnaire(
         ("deliver", update_key, 173_357),
         ("cleanup", update_key, 173_357),
     ], "notification callback was signalled to a questionnaire or skipped delivery"
+
+
+async def test_custom_schedule_takes_one_text_without_advancing_questionnaire(
+    workflow_worker_pool: WorkflowWorkerPool,
+) -> None:
+    begin_key = "redis:begin-before-custom-schedule:17571"
+    callback_key = "redis:custom-schedule-callback:17573"
+    schedule_key = "redis:custom-schedule-text:17579"
+    answer_key = "redis:questionnaire-answer-after-custom:17581"
+    stop_key = "redis:stop-after-custom-schedule:17583"
+    transcript = ActivityTranscript(
+        inspections={
+            begin_key: InspectionKind.BEGIN,
+            callback_key: InspectionKind.CUSTOM_NOTIFICATION_SELECTION,
+            schedule_key: InspectionKind.TEXT,
+            answer_key: InspectionKind.TEXT,
+            stop_key: InspectionKind.MORTAL_BLOCKED,
+        },
+        failing_inspection=None,
+        failing_cleanup=False,
+    )
+    async with await WorkflowStory.open(
+        pool=workflow_worker_pool,
+        activities=transcript.definitions(),
+        questionnaire_workflow=RecordingTelegramQuestionnaireWorkflow,
+    ) as story:
+        handle = await story.start(begin_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+        for key in (callback_key, schedule_key, answer_key):
+            await handle.signal(
+                TELEGRAM_UPDATE_SIGNAL_NAME,
+                TelegramUpdateSignal(redis_key=key),
+            )
+        await transcript.wait_for("cleanup", 3)
+        await transcript.wait_for("inspect", 4)
+        operations = [event[0] for event in transcript.events]
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=stop_key),
+        )
+        await handle.result()
+
+    assert operations == [
+        "inspect",
+        "cleanup",
+        "inspect",
+        "prepare_custom_notification",
+        "deliver",
+        "cleanup",
+        "inspect",
+        "generate_custom_notification_schedule",
+        "apply_custom_notification_schedule",
+        "deliver",
+        "cleanup",
+        "inspect",
+    ], "custom schedule text advanced the questionnaire or left custom mode active"
+
+
+@pytest.mark.parametrize(
+    ("quota_outcome", "failing_completion", "forbidden_delivery", "expected"),
+    [
+        (
+            False,
+            False,
+            False,
+            ["inspect", "prepare_limit", "deliver", "cleanup"],
+        ),
+        (
+            True,
+            True,
+            False,
+            [
+                "inspect",
+                "generate_custom_notification_schedule",
+                "prepare_custom_notification_failure",
+                "deliver",
+                "cleanup",
+            ],
+        ),
+        (
+            ApplicationError("quota unavailable", non_retryable=True),
+            False,
+            False,
+            ["inspect", "cleanup"],
+        ),
+        (
+            True,
+            False,
+            True,
+            [
+                "inspect",
+                "generate_custom_notification_schedule",
+                "apply_custom_notification_schedule",
+                "deliver",
+                "mark_unreachable",
+                "cleanup",
+            ],
+        ),
+    ],
+)
+async def test_custom_schedule_handles_global_quota_or_completion_failure(
+    quota_outcome: object,
+    failing_completion: bool,
+    forbidden_delivery: bool,
+    expected: list[str],
+    workflow_worker_pool: WorkflowWorkerPool,
+) -> None:
+    callback_key = "redis:custom-schedule-callback:17587"
+    schedule_key = "redis:custom-schedule-text:17589"
+    transcript = ActivityTranscript(
+        inspections={
+            callback_key: InspectionKind.CUSTOM_NOTIFICATION_SELECTION,
+            schedule_key: InspectionKind.TEXT,
+        },
+        failing_inspection=None,
+        failing_cleanup=False,
+        quota_outcomes=[quota_outcome],
+        failing_custom_schedule=failing_completion,
+        forbidden_delivery=schedule_key if forbidden_delivery else None,
+    )
+    async with await WorkflowStory.open(
+        pool=workflow_worker_pool,
+        activities=transcript.definitions(),
+    ) as story:
+        handle = await story.start(callback_key, continue_after=1)
+        await transcript.wait_for("cleanup", 1)
+        transcript.events.clear()
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=schedule_key),
+        )
+        await transcript.wait_for("cleanup", 1)
+
+    assert [event[0] for event in transcript.events] == expected
 
 
 async def test_requires_localization_before_processing_a_new_mortal(

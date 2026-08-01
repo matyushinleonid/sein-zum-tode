@@ -270,6 +270,18 @@ def memory(update: object, response: object = None) -> TelegramMemory:
         ),
         ActivityCase(
             update=TelegramUpdates.callback(
+                update_id=1321,
+                user_id=132_123,
+                chat_id=132_123,
+                chat_type="private",
+                data="notifications:custom",
+            ),
+            expected_kind=InspectionKind.CUSTOM_NOTIFICATION_SELECTION,
+            expected_chat_id=132_123,
+            expected_callback_query_id="callback-Sphinx-915",
+        ),
+        ActivityCase(
+            update=TelegramUpdates.callback(
                 update_id=1322,
                 user_id=132_223,
                 chat_id=132_223,
@@ -493,7 +505,7 @@ async def test_falls_back_to_the_user_when_update_cannot_be_inspected(
         ),
         (
             lambda subject, input: subject.prepare_limit_exhausted(input),
-            "Prediction limit exhausted",
+            "LLM request limit exhausted",
         ),
     ],
 )
@@ -560,7 +572,7 @@ async def test_prepares_html_about_and_callback_keyboards() -> None:
         response_store=payloads.response_documents,
         ttl_seconds=1451,
         content=BotContents.debug(),
-        mortals=MortalMemory(),
+        mortals=MortalMemory({145_459: Mortal(id=145_459)}),
         logger=SilentLogger(),
     )
     about = PrepareResponseInput(
@@ -581,19 +593,31 @@ async def test_prepares_html_about_and_callback_keyboards() -> None:
         chat_id=145_459,
         user_id=145_459,
     )
+    custom = PrepareResponseInput(
+        update_key="telegram:notifications-custom:1461",
+        response_key="telegram:notifications-custom:1461:response",
+        chat_id=145_459,
+        user_id=145_459,
+        callback_query_id="callback-Sphinx-915",
+    )
 
     await subject.prepare_about(about)
     await subject.prepare_notifications(notifications)
     await subject.prepare_localization(localization)
+    await subject.prepare_custom_notification(custom)
 
     about_response = payloads.responses[about.response_key]
     notification_response = payloads.responses[notifications.response_key]
     localization_response = payloads.responses[localization.response_key]
+    custom_response = payloads.responses[custom.response_key]
     assert (
         about_response.parse_mode,
         "github" in about_response.text,
         tuple(button.callback_data for row in notification_response.keyboard for button in row),
         tuple(button.callback_data for row in localization_response.keyboard for button in row),
+        notification_response.text,
+        custom_response.text,
+        custom_response.callback_query_id,
     ) == (
         "HTML",
         True,
@@ -602,12 +626,36 @@ async def test_prepares_html_about_and_callback_keyboards() -> None:
             "notifications:weekly",
             "notifications:monthly",
             "notifications:never",
+            "notifications:custom",
         ),
         (
             "localization:ru",
             "localization:en",
         ),
+        "Choose a notification frequency (Europe/Moscow)",
+        "Describe a custom notification schedule",
+        "callback-Sphinx-915",
     ), "about formatting or callback keyboard changed"
+
+
+async def test_rejects_notification_keyboard_for_a_missing_mortal() -> None:
+    subject = PrepareTelegramResponseActivities(
+        response_store=memory(None).response_documents,
+        ttl_seconds=1469,
+        content=BotContents.debug(),
+        mortals=MortalMemory(),
+        logger=SilentLogger(),
+    )
+
+    with pytest.raises(ApplicationError):
+        await subject.prepare_notifications(
+            PrepareResponseInput(
+                update_key="telegram:notifications:missing-mortal",
+                response_key="telegram:notifications:missing-mortal:response",
+                chat_id=146_971,
+                user_id=146_971,
+            )
+        )
 
 
 async def test_delivers_the_response_loaded_from_redis() -> None:

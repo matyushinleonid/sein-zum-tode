@@ -17,6 +17,14 @@ class MortalRepository(Protocol):
         cron: str | None,
     ) -> Mortal: ...
 
+    async def set_notification_settings(
+        self,
+        mortal_id: int,
+        *,
+        cron: str | None,
+        timezone: str,
+    ) -> Mortal: ...
+
     async def set_locale(self, mortal_id: int, locale: str) -> Mortal: ...
 
     async def consume_llm_request(self, mortal_id: int, request_id: str) -> Mortal: ...

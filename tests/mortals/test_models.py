@@ -30,8 +30,8 @@ def test_allows_a_mortal_to_disable_notifications() -> None:
 
 def test_prediction_quota_is_available_only_above_zero() -> None:
     assert (
-        Mortal(id=310_023).can_request_prediction(),
-        Mortal(id=310_025, llm_requests_remaining=0).can_request_prediction(),
+        Mortal(id=310_023).can_request_llm(),
+        Mortal(id=310_025, llm_requests_remaining=0).can_request_llm(),
     ) == (True, False)
 
 

@@ -10,6 +10,7 @@ from sein_zum_tode.bot.models import (
     DELIVER_RESPONSE_ACTIVITY_NAME,
     INSPECT_UPDATE_ACTIVITY_NAME,
     PREPARE_ABOUT_ACTIVITY_NAME,
+    PREPARE_CUSTOM_NOTIFICATION_ACTIVITY_NAME,
     PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
     PREPARE_HELP_ACTIVITY_NAME,
     PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
@@ -43,6 +44,14 @@ from sein_zum_tode.mortals.activities import (
     MortalActivityInput,
     MortalRegistration,
 )
+from sein_zum_tode.notifications.custom_schedule.models import (
+    APPLY_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME,
+    GENERATE_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME,
+    PREPARE_CUSTOM_NOTIFICATION_FAILURE_ACTIVITY_NAME,
+    ApplyCustomNotificationScheduleInput,
+    GenerateCustomNotificationScheduleInput,
+    PrepareCustomNotificationFailureInput,
+)
 from sein_zum_tode.notifications.models import (
     CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME,
 )
@@ -66,6 +75,7 @@ PREPARE_ACTIVITY_NAMES = {
     InspectionKind.LOCALIZATION_SELECTION: CONFIGURE_MORTAL_LOCALIZATION_ACTIVITY_NAME,
     InspectionKind.NOTIFICATIONS: PREPARE_NOTIFICATIONS_ACTIVITY_NAME,
     InspectionKind.NOTIFICATION_SELECTION: CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME,
+    InspectionKind.CUSTOM_NOTIFICATION_SELECTION: PREPARE_CUSTOM_NOTIFICATION_ACTIVITY_NAME,
     InspectionKind.LIMIT_EXHAUSTED: PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
     InspectionKind.GROUP_UNSUPPORTED: PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
     InspectionKind.SCREAM_DENIED: PREPARE_SCREAM_DENIED_ACTIVITY_NAME,
@@ -93,6 +103,7 @@ class TelegramUserWorkflow:
         self._questionnaire_accepting_updates = False
         self._mortal_registered = False
         self._localization_required: bool | None = None
+        self._awaiting_custom_notification = input.awaiting_custom_notification
 
     @workflow.signal(name=TELEGRAM_UPDATE_SIGNAL_NAME)
     def accept_update(self, input: TelegramUpdateSignal) -> None:
@@ -162,11 +173,27 @@ class TelegramUserWorkflow:
             InspectionKind.LOCALIZATION_SELECTION,
             InspectionKind.NOTIFICATION_SELECTION,
         }:
+            if inspected.kind == InspectionKind.NOTIFICATION_SELECTION:
+                self._awaiting_custom_notification = False
             return await self._respond(inspected)
+
+        if inspected.kind == InspectionKind.CUSTOM_NOTIFICATION_SELECTION:
+            self._awaiting_custom_notification = True
+            return await self._respond(inspected)
+
+        if self._awaiting_custom_notification and inspected.kind == InspectionKind.TEXT:
+            self._awaiting_custom_notification = False
+            quota = await self._llm_quota(update_key)
+            if quota is None:
+                await self._cleanup(update_key, f"{update_key}:response")
+                return True
+            if not quota:
+                return await self._respond(self._limit_exhausted(inspected))
+            return await self._process_custom_notification(inspected)
 
         if self._questionnaire is not None and self._questionnaire_accepting_updates:
             if inspected.kind == InspectionKind.BEGIN:
-                quota = await self._prediction_quota(update_key)
+                quota = await self._llm_quota(update_key)
                 if quota is None:
                     await self._cleanup(update_key, f"{update_key}:response")
                     return True
@@ -186,7 +213,7 @@ class TelegramUserWorkflow:
                 return True
 
         if inspected.kind == InspectionKind.BEGIN:
-            quota = await self._prediction_quota(update_key)
+            quota = await self._llm_quota(update_key)
             if quota is None:
                 await self._cleanup(update_key, f"{update_key}:response")
                 return True
@@ -309,7 +336,7 @@ class TelegramUserWorkflow:
         self._localization_required = registration.localization_required
         return True
 
-    async def _prediction_quota(self, update_key: str) -> bool | None:
+    async def _llm_quota(self, update_key: str) -> bool | None:
         try:
             return cast(
                 bool,
@@ -331,6 +358,80 @@ class TelegramUserWorkflow:
                 extra=context.event("mortal_quota_check_failed"),
             )
             return None
+
+    async def _process_custom_notification(self, inspected: InspectedUpdate) -> bool:
+        update_key = inspected.update_key
+        proposal_key = f"{update_key}:notification-schedule"
+        response_key = inspected.response_key()
+        recipient_available = True
+        try:
+            try:
+                await workflow.execute_activity(
+                    GENERATE_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME,
+                    GenerateCustomNotificationScheduleInput(
+                        update_key=update_key,
+                        proposal_key=proposal_key,
+                        user_id=self._user_id,
+                    ),
+                    schedule_to_close_timeout=self._activity_timeout,
+                )
+                await workflow.execute_activity(
+                    APPLY_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME,
+                    ApplyCustomNotificationScheduleInput(
+                        proposal_key=proposal_key,
+                        response_key=response_key,
+                        user_id=self._user_id,
+                        chat_id=inspected.chat_id,
+                    ),
+                    schedule_to_close_timeout=self._activity_timeout,
+                )
+            except ActivityError:
+                context = LogContext(
+                    component="worker",
+                    user_id=self._user_id,
+                    update_key=update_key,
+                )
+                workflow.logger.exception(
+                    "Custom notification schedule processing failed",
+                    extra=context.event("custom_notification_schedule_processing_failed"),
+                )
+                await workflow.execute_activity(
+                    PREPARE_CUSTOM_NOTIFICATION_FAILURE_ACTIVITY_NAME,
+                    PrepareCustomNotificationFailureInput(
+                        response_key=response_key,
+                        user_id=self._user_id,
+                        chat_id=inspected.chat_id,
+                    ),
+                    schedule_to_close_timeout=self._activity_timeout,
+                )
+            await workflow.execute_activity(
+                DELIVER_RESPONSE_ACTIVITY_NAME,
+                DeliverResponseInput(
+                    response_key=response_key,
+                    update_key=update_key,
+                    user_id=self._user_id,
+                ),
+                schedule_to_close_timeout=self._activity_timeout,
+            )
+        except ActivityError as error:
+            if self._recipient_unavailable(error):
+                recipient_available = False
+                await self._mark_mortal_unreachable(update_key)
+            context = LogContext(
+                component="worker",
+                user_id=self._user_id,
+                update_key=update_key,
+            )
+            workflow.logger.exception(
+                "Custom notification schedule response failed",
+                extra=context.event("custom_notification_schedule_response_failed"),
+            )
+        finally:
+            await self._cleanup_keys(
+                (update_key, proposal_key, response_key),
+                update_key=update_key,
+            )
+        return recipient_available
 
     def _limit_exhausted(self, inspected: InspectedUpdate) -> InspectedUpdate:
         return InspectedUpdate(
@@ -430,11 +531,24 @@ class TelegramUserWorkflow:
         self._questionnaire_accepting_updates = False
 
     async def _cleanup(self, update_key: str, response_key: str) -> None:
+        await self._cleanup_keys(
+            (update_key, response_key),
+            update_key=update_key,
+            response_key=response_key,
+        )
+
+    async def _cleanup_keys(
+        self,
+        keys: tuple[str, ...],
+        *,
+        update_key: str,
+        response_key: str | None = None,
+    ) -> None:
         try:
             await workflow.execute_activity(
                 CLEANUP_PAYLOADS_ACTIVITY_NAME,
                 CleanupPayloadsInput(
-                    keys=(update_key, response_key),
+                    keys=keys,
                     update_key=update_key,
                     user_id=self._user_id,
                 ),
@@ -485,5 +599,6 @@ class TelegramUserWorkflow:
                 pending_update_keys=tuple(self._pending_update_keys),
                 recent_update_keys=tuple(self._recent_update_keys),
                 continue_as_new_after_updates=self._continue_as_new_after_updates,
+                awaiting_custom_notification=self._awaiting_custom_notification,
             )
         )

@@ -59,7 +59,9 @@ spec:
               value: /app/config/bot-content.yaml
             - name: DEATH_PREDICTION_CONFIG_PATH
               value: /app/config/death-prediction.yaml
-            {{- if eq .Values.deathPrediction.config.provider "yandex" }}
+            - name: NOTIFICATION_SCHEDULE_CONFIG_PATH
+              value: /app/config/notification-schedule.yaml
+            {{- if or (eq .Values.deathPrediction.config.provider "yandex") (eq .Values.notificationSchedule.config.provider "yandex") }}
             - name: YANDEX_AI_STUDIO_FOLDER_ID
               value: {{ required "yandexAiStudio.folderId is required" .Values.yandexAiStudio.folderId | quote }}
             - name: YANDEX_AI_STUDIO_API_KEY
@@ -70,7 +72,7 @@ spec:
             - name: YANDEX_AI_STUDIO_ENABLE_SERVER_DATA_LOGGING
               value: {{ .Values.yandexAiStudio.enableServerDataLogging | quote }}
             {{- end }}
-            {{- if eq .Values.deathPrediction.config.provider "openai" }}
+            {{- if or (eq .Values.deathPrediction.config.provider "openai") (eq .Values.notificationSchedule.config.provider "openai") }}
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -141,6 +143,10 @@ spec:
             - name: bot-content
               mountPath: /app/config/death-prediction.yaml
               subPath: death-prediction.yaml
+              readOnly: true
+            - name: bot-content
+              mountPath: /app/config/notification-schedule.yaml
+              subPath: notification-schedule.yaml
               readOnly: true
       volumes:
         - name: bot-content

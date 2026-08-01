@@ -14,14 +14,21 @@ locales:
       english: "🇺🇸 EN"
       updated: Language changed to English.
     notification_settings:
-      prompt: How often should notifications be sent?
+      prompt: "Choose a preset or create your own schedule. Current timezone: {timezone}."
       daily: Daily
       weekly: Weekly
       monthly: Monthly
       never: Never
+      custom: "✨ Custom schedule"
+      custom_prompt: 'Describe when notifications should be sent, including your timezone when relevant. For example: "weekdays at 19:30 Berlin time".'
+      custom_mock: Your custom notification schedule has been updated.
+      custom_invalid: The proposed schedule could not be applied. Please describe it differently and try again.
+      custom_too_frequent: Your desire to remain so close to your own death is commendable, but notifications cannot be sent more than once a day.
+      custom_failed: Something went wrong while configuring notifications. Please try again later.
       updated: "Notifications: {frequency}"
+    llm:
+      limit_exhausted: Your LLM request limit is exhausted.
     prediction:
-      limit_exhausted: Your prediction request limit is exhausted.
       failed: Something went wrong. Please try again later.
       mock: "Mock prediction: {answers}"
     questionnaire:
@@ -46,14 +53,21 @@ locales:
       english: "🇺🇸 EN"
       updated: Язык изменён на русский.
     notification_settings:
-      prompt: Как часто присылать уведомления?
+      prompt: "Выберите готовое расписание или создайте своё. Текущий часовой пояс: {timezone}."
       daily: Ежедневно
       weekly: Еженедельно
       monthly: Ежемесячно
       never: Никогда
+      custom: "✨ Своё расписание"
+      custom_prompt: 'Опишите, когда и как часто присылать уведомления, при необходимости указав часовой пояс. Например: «по будням в 19:30 по московскому времени».'
+      custom_mock: Ваше расписание уведомлений обновлено.
+      custom_invalid: Предложенное расписание не удалось применить. Опишите его иначе и попробуйте ещё раз.
+      custom_too_frequent: Ваше желание находиться рядом с собственной смертью столь часто похвально, но мы не можем присылать уведомления чаще одного раза в сутки.
+      custom_failed: При настройке уведомлений что-то пошло не так. Попробуйте ещё раз позднее.
       updated: "Уведомления: {frequency}"
+    llm:
+      limit_exhausted: Лимит запросов к языковой модели исчерпан.
     prediction:
-      limit_exhausted: Лимит запросов на предсказание исчерпан.
       failed: Что-то пошло не так. Попробуйте ещё раз позднее.
       mock: "Тестовое предсказание: {answers}"
     questionnaire:

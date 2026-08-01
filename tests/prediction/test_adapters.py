@@ -95,7 +95,7 @@ async def test_llm_adapter_delegates_prompt_response_and_provider_metadata() -> 
         predictor.provider_name,
         predictor.consumes_quota,
         actual,
-        "Current date: 2026-07-30" in cast(str, client.events[0][0]),
+        '"current_date": "2026-07-30"' in cast(str, client.events[0][0]),
         client.events[-1],
     ) == (
         "structured-nebula",

@@ -1,4 +1,5 @@
 import asyncio
+from datetime import timedelta
 
 from aiogram import Bot
 from aiogram.types import Update
@@ -25,6 +26,7 @@ from sein_zum_tode.broadcasts.activities import (
 )
 from sein_zum_tode.broadcasts.workflow import TelegramScreamWorkflow
 from sein_zum_tode.config import WorkerSettings
+from sein_zum_tode.infrastructure.completion_config import CompletionProvider
 from sein_zum_tode.infrastructure.openai import (
     AsyncOpenAISdkAdapter,
     OpenAICompletionClient,
@@ -47,6 +49,32 @@ from sein_zum_tode.log_config import configure_logging
 from sein_zum_tode.mortals.activities import MortalActivities
 from sein_zum_tode.mortals.postgres import PostgresMortalRepository
 from sein_zum_tode.notifications.activities import PrepareMortalNotificationActivity
+from sein_zum_tode.notifications.custom_schedule.activities import (
+    ApplyCustomNotificationScheduleActivity,
+    GenerateCustomNotificationScheduleActivity,
+    PrepareCustomNotificationFailureActivity,
+)
+from sein_zum_tode.notifications.custom_schedule.config import (
+    NotificationScheduleConfig,
+    NotificationScheduleConfigurationError,
+    YamlNotificationScheduleConfigLoader,
+)
+from sein_zum_tode.notifications.custom_schedule.llm import (
+    LLMNotificationScheduleInterpreter,
+)
+from sein_zum_tode.notifications.custom_schedule.mock import (
+    MockNotificationScheduleInterpreter,
+)
+from sein_zum_tode.notifications.custom_schedule.models import (
+    NotificationScheduleProposal,
+    StoredNotificationScheduleProposal,
+)
+from sein_zum_tode.notifications.custom_schedule.ports import (
+    NotificationScheduleInterpreter,
+)
+from sein_zum_tode.notifications.custom_schedule.validation import (
+    NotificationScheduleValidator,
+)
 from sein_zum_tode.notifications.settings import ConfigureMortalNotificationsActivity
 from sein_zum_tode.notifications.temporal import TemporalMortalSchedule
 from sein_zum_tode.notifications.workflow import MortalNotificationWorkflow
@@ -58,7 +86,6 @@ from sein_zum_tode.prediction.activities import (
 from sein_zum_tode.prediction.config import (
     DeathPredictionConfig,
     PredictionConfigurationError,
-    PredictionProvider,
     YamlDeathPredictionConfigLoader,
 )
 from sein_zum_tode.prediction.llm import LLMDeathPredictor
@@ -80,12 +107,12 @@ def create_death_predictor(
     content: BotContent,
     settings: WorkerSettings,
 ) -> DeathPredictor:
-    if config.provider == PredictionProvider.MOCK:
+    if config.provider == CompletionProvider.MOCK:
         return MockDeathPredictor(
             config=config.mock,
             content=content,
         )
-    if config.provider == PredictionProvider.OPENAI:
+    if config.provider == CompletionProvider.OPENAI:
         if (
             settings.openai_api_key is None
             or not settings.openai_api_key.get_secret_value()
@@ -149,6 +176,81 @@ def create_death_predictor(
     )
 
 
+def create_notification_schedule_interpreter(
+    *,
+    config: NotificationScheduleConfig,
+    content: BotContent,
+    settings: WorkerSettings,
+) -> NotificationScheduleInterpreter:
+    if config.provider == CompletionProvider.MOCK:
+        return MockNotificationScheduleInterpreter(
+            config=config.mock,
+            content=content,
+        )
+    if config.provider == CompletionProvider.OPENAI:
+        if (
+            settings.openai_api_key is None
+            or not settings.openai_api_key.get_secret_value()
+            or not settings.socks5_proxy_host
+            or not settings.socks5_proxy_username
+            or settings.socks5_proxy_password is None
+            or not settings.socks5_proxy_password.get_secret_value()
+        ):
+            raise NotificationScheduleConfigurationError(
+                "OPENAI_API_KEY and complete SOCKS5 proxy settings are required"
+            )
+        proxy = Socks5Proxy(
+            host=settings.socks5_proxy_host,
+            port=settings.socks5_proxy_port,
+            username=settings.socks5_proxy_username,
+            password=settings.socks5_proxy_password.get_secret_value(),
+        )
+        openai_sdk = AsyncOpenAI(
+            api_key=settings.openai_api_key.get_secret_value(),
+            http_client=DefaultAsyncHttpxClient(proxy=proxy.url()),
+        )
+        return LLMNotificationScheduleInterpreter(
+            client=OpenAICompletionClient(
+                sdk=AsyncOpenAISdkAdapter(openai_sdk),
+                profile=OpenAICompletionProfile(
+                    model=config.openai.model,
+                    reasoning_effort=config.openai.reasoning_effort,
+                    max_output_tokens=config.openai.max_output_tokens,
+                    request_timeout_seconds=config.openai.request_timeout_seconds,
+                    system_prompt=config.system_prompt,
+                ),
+                response_type=NotificationScheduleProposal,
+            )
+        )
+    if (
+        settings.yandex_ai_studio_api_key is None
+        or not settings.yandex_ai_studio_api_key.get_secret_value()
+        or not settings.yandex_ai_studio_folder_id
+    ):
+        raise NotificationScheduleConfigurationError(
+            "YANDEX_AI_STUDIO_API_KEY and YANDEX_AI_STUDIO_FOLDER_ID are required"
+        )
+    yandex_sdk = AsyncAIStudio(
+        folder_id=settings.yandex_ai_studio_folder_id,
+        auth=settings.yandex_ai_studio_api_key.get_secret_value(),
+        enable_server_data_logging=settings.yandex_ai_studio_enable_server_data_logging,
+    )
+    return LLMNotificationScheduleInterpreter(
+        client=YandexAIStudioClient(
+            sdk=yandex_sdk,
+            profile=YandexCompletionProfile(
+                model=config.yandex.model,
+                model_version=config.yandex.model_version,
+                temperature=config.yandex.temperature,
+                max_tokens=config.yandex.max_tokens,
+                request_timeout_seconds=config.yandex.request_timeout_seconds,
+                system_prompt=config.system_prompt,
+            ),
+            response_type=NotificationScheduleProposal,
+        )
+    )
+
+
 async def run(settings: WorkerSettings) -> None:
     stop_event = asyncio.Event()
     install_signal_handlers(stop_event)
@@ -156,8 +258,16 @@ async def run(settings: WorkerSettings) -> None:
     prediction_config = YamlDeathPredictionConfigLoader(
         settings.death_prediction_config_path
     ).load()
+    notification_schedule_config = YamlNotificationScheduleConfigLoader(
+        settings.notification_schedule_config_path
+    ).load()
     predictor = create_death_predictor(
         config=prediction_config,
+        content=content,
+        settings=settings,
+    )
+    schedule_interpreter = create_notification_schedule_interpreter(
+        config=notification_schedule_config,
         content=content,
         settings=settings,
     )
@@ -193,6 +303,11 @@ async def run(settings: WorkerSettings) -> None:
         redis=redis,
         codec=PydanticJsonCodec(model=StoredDeathPrediction),
         document_name="death prediction",
+    )
+    notification_schedule_proposals = RedisJsonDocumentStore(
+        redis=redis,
+        codec=PydanticJsonCodec(model=StoredNotificationScheduleProposal),
+        document_name="notification schedule proposal",
     )
     cleaner = RedisKeyCleaner(redis)
     postgres = PostgresClient.create(
@@ -266,6 +381,31 @@ async def run(settings: WorkerSettings) -> None:
         content=content,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
     )
+    generate_notification_schedule = GenerateCustomNotificationScheduleActivity(
+        interpreter=schedule_interpreter,
+        proposals=notification_schedule_proposals,
+        updates=update_documents,
+        mortals=mortals,
+        default_locale=content.default_locale,
+        ttl_seconds=settings.telegram_update_ttl_seconds,
+    )
+    apply_notification_schedule = ApplyCustomNotificationScheduleActivity(
+        proposals=notification_schedule_proposals,
+        responses=response_documents,
+        mortals=mortals,
+        schedules=schedules,
+        validator=NotificationScheduleValidator(
+            minimum_interval=timedelta(hours=notification_schedule_config.minimum_interval_hours)
+        ),
+        content=content,
+        response_ttl_seconds=settings.telegram_update_ttl_seconds,
+    )
+    prepare_notification_schedule_failure = PrepareCustomNotificationFailureActivity(
+        mortals=mortals,
+        responses=response_documents,
+        content=content,
+        response_ttl_seconds=settings.telegram_update_ttl_seconds,
+    )
     configure_localization = ConfigureMortalLocalizationActivity(
         updates=update_documents,
         responses=response_documents,
@@ -314,6 +454,7 @@ async def run(settings: WorkerSettings) -> None:
             prepare.prepare_about,
             prepare.prepare_localization,
             prepare.prepare_notifications,
+            prepare.prepare_custom_notification,
             prepare.prepare_limit_exhausted,
             prepare.prepare_unsupported,
             prepare.prepare_group_unsupported,
@@ -332,6 +473,9 @@ async def run(settings: WorkerSettings) -> None:
             prepare_notification.prepare,
             configure_localization.configure,
             configure_notifications.configure,
+            generate_notification_schedule.generate,
+            apply_notification_schedule.apply,
+            prepare_notification_schedule_failure.prepare,
             generate_prediction.generate,
             apply_prediction.apply,
             prepare_prediction_failure.prepare,
@@ -342,6 +486,7 @@ async def run(settings: WorkerSettings) -> None:
             await stop_event.wait()
     finally:
         await predictor.close()
+        await schedule_interpreter.close()
         await bot.session.close()
         await redis_connection.aclose()
         await postgres.close()

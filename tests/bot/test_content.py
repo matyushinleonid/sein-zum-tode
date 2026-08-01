@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from sein_zum_tode.bot.content import (
     BotContent,
+    LLMContent,
     LocalizationContent,
     LocalizedBotContent,
     NotificationSettingsContent,
@@ -33,15 +34,21 @@ def localized_content(notification: str = "Days left: {days_left}") -> Localized
             updated="Language changed",
         ),
         notification_settings=NotificationSettingsContent(
-            prompt="Frequency?",
+            prompt="Frequency in {timezone}?",
             daily="Daily",
             weekly="Weekly",
             monthly="Monthly",
             never="Never",
+            custom="✨ Custom",
+            custom_prompt="Describe the schedule",
+            custom_mock="Schedule updated",
+            custom_invalid="Invalid schedule",
+            custom_too_frequent="Schedule too frequent",
+            custom_failed="Schedule failed",
             updated="Notifications: {frequency}",
         ),
+        llm=LLMContent(limit_exhausted="Limit exhausted"),
         prediction=PredictionContent(
-            limit_exhausted="Limit exhausted",
             failed="Failed",
             mock="Mock: {answers}",
         ),
@@ -74,14 +81,21 @@ locales:
       english: "🇺🇸 EN"
       updated: Language changed
     notification_settings:
-      prompt: Frequency?
+      prompt: Frequency in {timezone}?
       daily: Daily
       weekly: Weekly
       monthly: Monthly
       never: Never
+      custom: Custom
+      custom_prompt: Describe the schedule
+      custom_mock: Schedule updated
+      custom_invalid: Invalid schedule
+      custom_too_frequent: Schedule too frequent
+      custom_failed: Schedule failed
       updated: "Notifications: {frequency}"
-    prediction:
+    llm:
       limit_exhausted: Limit exhausted
+    prediction:
       failed: Failed
       mock: "Mock: {answers}"
     questionnaire:
@@ -174,11 +188,31 @@ def test_rejects_invalid_notification_settings_and_mock_templates() -> None:
             weekly="Weekly",
             monthly="Monthly",
             never="Never",
+            custom="✨ Custom",
+            custom_prompt="Describe the schedule",
+            custom_mock="Schedule updated",
+            custom_invalid="Invalid schedule",
+            custom_too_frequent="Schedule too frequent",
+            custom_failed="Schedule failed",
+            updated="Notifications: {frequency}",
+        )
+    with pytest.raises(ValidationError):
+        NotificationSettingsContent(
+            prompt="Frequency in {timezone}?",
+            daily="Daily",
+            weekly="Weekly",
+            monthly="Monthly",
+            never="Never",
+            custom="✨ Custom",
+            custom_prompt="Describe the schedule",
+            custom_mock="Schedule updated",
+            custom_invalid="Invalid schedule",
+            custom_too_frequent="Schedule too frequent",
+            custom_failed="Schedule failed",
             updated="No placeholder",
         )
     with pytest.raises(ValidationError):
         PredictionContent(
-            limit_exhausted="Limit",
             failed="Failed",
             mock="{answers} {locale}",
         )

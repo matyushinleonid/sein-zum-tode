@@ -211,6 +211,29 @@ class PostgresMortalRepository:
             raise MortalRepositoryError(f"Mortal {mortal_id} was not found")
         return mortal
 
+    async def set_notification_settings(
+        self,
+        mortal_id: int,
+        *,
+        cron: str | None,
+        timezone: str,
+    ) -> Mortal:
+        statement = (
+            update(mortals)
+            .where(mortal_id_column == mortal_id)
+            .values(notification_cron=cron, timezone=timezone)
+        )
+        try:
+            await self._postgres.execute(statement)
+            mortal = await self._get(mortal_id)
+        except PostgresClientError as error:
+            raise MortalRepositoryError(
+                f"Failed to set notification schedule for Mortal {mortal_id}"
+            ) from error
+        if mortal is None:
+            raise MortalRepositoryError(f"Mortal {mortal_id} was not found")
+        return mortal
+
     async def set_locale(self, mortal_id: int, locale: str) -> Mortal:
         statement = update(mortals).where(mortal_id_column == mortal_id).values(locale=locale)
         try:

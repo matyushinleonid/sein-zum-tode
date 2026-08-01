@@ -4,6 +4,7 @@ from enum import StrEnum
 MORTAL_NOTIFICATION_WORKFLOW_NAME = "MortalNotificationWorkflow"
 PREPARE_MORTAL_NOTIFICATION_ACTIVITY_NAME = "prepare_mortal_notification"
 CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME = "configure_mortal_notifications"
+CUSTOM_NOTIFICATION_CALLBACK_DATA = "notifications:custom"
 
 
 class NotificationFrequency(StrEnum):
@@ -31,6 +32,10 @@ class NotificationFrequency(StrEnum):
             return cls(value.removeprefix("notifications:"))
         except ValueError:
             return None
+
+
+def is_custom_notification_callback(value: str | None) -> bool:
+    return value == CUSTOM_NOTIFICATION_CALLBACK_DATA
 
 
 @dataclass(frozen=True, slots=True)
