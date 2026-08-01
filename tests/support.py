@@ -10,6 +10,7 @@ from temporalio.common import WorkflowIDConflictPolicy
 
 from sein_zum_tode.bot.content import (
     BotContent,
+    LLMContent,
     LocalizationContent,
     LocalizedBotContent,
     NotificationSettingsContent,
@@ -66,15 +67,21 @@ class BotContents:
                         updated="Language changed to English.",
                     ),
                     notification_settings=NotificationSettingsContent(
-                        prompt="Choose a notification frequency",
+                        prompt="Choose a notification frequency ({timezone})",
                         daily="Daily",
                         weekly="Weekly",
                         monthly="Monthly",
                         never="Never",
+                        custom="✨ Custom schedule",
+                        custom_prompt="Describe a custom notification schedule",
+                        custom_mock="Custom notification schedule updated",
+                        custom_invalid="Custom notification schedule is invalid",
+                        custom_too_frequent="Notifications cannot be sent more than daily",
+                        custom_failed="Custom notification schedule failed",
                         updated="Notifications: {frequency}",
                     ),
+                    llm=LLMContent(limit_exhausted="LLM request limit exhausted"),
                     prediction=PredictionContent(
-                        limit_exhausted="Prediction limit exhausted",
                         failed="Prediction failed",
                         mock="Mock prediction: {answers}",
                     ),
@@ -105,15 +112,21 @@ class BotContents:
                         updated="Язык изменён на русский.",
                     ),
                     notification_settings=NotificationSettingsContent(
-                        prompt="Выберите частоту уведомлений",
+                        prompt="Выберите частоту уведомлений ({timezone})",
                         daily="Ежедневно",
                         weekly="Еженедельно",
                         monthly="Ежемесячно",
                         never="Никогда",
+                        custom="✨ Своё расписание",
+                        custom_prompt="Опишите своё расписание уведомлений",
+                        custom_mock="Расписание уведомлений обновлено",
+                        custom_invalid="Расписание уведомлений некорректно",
+                        custom_too_frequent="Уведомления нельзя присылать чаще раза в день",
+                        custom_failed="Не удалось настроить расписание уведомлений",
                         updated="Уведомления: {frequency}",
                     ),
+                    llm=LLMContent(limit_exhausted="Лимит LLM-запросов исчерпан"),
                     prediction=PredictionContent(
-                        limit_exhausted="Лимит предсказаний исчерпан",
                         failed="Ошибка предсказания",
                         mock="Тестовое предсказание: {answers}",
                     ),
@@ -755,6 +768,20 @@ class MortalMemory:
         self.events.append(("set_notification_cron", mortal_id, cron))
         mortal = self.mortals.get(mortal_id, Mortal(id=mortal_id)).model_copy(
             update={"notification_cron": cron}
+        )
+        self.mortals[mortal_id] = mortal
+        return mortal
+
+    async def set_notification_settings(
+        self,
+        mortal_id: int,
+        *,
+        cron: str | None,
+        timezone: str,
+    ) -> Mortal:
+        self.events.append(("set_notification_settings", mortal_id, cron, timezone))
+        mortal = self.mortals.get(mortal_id, Mortal(id=mortal_id)).model_copy(
+            update={"notification_cron": cron, "timezone": timezone}
         )
         self.mortals[mortal_id] = mortal
         return mortal

@@ -2,9 +2,9 @@ from pathlib import Path
 
 import pytest
 
+from sein_zum_tode.infrastructure.completion_config import CompletionProvider
 from sein_zum_tode.prediction.config import (
     PredictionConfigurationError,
-    PredictionProvider,
     YamlDeathPredictionConfigLoader,
 )
 
@@ -45,7 +45,7 @@ openai:
         actual.openai.reasoning_effort,
         actual.system_prompt,
     ) == (
-        PredictionProvider.YANDEX,
+        CompletionProvider.YANDEX,
         17,
         "yandexgpt",
         777,

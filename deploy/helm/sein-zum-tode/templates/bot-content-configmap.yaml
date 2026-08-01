@@ -10,3 +10,5 @@ data:
     {{- toYaml .Values.botContent | nindent 4 }}
   death-prediction.yaml: |
     {{- toYaml .Values.deathPrediction.config | nindent 4 }}
+  notification-schedule.yaml: |
+    {{- toYaml .Values.notificationSchedule.config | nindent 4 }}

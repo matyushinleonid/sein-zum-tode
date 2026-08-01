@@ -8,15 +8,26 @@ from pydantic import SecretStr
 
 import sein_zum_tode.main as ingress_module
 import sein_zum_tode.worker as worker_module
+from sein_zum_tode.infrastructure.completion_config import (
+    CompletionProvider,
+    OpenAICompletionConfig,
+    YandexCompletionConfig,
+)
 from sein_zum_tode.infrastructure.openai import OpenAICompletionProfile
 from sein_zum_tode.infrastructure.yandex_ai import YandexCompletionProfile
+from sein_zum_tode.notifications.custom_schedule.config import (
+    MockNotificationScheduleConfig,
+    NotificationScheduleConfig,
+    NotificationScheduleConfigurationError,
+)
+from sein_zum_tode.notifications.custom_schedule.models import (
+    CronOperation,
+    TimezoneOperation,
+)
 from sein_zum_tode.prediction.config import (
     DeathPredictionConfig,
     MockPredictionConfig,
-    OpenAIPredictionConfig,
     PredictionConfigurationError,
-    PredictionProvider,
-    YandexPredictionConfig,
 )
 from tests.assembly import (
     EntrypointAssembly,
@@ -31,19 +42,44 @@ pytestmark = pytest.mark.fast
 
 def yandex_prediction_config() -> DeathPredictionConfig:
     return DeathPredictionConfig(
-        provider=PredictionProvider.YANDEX,
+        provider=CompletionProvider.YANDEX,
         system_prompt="Return structured data",
         mock=MockPredictionConfig(days_left=17),
-        yandex=YandexPredictionConfig(
+        yandex=YandexCompletionConfig(
             model="yandexgpt",
             model_version="rc",
         ),
-        openai=OpenAIPredictionConfig(model="gpt-5.6-sol"),
+        openai=OpenAICompletionConfig(model="gpt-5.6-sol"),
     )
 
 
 def openai_prediction_config() -> DeathPredictionConfig:
-    return yandex_prediction_config().model_copy(update={"provider": PredictionProvider.OPENAI})
+    return yandex_prediction_config().model_copy(update={"provider": CompletionProvider.OPENAI})
+
+
+def notification_schedule_config(
+    provider: CompletionProvider,
+) -> NotificationScheduleConfig:
+    return NotificationScheduleConfig(
+        provider=provider,
+        minimum_interval_hours=20,
+        system_prompt="Return a localized structured schedule",
+        mock=MockNotificationScheduleConfig(
+            cron_operation=CronOperation.SET,
+            cron_expression="0 12 * * *",
+            timezone_operation=TimezoneOperation.KEEP,
+            timezone=None,
+        ),
+        yandex=YandexCompletionConfig(
+            model="aliceai-llm",
+            model_version="latest",
+            max_tokens=701,
+        ),
+        openai=OpenAICompletionConfig(
+            model="gpt-5.6-sol",
+            max_output_tokens=709,
+        ),
+    )
 
 
 async def test_assembles_and_closes_the_ingress_process(
@@ -102,7 +138,13 @@ async def test_assembles_and_closes_the_temporal_worker(
         ("content.load",),
         ("prediction_config_loader", Path("config/death-prediction.yaml")),
         ("prediction_config.load",),
+        (
+            "notification_schedule_config_loader",
+            Path("config/notification-schedule.yaml"),
+        ),
+        ("notification_schedule_config.load",),
         ("predictor", True, True),
+        ("schedule_interpreter", True, True),
         ("bot", "181:irregular-token"),
         (
             "redis",
@@ -127,6 +169,13 @@ async def test_assembles_and_closes_the_temporal_worker(
         ("documents", "Telegram questionnaire", True, "QuestionnaireState"),
         ("codec", "StoredDeathPrediction"),
         ("documents", "death prediction", True, "StoredDeathPrediction"),
+        ("codec", "StoredNotificationScheduleProposal"),
+        (
+            "documents",
+            "notification schedule proposal",
+            True,
+            "StoredNotificationScheduleProposal",
+        ),
         ("cleaner", True),
         (
             "postgres",
@@ -169,6 +218,33 @@ async def test_assembles_and_closes_the_temporal_worker(
                 "content",
                 "response_ttl_seconds",
             ),
+        ),
+        (
+            "generate_notification_schedule",
+            (
+                "interpreter",
+                "proposals",
+                "updates",
+                "mortals",
+                "default_locale",
+                "ttl_seconds",
+            ),
+        ),
+        (
+            "apply_notification_schedule",
+            (
+                "proposals",
+                "responses",
+                "mortals",
+                "schedules",
+                "validator",
+                "content",
+                "response_ttl_seconds",
+            ),
+        ),
+        (
+            "notification_schedule_failure",
+            ("mortals", "responses", "content", "response_ttl_seconds"),
         ),
         (
             "configure_localization",
@@ -215,6 +291,7 @@ async def test_assembles_and_closes_the_temporal_worker(
                 "activity:prepare_about",
                 "activity:prepare_localization",
                 "activity:prepare_notifications",
+                "activity:prepare_custom_notification",
                 "activity:prepare_limit_exhausted",
                 "activity:prepare_unsupported",
                 "activity:prepare_group_unsupported",
@@ -236,11 +313,15 @@ async def test_assembles_and_closes_the_temporal_worker(
                 "activity:generate",
                 "activity:apply",
                 "activity:prepare",
+                "activity:generate",
+                "activity:apply",
+                "activity:prepare",
             ),
         ),
         ("worker.enter",),
         ("worker.exit", None),
         ("predictor.close",),
+        ("schedule_interpreter.close",),
         ("bot.close",),
         ("redis.close",),
         ("postgres.close",),
@@ -437,6 +518,145 @@ def test_rejects_openai_provider_without_complete_proxy_credentials(
             config=openai_prediction_config(),
             content=BotContents.debug(),
             settings=settings,
+        )
+
+
+def test_builds_a_yandex_notification_schedule_interpreter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[str, object]] = []
+    sdk = object()
+    completion = object()
+    interpreter = object()
+
+    def create_sdk(**options: object) -> object:
+        events.append(("sdk", options))
+        return sdk
+
+    def create_completion(**options: object) -> object:
+        events.append(("completion", options))
+        return completion
+
+    def create_interpreter(**options: object) -> object:
+        events.append(("interpreter", options))
+        return interpreter
+
+    monkeypatch.setattr(worker_module, "AsyncAIStudio", create_sdk)
+    monkeypatch.setattr(worker_module, "YandexAIStudioClient", create_completion)
+    monkeypatch.setattr(
+        worker_module,
+        "LLMNotificationScheduleInterpreter",
+        create_interpreter,
+    )
+    settings = explicit_settings().model_copy(
+        update={
+            "yandex_ai_studio_api_key": SecretStr("schedule-key-4211"),
+            "yandex_ai_studio_folder_id": "schedule-folder-4217",
+        }
+    )
+
+    actual = worker_module.create_notification_schedule_interpreter(
+        config=notification_schedule_config(CompletionProvider.YANDEX),
+        content=BotContents.debug(),
+        settings=settings,
+    )
+
+    completion_options = cast(dict[str, object], events[1][1])
+    assert (
+        actual is interpreter,
+        completion_options["sdk"] is sdk,
+        cast(type[object], completion_options["response_type"]).__name__,
+        cast(dict[str, object], events[2][1])["client"] is completion,
+    ) == (
+        True,
+        True,
+        "NotificationScheduleProposal",
+        True,
+    )
+
+
+def test_builds_an_openai_notification_schedule_interpreter_through_socks5(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[str, object]] = []
+    http = object()
+    sdk = object()
+    adapter = object()
+    completion = object()
+    interpreter = object()
+
+    def create_http(**options: object) -> object:
+        events.append(("http", options))
+        return http
+
+    def create_sdk(**options: object) -> object:
+        events.append(("sdk", options))
+        return sdk
+
+    def create_adapter(current: object) -> object:
+        events.append(("adapter", current))
+        return adapter
+
+    def create_completion(**options: object) -> object:
+        events.append(("completion", options))
+        return completion
+
+    def create_interpreter(**options: object) -> object:
+        events.append(("interpreter", options))
+        return interpreter
+
+    monkeypatch.setattr(worker_module, "DefaultAsyncHttpxClient", create_http)
+    monkeypatch.setattr(worker_module, "AsyncOpenAI", create_sdk)
+    monkeypatch.setattr(worker_module, "AsyncOpenAISdkAdapter", create_adapter)
+    monkeypatch.setattr(worker_module, "OpenAICompletionClient", create_completion)
+    monkeypatch.setattr(
+        worker_module,
+        "LLMNotificationScheduleInterpreter",
+        create_interpreter,
+    )
+    settings = explicit_settings().model_copy(
+        update={
+            "openai_api_key": SecretStr("schedule-openai-4229"),
+            "socks5_proxy_password": SecretStr("schedule-proxy-4231"),
+        }
+    )
+
+    actual = worker_module.create_notification_schedule_interpreter(
+        config=notification_schedule_config(CompletionProvider.OPENAI),
+        content=BotContents.debug(),
+        settings=settings,
+    )
+
+    completion_options = cast(dict[str, object], events[3][1])
+    assert (
+        actual is interpreter,
+        cast(dict[str, object], events[1][1])["http_client"] is http,
+        events[2] == ("adapter", sdk),
+        completion_options["sdk"] is adapter,
+        cast(type[object], completion_options["response_type"]).__name__,
+        cast(dict[str, object], events[4][1])["client"] is completion,
+    ) == (
+        True,
+        True,
+        True,
+        True,
+        "NotificationScheduleProposal",
+        True,
+    )
+
+
+@pytest.mark.parametrize(
+    "provider",
+    [CompletionProvider.YANDEX, CompletionProvider.OPENAI],
+)
+def test_rejects_external_schedule_interpreters_without_credentials(
+    provider: CompletionProvider,
+) -> None:
+    with pytest.raises(NotificationScheduleConfigurationError):
+        worker_module.create_notification_schedule_interpreter(
+            config=notification_schedule_config(provider),
+            content=BotContents.debug(),
+            settings=explicit_settings(),
         )
 
 

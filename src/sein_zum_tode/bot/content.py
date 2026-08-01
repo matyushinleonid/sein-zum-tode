@@ -42,18 +42,34 @@ class NotificationSettingsContent(BaseModel):
     weekly: str = Field(min_length=1, max_length=64)
     monthly: str = Field(min_length=1, max_length=64)
     never: str = Field(min_length=1, max_length=64)
+    custom: str = Field(min_length=1, max_length=64)
+    custom_prompt: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    custom_mock: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    custom_invalid: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    custom_too_frequent: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    custom_failed: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     updated: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
 
     @model_validator(mode="after")
-    def validate_updated_template(self) -> Self:
-        fields = {
+    def validate_templates(self) -> Self:
+        prompt_fields = {
+            field_name
+            for _, field_name, _, _ in Formatter().parse(self.prompt)
+            if field_name is not None
+        }
+        updated_fields = {
             field_name
             for _, field_name, _, _ in Formatter().parse(self.updated)
             if field_name is not None
         }
-        if fields != {"frequency"}:
+        if prompt_fields != {"timezone"}:
+            raise ValueError("notification settings prompt must contain {timezone}")
+        if updated_fields != {"frequency"}:
             raise ValueError("notification settings updated must contain {frequency}")
         return self
+
+    def prompt_text(self, timezone: str) -> str:
+        return self.prompt.format(timezone=timezone)
 
     def updated_text(self, frequency: str) -> str:
         return self.updated.format(frequency=frequency)
@@ -71,7 +87,6 @@ class LocalizationContent(BaseModel):
 class PredictionContent(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    limit_exhausted: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     failed: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     mock: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
 
@@ -90,6 +105,12 @@ class PredictionContent(BaseModel):
         return self.mock.format(answers=answers)
 
 
+class LLMContent(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    limit_exhausted: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+
+
 class LocalizedBotContent(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -101,6 +122,7 @@ class LocalizedBotContent(BaseModel):
     notification: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     localization: LocalizationContent
     notification_settings: NotificationSettingsContent
+    llm: LLMContent
     prediction: PredictionContent
     questionnaire: QuestionnaireContent
 

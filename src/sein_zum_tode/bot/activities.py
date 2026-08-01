@@ -16,6 +16,7 @@ from sein_zum_tode.bot.models import (
     DELIVER_RESPONSE_ACTIVITY_NAME,
     INSPECT_UPDATE_ACTIVITY_NAME,
     PREPARE_ABOUT_ACTIVITY_NAME,
+    PREPARE_CUSTOM_NOTIFICATION_ACTIVITY_NAME,
     PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
     PREPARE_HELP_ACTIVITY_NAME,
     PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
@@ -38,8 +39,13 @@ from sein_zum_tode.bot.ports import (
 )
 from sein_zum_tode.broadcasts.models import ScreamRequest
 from sein_zum_tode.localization.models import SupportedLocale
+from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.mortals.ports import MortalRepository
-from sein_zum_tode.notifications.models import NotificationFrequency
+from sein_zum_tode.notifications.models import (
+    CUSTOM_NOTIFICATION_CALLBACK_DATA,
+    NotificationFrequency,
+    is_custom_notification_callback,
+)
 from sein_zum_tode.observability import LogContext
 from sein_zum_tode.ports.documents import DocumentReader, DocumentWriter
 
@@ -117,9 +123,13 @@ class InspectTelegramUpdateActivity:
                     InspectionKind.LOCALIZATION_SELECTION
                     if locale is not None
                     else (
-                        InspectionKind.NOTIFICATION_SELECTION
-                        if frequency is not None
-                        else InspectionKind.UNSUPPORTED
+                        InspectionKind.CUSTOM_NOTIFICATION_SELECTION
+                        if is_custom_notification_callback(callback.data)
+                        else (
+                            InspectionKind.NOTIFICATION_SELECTION
+                            if frequency is not None
+                            else InspectionKind.UNSUPPORTED
+                        )
                     )
                 ),
                 update_key=input.update_key,
@@ -284,7 +294,8 @@ class PrepareTelegramResponseActivities:
 
     @activity.defn(name=PREPARE_NOTIFICATIONS_ACTIVITY_NAME)
     async def prepare_notifications(self, input: PrepareResponseInput) -> None:
-        localized = await self._localized(input.user_id)
+        mortal = await self._mortal(input.user_id)
+        localized = self._content.localized(mortal.locale)
         settings = localized.notification_settings
         keyboard = (
             (
@@ -307,9 +318,28 @@ class PrepareTelegramResponseActivities:
                     callback_data=NotificationFrequency.NEVER.callback_data(),
                 ),
             ),
+            (
+                TelegramButton(
+                    text=settings.custom,
+                    callback_data=CUSTOM_NOTIFICATION_CALLBACK_DATA,
+                ),
+            ),
         )
-        await self._store(input, settings.prompt, keyboard=keyboard)
+        await self._store(
+            input,
+            settings.prompt_text(mortal.timezone),
+            keyboard=keyboard,
+        )
         self._log_prepared(input, InspectionKind.NOTIFICATIONS)
+
+    @activity.defn(name=PREPARE_CUSTOM_NOTIFICATION_ACTIVITY_NAME)
+    async def prepare_custom_notification(self, input: PrepareResponseInput) -> None:
+        localized = await self._localized(input.user_id)
+        await self._store(
+            input,
+            localized.notification_settings.custom_prompt,
+        )
+        self._log_prepared(input, InspectionKind.CUSTOM_NOTIFICATION_SELECTION)
 
     @activity.defn(name=PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME)
     async def prepare_limit_exhausted(self, input: PrepareResponseInput) -> None:
@@ -317,7 +347,7 @@ class PrepareTelegramResponseActivities:
         await self._prepare_static(
             input,
             InspectionKind.LIMIT_EXHAUSTED,
-            localized.prediction.limit_exhausted,
+            localized.llm.limit_exhausted,
         )
 
     @activity.defn(name=PREPARE_UNSUPPORTED_ACTIVITY_NAME)
@@ -386,6 +416,16 @@ class PrepareTelegramResponseActivities:
             else self._content.default_locale
         )
         return self._content.localized(locale)
+
+    async def _mortal(self, user_id: int | None) -> Mortal:
+        mortal = await self._mortals.get(user_id) if user_id is not None else None
+        if mortal is None:
+            raise ApplicationError(
+                "Mortal was not found",
+                type="MortalNotFound",
+                non_retryable=True,
+            )
+        return mortal
 
     def _log_prepared(
         self,

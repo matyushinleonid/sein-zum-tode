@@ -78,13 +78,14 @@ def mortal_row(
     locale: str | None = None,
     death_date: date | None = None,
     notification_cron: str | None = "0 9 * * *",
+    timezone: str = "Europe/Moscow",
     llm_requests_remaining: int = 50,
     telegram_unreachable_at: datetime | None = None,
 ) -> Mapping[str, Any]:
     return {
         "id": mortal_id,
         "locale": locale,
-        "timezone": "Europe/Moscow",
+        "timezone": timezone,
         "notification_cron": notification_cron,
         "death_date": death_date,
         "telegram_unreachable_at": telegram_unreachable_at,
@@ -270,6 +271,38 @@ async def test_updates_notification_cron_and_reads_the_mortal_back() -> None:
     )
 
 
+async def test_atomically_updates_notification_cron_and_timezone() -> None:
+    client = PostgresStatementClientDouble(
+        fetch_outcomes=[
+            mortal_row(
+                mortal_id=320_022,
+                notification_cron="30 19 * * 1-5",
+                timezone="Europe/Berlin",
+            )
+        ]
+    )
+
+    actual = await client.repository().set_notification_settings(
+        320_022,
+        cron="30 19 * * 1-5",
+        timezone="Europe/Berlin",
+    )
+
+    assert (
+        actual.notification_cron,
+        actual.timezone,
+        parameters(client.events[0][1]),
+    ) == (
+        "30 19 * * 1-5",
+        "Europe/Berlin",
+        {
+            "notification_cron": "30 19 * * 1-5",
+            "timezone": "Europe/Berlin",
+            "id_1": 320_022,
+        },
+    ), "custom notification preferences were not updated in one statement"
+
+
 async def test_updates_locale_and_reads_the_mortal_back() -> None:
     client = PostgresStatementClientDouble(
         fetch_outcomes=[mortal_row(mortal_id=320_022, locale="ru")]
@@ -353,6 +386,7 @@ async def test_rejects_a_new_request_after_quota_exhaustion() -> None:
         "mark_unreachable",
         "set_death_date",
         "set_notification_cron",
+        "set_notification_settings",
         "set_locale",
         "consume_llm_request",
     ],
@@ -380,6 +414,12 @@ async def test_translates_postgres_failures(operation: str) -> None:
             await repository.set_death_date(320_027, date(2100, 1, 1))
         elif operation == "set_notification_cron":
             await repository.set_notification_cron(320_027, None)
+        elif operation == "set_notification_settings":
+            await repository.set_notification_settings(
+                320_027,
+                cron="0 12 * * *",
+                timezone="Europe/Berlin",
+            )
         elif operation == "set_locale":
             await repository.set_locale(320_027, "ru")
         else:
@@ -388,7 +428,13 @@ async def test_translates_postgres_failures(operation: str) -> None:
 
 @pytest.mark.parametrize(
     "operation",
-    ["ensure", "set_death_date", "set_notification_cron", "set_locale"],
+    [
+        "ensure",
+        "set_death_date",
+        "set_notification_cron",
+        "set_notification_settings",
+        "set_locale",
+    ],
 )
 async def test_rejects_a_write_that_cannot_be_read_back(operation: str) -> None:
     client = PostgresStatementClientDouble(fetch_outcomes=[None])
@@ -401,6 +447,12 @@ async def test_rejects_a_write_that_cannot_be_read_back(operation: str) -> None:
             await repository.set_death_date(320_039, date(2100, 1, 1))
         elif operation == "set_notification_cron":
             await repository.set_notification_cron(320_039, None)
+        elif operation == "set_notification_settings":
+            await repository.set_notification_settings(
+                320_039,
+                cron="0 12 * * *",
+                timezone="Europe/Berlin",
+            )
         else:
             await repository.set_locale(320_039, "ru")
 

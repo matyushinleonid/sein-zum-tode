@@ -82,6 +82,14 @@ class PredictorResource:
         self.events.append(("predictor.close",))
 
 
+class ScheduleInterpreterResource:
+    def __init__(self, events: list[tuple[object, ...]]) -> None:
+        self.events = events
+
+    async def close(self) -> None:
+        self.events.append(("schedule_interpreter.close",))
+
+
 class PollerResource:
     def __init__(self, events: list[tuple[object, ...]]) -> None:
         self.events = events
@@ -236,6 +244,8 @@ class ActivityDefinitions:
 
 
 class ContentResource:
+    default_locale = "en"
+
     def default(self) -> object:
         return SimpleNamespace(help="Chart the irregular constellations")
 
@@ -264,6 +274,16 @@ class PredictionConfigLoaderResource:
         return self.config
 
 
+class NotificationScheduleConfigLoaderResource:
+    def __init__(self, events: list[tuple[object, ...]], config: object) -> None:
+        self.events = events
+        self.config = config
+
+    def load(self) -> object:
+        self.events.append(("notification_schedule_config.load",))
+        return self.config
+
+
 class WorkerAssembly:
     def __init__(self) -> None:
         self.events: list[tuple[object, ...]] = []
@@ -276,6 +296,7 @@ class WorkerAssembly:
         self.response_documents = object()
         self.questionnaires = object()
         self.predictions = object()
+        self.notification_schedule_proposals = object()
         self.cleaner = object()
         self.mortals = object()
         self.schedules = object()
@@ -289,6 +310,15 @@ class WorkerAssembly:
             openai=object(),
         )
         self.predictor = PredictorResource(self.events)
+        self.notification_schedule_config = SimpleNamespace(
+            provider="mock",
+            minimum_interval_hours=20,
+            system_prompt="Interpret schedule",
+            mock=object(),
+            yandex=object(),
+            openai=object(),
+        )
+        self.schedule_interpreter = ScheduleInterpreterResource(self.events)
 
     def install(self, monkeypatch: Any, module: Any) -> None:
         monkeypatch.setattr(module, "Bot", self.create_bot)
@@ -309,10 +339,20 @@ class WorkerAssembly:
             "YamlDeathPredictionConfigLoader",
             self.create_prediction_config_loader,
         )
+        monkeypatch.setattr(
+            module,
+            "YamlNotificationScheduleConfigLoader",
+            self.create_notification_schedule_config_loader,
+        )
         monkeypatch.setattr(module, "PostgresMortalRepository", self.create_mortals)
         monkeypatch.setattr(module, "TemporalMortalSchedule", self.create_schedules)
         monkeypatch.setattr(module, "AiogramTelegramMessageSender", self.create_sender)
         monkeypatch.setattr(module, "MockDeathPredictor", self.create_predictor)
+        monkeypatch.setattr(
+            module,
+            "MockNotificationScheduleInterpreter",
+            self.create_schedule_interpreter,
+        )
         monkeypatch.setattr(module, "InspectTelegramUpdateActivity", self.create_inspect)
         monkeypatch.setattr(module, "PrepareTelegramResponseActivities", self.create_prepare)
         monkeypatch.setattr(
@@ -369,6 +409,21 @@ class WorkerAssembly:
             "PreparePredictionFailureActivity",
             self.create_prediction_failure,
         )
+        monkeypatch.setattr(
+            module,
+            "GenerateCustomNotificationScheduleActivity",
+            self.create_generate_notification_schedule,
+        )
+        monkeypatch.setattr(
+            module,
+            "ApplyCustomNotificationScheduleActivity",
+            self.create_apply_notification_schedule,
+        )
+        monkeypatch.setattr(
+            module,
+            "PrepareCustomNotificationFailureActivity",
+            self.create_notification_schedule_failure,
+        )
         monkeypatch.setattr(module, "Worker", self.create_worker)
         monkeypatch.setattr(module, "install_signal_handlers", self.install_signals)
 
@@ -403,6 +458,16 @@ class WorkerAssembly:
         self.events.append(("prediction_config_loader", path))
         return PredictionConfigLoaderResource(self.events, self.prediction_config)
 
+    def create_notification_schedule_config_loader(
+        self,
+        path: Path,
+    ) -> NotificationScheduleConfigLoaderResource:
+        self.events.append(("notification_schedule_config_loader", path))
+        return NotificationScheduleConfigLoaderResource(
+            self.events,
+            self.notification_schedule_config,
+        )
+
     def create_codec(self, **options: object) -> object:
         model = cast(type[object], options["model"])
         name = model.__name__
@@ -417,6 +482,7 @@ class WorkerAssembly:
             "Telegram response": self.response_documents,
             "Telegram questionnaire": self.questionnaires,
             "death prediction": self.predictions,
+            "notification schedule proposal": self.notification_schedule_proposals,
         }[name]
         self.events.append(
             (
@@ -462,6 +528,16 @@ class WorkerAssembly:
         )
         return self.predictor
 
+    def create_schedule_interpreter(self, **options: object) -> object:
+        self.events.append(
+            (
+                "schedule_interpreter",
+                options["config"] is self.notification_schedule_config.mock,
+                options["content"] is self.content,
+            )
+        )
+        return self.schedule_interpreter
+
     def create_inspect(self, **options: object) -> ActivityDefinitions:
         self.events.append(
             (
@@ -488,6 +564,7 @@ class WorkerAssembly:
                 "prepare_about",
                 "prepare_localization",
                 "prepare_notifications",
+                "prepare_custom_notification",
                 "prepare_limit_exhausted",
                 "prepare_unsupported",
                 "prepare_group_unsupported",
@@ -596,6 +673,27 @@ class WorkerAssembly:
 
     def create_prediction_failure(self, **options: object) -> ActivityDefinitions:
         self.events.append(("prediction_failure", tuple(options)))
+        return ActivityDefinitions(("prepare",))
+
+    def create_generate_notification_schedule(
+        self,
+        **options: object,
+    ) -> ActivityDefinitions:
+        self.events.append(("generate_notification_schedule", tuple(options)))
+        return ActivityDefinitions(("generate",))
+
+    def create_apply_notification_schedule(
+        self,
+        **options: object,
+    ) -> ActivityDefinitions:
+        self.events.append(("apply_notification_schedule", tuple(options)))
+        return ActivityDefinitions(("apply",))
+
+    def create_notification_schedule_failure(
+        self,
+        **options: object,
+    ) -> ActivityDefinitions:
+        self.events.append(("notification_schedule_failure", tuple(options)))
         return ActivityDefinitions(("prepare",))
 
     def create_worker(

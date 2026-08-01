@@ -50,7 +50,7 @@ class MortalActivities:
     @activity.defn(name=CHECK_MORTAL_QUOTA_ACTIVITY_NAME)
     async def has_quota(self, input: MortalActivityInput) -> bool:
         mortal = await self._mortals.get(input.mortal_id)
-        return mortal is not None and mortal.can_request_prediction()
+        return mortal is not None and mortal.can_request_llm()
 
     @activity.defn(name=MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME)
     async def mark_unreachable(self, input: MortalActivityInput) -> None:

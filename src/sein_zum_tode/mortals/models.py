@@ -45,5 +45,5 @@ class Mortal(BaseModel):
             raise ValueError("now must include timezone information")
         return now.astimezone(ZoneInfo(self.timezone)).date()
 
-    def can_request_prediction(self) -> bool:
+    def can_request_llm(self) -> bool:
         return self.llm_requests_remaining > 0

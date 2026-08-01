@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     questionnaire_ttl_seconds: int = Field(default=3600, ge=1)
     bot_content_path: Path = Path("config/bot-content.yaml")
     death_prediction_config_path: Path = Path("config/death-prediction.yaml")
+    notification_schedule_config_path: Path = Path("config/notification-schedule.yaml")
 
     retry_initial_delay_seconds: float = Field(default=1.0, gt=0)
     retry_max_delay_seconds: float = Field(default=30.0, gt=0)

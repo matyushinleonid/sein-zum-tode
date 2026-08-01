@@ -1,16 +1,14 @@
-from enum import StrEnum
 from pathlib import Path
-from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from yaml import YAMLError
 
-
-class PredictionProvider(StrEnum):
-    MOCK = "mock"
-    YANDEX = "yandex"
-    OPENAI = "openai"
+from sein_zum_tode.infrastructure.completion_config import (
+    CompletionProvider,
+    OpenAICompletionConfig,
+    YandexCompletionConfig,
+)
 
 
 class MockPredictionConfig(BaseModel):
@@ -19,41 +17,14 @@ class MockPredictionConfig(BaseModel):
     days_left: int = Field(ge=0)
 
 
-class YandexPredictionConfig(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    model: str = Field(min_length=1)
-    model_version: str = Field(min_length=1)
-    temperature: float = Field(default=0.3, ge=0, le=1)
-    max_tokens: int = Field(default=1000, ge=1)
-    request_timeout_seconds: int = Field(default=180, ge=1)
-
-
-class OpenAIPredictionConfig(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    model: str = Field(min_length=1)
-    reasoning_effort: Literal[
-        "none",
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max",
-    ] = "medium"
-    max_output_tokens: int = Field(default=1000, ge=1)
-    request_timeout_seconds: int = Field(default=180, ge=1)
-
-
 class DeathPredictionConfig(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    provider: PredictionProvider
+    provider: CompletionProvider
     system_prompt: str = Field(min_length=1)
     mock: MockPredictionConfig
-    yandex: YandexPredictionConfig
-    openai: OpenAIPredictionConfig
+    yandex: YandexCompletionConfig
+    openai: OpenAICompletionConfig
 
 
 class PredictionConfigurationError(Exception):
