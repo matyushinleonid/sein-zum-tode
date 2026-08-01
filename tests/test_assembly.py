@@ -17,6 +17,7 @@ from sein_zum_tode.infrastructure.openai import OpenAICompletionProfile
 from sein_zum_tode.infrastructure.yandex_ai import YandexCompletionProfile
 from sein_zum_tode.notifications.custom_schedule.config import (
     MockNotificationScheduleConfig,
+    NotificationPresets,
     NotificationScheduleConfig,
     NotificationScheduleConfigurationError,
 )
@@ -24,6 +25,7 @@ from sein_zum_tode.notifications.custom_schedule.models import (
     CronOperation,
     TimezoneOperation,
 )
+from sein_zum_tode.notifications.models import NotificationFrequency
 from sein_zum_tode.prediction.config import (
     DeathPredictionConfig,
     MockPredictionConfig,
@@ -61,6 +63,14 @@ def notification_schedule_config(
     provider: CompletionProvider,
 ) -> NotificationScheduleConfig:
     return NotificationScheduleConfig(
+        default_timezone="Europe/Moscow",
+        default_frequency=NotificationFrequency.DAILY,
+        presets=NotificationPresets(
+            daily="0 9 * * *",
+            weekly="0 9 * * 1",
+            monthly="0 9 1 * *",
+            never=None,
+        ),
         provider=provider,
         minimum_interval_hours=20,
         system_prompt="Return a localized structured schedule",
@@ -189,7 +199,7 @@ async def test_assembles_and_closes_the_temporal_worker(
                 "pgbouncer": True,
             },
         ),
-        ("mortals", True),
+        ("mortals", True, "Asia/Tokyo", "17 8 * * *"),
         (
             "schedules",
             True,
@@ -216,6 +226,7 @@ async def test_assembles_and_closes_the_temporal_worker(
                 "mortals",
                 "schedules",
                 "content",
+                "presets",
                 "response_ttl_seconds",
             ),
         ),
@@ -617,6 +628,9 @@ def test_builds_an_openai_notification_schedule_interpreter_through_socks5(
     settings = explicit_settings().model_copy(
         update={
             "openai_api_key": SecretStr("schedule-openai-4229"),
+            "socks5_proxy_host": "proxy-schedule.internal",
+            "socks5_proxy_port": 4227,
+            "socks5_proxy_username": "mortal-schedule-4228",
             "socks5_proxy_password": SecretStr("schedule-proxy-4231"),
         }
     )

@@ -37,6 +37,9 @@ from sein_zum_tode.bot.ports import (
     EphemeralPayloadCleaner,
     TelegramMessageSender,
 )
+from sein_zum_tode.bot.temporal_errors import (
+    TELEGRAM_RECIPIENT_UNAVAILABLE_ERROR_TYPE,
+)
 from sein_zum_tode.broadcasts.models import ScreamRequest
 from sein_zum_tode.localization.models import SupportedLocale
 from sein_zum_tode.mortals.models import Mortal
@@ -478,7 +481,7 @@ class DeliverTelegramResponseActivity:
         except TelegramRecipientUnavailableError as error:
             raise ApplicationError(
                 f"Telegram recipient {response.chat_id} is unavailable",
-                type="TelegramRecipientUnavailable",
+                type=TELEGRAM_RECIPIENT_UNAVAILABLE_ERROR_TYPE,
                 non_retryable=True,
             ) from error
         except PermanentTelegramDeliveryError as error:

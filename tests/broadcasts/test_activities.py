@@ -18,8 +18,7 @@ from sein_zum_tode.broadcasts.models import (
     ScreamRecipients,
     ScreamRequest,
 )
-from sein_zum_tode.mortals.models import Mortal
-from tests.support import MortalMemory, SilentLogger, TelegramMemory, result_or_raise
+from tests.support import MortalMemory, SilentLogger, TelegramMemory, mortal, result_or_raise
 
 pytestmark = pytest.mark.fast
 
@@ -45,9 +44,9 @@ def request() -> ScreamRequest:
 async def test_selects_one_stable_page_of_matching_mortals() -> None:
     mortals = MortalMemory(
         {
-            181_091: Mortal(id=181_091, locale="en"),
-            181_093: Mortal(id=181_093, locale="ru"),
-            181_099: Mortal(id=181_099, locale="en"),
+            181_091: mortal(id=181_091, locale="en"),
+            181_093: mortal(id=181_093, locale="ru"),
+            181_099: mortal(id=181_099, locale="en"),
         }
     )
     subject = ListScreamRecipientsActivity(mortals=mortals, logger=SilentLogger())

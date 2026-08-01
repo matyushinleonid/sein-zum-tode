@@ -39,7 +39,6 @@ from sein_zum_tode.mortals.activities import (
     MortalActivityInput,
     MortalRegistration,
 )
-from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.prediction.activities import (
     APPLY_DEATH_PREDICTION_ACTIVITY_NAME,
     GENERATE_DEATH_PREDICTION_ACTIVITY_NAME,
@@ -79,6 +78,7 @@ from tests.support import (
     QuestionnaireMemory,
     SilentLogger,
     TelegramUpdates,
+    mortal,
 )
 
 pytestmark = [
@@ -371,7 +371,7 @@ class QuestionnaireWorkflowStory:
     ) -> QuestionnaireWorkflowStory:
         task_queue = f"deep-questionnaire-{uuid4()}"
         content = BotContents.debug()
-        mortals = MortalMemory({241_103: Mortal(id=241_103, locale="en")})
+        mortals = MortalMemory({241_103: mortal(id=241_103, locale="en")})
         schedules = MortalScheduleMemory()
         inspect = InspectTelegramUpdateActivity(
             update_reader=memory.update_documents,

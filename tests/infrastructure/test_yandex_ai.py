@@ -1,8 +1,10 @@
 from types import SimpleNamespace
 from typing import cast
+from unittest.mock import Mock
 
 import pytest
 from pydantic import BaseModel
+from yandex_ai_studio_sdk import AsyncAIStudio
 
 from sein_zum_tode.infrastructure.yandex_ai import (
     YandexAIStudioClient,
@@ -53,8 +55,10 @@ async def test_enforces_the_adapter_schema_in_yandex_and_returns_a_typed_model()
         request_timeout_seconds=73,
         system_prompt="Return mortality JSON",
     )
+    sdk = Mock(spec=AsyncAIStudio)
+    sdk.models = models
     client = YandexAIStudioClient(
-        sdk=SimpleNamespace(models=models),
+        sdk=sdk,
         profile=profile,
         response_type=CompletionResult,
     )

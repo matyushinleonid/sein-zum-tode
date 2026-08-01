@@ -4,6 +4,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict
 
 from sein_zum_tode.broadcasts.models import ScreamRequest
+from sein_zum_tode.payload_keys import UpdatePayloadKeys
 
 TELEGRAM_USER_WORKFLOW_NAME = "TelegramUserWorkflow"
 TELEGRAM_UPDATE_SIGNAL_NAME = "accept_update"
@@ -72,7 +73,7 @@ class InspectedUpdate:
     scream_request: ScreamRequest | None = None
 
     def response_key(self) -> str:
-        return f"{self.update_key}:response"
+        return UpdatePayloadKeys(self.update_key).response()
 
 
 @dataclass(frozen=True, slots=True)

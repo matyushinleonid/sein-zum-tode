@@ -4,6 +4,7 @@ from sein_zum_tode.infrastructure.redis_documents import DocumentStoreError
 from sein_zum_tode.ingress.errors import UpdateStoreError
 from sein_zum_tode.ingress.models import StoredUpdate
 from sein_zum_tode.ingress.ports import UpdateUserResolver
+from sein_zum_tode.payload_keys import UpdatePayloadKeys
 from sein_zum_tode.ports.documents import DocumentWriter
 
 
@@ -23,7 +24,11 @@ class TelegramUpdateStore:
         self._key_prefix = key_prefix
 
     async def store(self, update: Update) -> StoredUpdate:
-        key = f"{self._key_prefix}:{self._bot_id}:{update.update_id}"
+        key = UpdatePayloadKeys.received(
+            bot_id=self._bot_id,
+            update_id=update.update_id,
+            prefix=self._key_prefix,
+        ).update
         try:
             await self._updates.store(key, update, self._ttl_seconds)
         except DocumentStoreError as error:

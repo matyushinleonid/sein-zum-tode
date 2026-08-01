@@ -9,8 +9,9 @@ from sein_zum_tode.infrastructure.postgres import (
     PostgresClientError,
 )
 from sein_zum_tode.mortals.errors import MortalQuotaExhaustedError, MortalRepositoryError
-from sein_zum_tode.mortals.models import Mortal
+from sein_zum_tode.mortals.models import Mortal, MortalRegistrationDefaults
 from sein_zum_tode.mortals.postgres import PostgresMortalRepository
+from tests.support import mortal
 
 pytestmark = pytest.mark.fast
 
@@ -40,8 +41,20 @@ class PostgresStatementClientDouble:
         assert isinstance(statement, ClauseElement)
         self.events.append((operation, statement))
 
-    def repository(self) -> PostgresMortalRepository:
-        return PostgresMortalRepository(self)
+    def repository(
+        self,
+        registration_defaults: MortalRegistrationDefaults | None = None,
+    ) -> PostgresMortalRepository:
+        return PostgresMortalRepository(
+            self,
+            registration_defaults=(
+                registration_defaults
+                or MortalRegistrationDefaults(
+                    timezone="Europe/Moscow",
+                    notification_cron="0 9 * * *",
+                )
+            ),
+        )
 
     async def execute(self, statement: Executable) -> None:
         self.record("execute", statement)
@@ -99,10 +112,23 @@ def parameters(statement: ClauseElement) -> dict[str, object]:
     return {str(key): value for key, value in parameters.items()}
 
 
-async def test_registers_a_mortal_idempotently_with_fixed_defaults() -> None:
-    client = PostgresStatementClientDouble(fetch_outcomes=[mortal_row(mortal_id=320_009)])
+async def test_registers_a_mortal_idempotently_with_configured_defaults() -> None:
+    client = PostgresStatementClientDouble(
+        fetch_outcomes=[
+            mortal_row(
+                mortal_id=320_009,
+                timezone="Asia/Tokyo",
+                notification_cron="17 8 * * *",
+            )
+        ]
+    )
 
-    actual = await client.repository().ensure(320_009)
+    actual = await client.repository(
+        MortalRegistrationDefaults(
+            timezone="Asia/Tokyo",
+            notification_cron="17 8 * * *",
+        )
+    ).ensure(320_009)
 
     insert_statement = client.events[0][1]
     assert (
@@ -111,12 +137,16 @@ async def test_registers_a_mortal_idempotently_with_fixed_defaults() -> None:
         "ON CONFLICT" in str(insert_statement),
         client.events[1][0],
     ) == (
-        Mortal(id=320_009),
+        mortal(
+            id=320_009,
+            timezone="Asia/Tokyo",
+            notification_cron="17 8 * * *",
+        ),
         {
             "id": 320_009,
             "locale": None,
-            "timezone": "Europe/Moscow",
-            "notification_cron": "0 9 * * *",
+            "timezone": "Asia/Tokyo",
+            "notification_cron": "17 8 * * *",
             "death_date": None,
             "telegram_unreachable_at": None,
             "llm_requests_remaining": 50,
@@ -130,7 +160,7 @@ async def test_registers_a_mortal_idempotently_with_fixed_defaults() -> None:
 @pytest.mark.parametrize(
     ("row", "expected"),
     [
-        (mortal_row(mortal_id=320_011), Mortal(id=320_011)),
+        (mortal_row(mortal_id=320_011), mortal(id=320_011)),
         (None, None),
     ],
 )
@@ -235,7 +265,7 @@ async def test_restores_reachability_without_resetting_mortal_data() -> None:
         "DO UPDATE" in str(statement),
         parameters(statement)["param_1"],
     ) == (
-        Mortal(
+        mortal(
             id=320_019,
             locale="ru",
             death_date=death_date,

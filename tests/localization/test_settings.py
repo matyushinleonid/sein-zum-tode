@@ -4,13 +4,13 @@ from temporalio.exceptions import ApplicationError
 from sein_zum_tode.bot.models import PrepareResponseInput
 from sein_zum_tode.localization.models import SupportedLocale
 from sein_zum_tode.localization.settings import ConfigureMortalLocalizationActivity
-from sein_zum_tode.mortals.models import Mortal
 from tests.support import (
     BotContents,
     MortalMemory,
     SilentLogger,
     TelegramMemory,
     TelegramUpdates,
+    mortal,
 )
 
 pytestmark = pytest.mark.fast
@@ -41,7 +41,7 @@ async def test_configures_each_supported_localization(
         send_result=None,
         delete_result=None,
     )
-    mortals = MortalMemory({user_id: Mortal(id=user_id)})
+    mortals = MortalMemory({user_id: mortal(id=user_id)})
     subject = ConfigureMortalLocalizationActivity(
         updates=payloads.update_documents,
         responses=payloads.response_documents,

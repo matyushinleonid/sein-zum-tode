@@ -2,16 +2,16 @@ from datetime import UTC, date, datetime
 
 import pytest
 
+from sein_zum_tode.infrastructure.clock import SystemClock
 from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.notifications.activities import (
     PrepareMortalNotificationActivity,
-    SystemClock,
 )
 from sein_zum_tode.notifications.models import (
     PreparedMortalNotification,
     PrepareMortalNotificationInput,
 )
-from tests.support import BotContents, SilentLogger, TelegramMemory
+from tests.support import BotContents, SilentLogger, TelegramMemory, mortal
 
 pytestmark = pytest.mark.fast
 
@@ -31,7 +31,7 @@ class MortalRepositoryDouble:
 
     async def ensure(self, mortal_id: int) -> Mortal:
         self.events.append(("ensure", mortal_id))
-        return Mortal(id=mortal_id)
+        return mortal(id=mortal_id)
 
     async def get(self, mortal_id: int) -> Mortal | None:
         self.events.append(("get", mortal_id))
@@ -39,7 +39,7 @@ class MortalRepositoryDouble:
 
     async def set_death_date(self, mortal_id: int, death_date: date) -> Mortal:
         self.events.append(("set_death_date", mortal_id, death_date))
-        return Mortal(id=mortal_id, death_date=death_date)
+        return mortal(id=mortal_id, death_date=death_date)
 
     async def set_notification_cron(
         self,
@@ -47,7 +47,7 @@ class MortalRepositoryDouble:
         cron: str | None,
     ) -> Mortal:
         self.events.append(("set_notification_cron", mortal_id, cron))
-        return Mortal(id=mortal_id, notification_cron=cron)
+        return mortal(id=mortal_id, notification_cron=cron)
 
     async def set_notification_settings(
         self,
@@ -57,15 +57,15 @@ class MortalRepositoryDouble:
         timezone: str,
     ) -> Mortal:
         self.events.append(("set_notification_settings", mortal_id, cron, timezone))
-        return Mortal(id=mortal_id, notification_cron=cron, timezone=timezone)
+        return mortal(id=mortal_id, notification_cron=cron, timezone=timezone)
 
     async def set_locale(self, mortal_id: int, locale: str) -> Mortal:
         self.events.append(("set_locale", mortal_id, locale))
-        return Mortal(id=mortal_id, locale=locale)
+        return mortal(id=mortal_id, locale=locale)
 
     async def consume_llm_request(self, mortal_id: int, request_id: str) -> Mortal:
         self.events.append(("consume_llm_request", mortal_id, request_id))
-        return Mortal(id=mortal_id, llm_requests_remaining=49)
+        return mortal(id=mortal_id, llm_requests_remaining=49)
 
     async def mark_unreachable(self, mortal_id: int) -> None:
         self.events.append(("mark_unreachable", mortal_id))
@@ -85,13 +85,13 @@ def responses() -> TelegramMemory:
     "mortal",
     [
         None,
-        Mortal(id=340_007),
-        Mortal(
+        mortal(id=340_007),
+        mortal(
             id=340_007,
             notification_cron=None,
             death_date=date(2100, 1, 1),
         ),
-        Mortal(
+        mortal(
             id=340_007,
             death_date=date(2100, 1, 1),
             telegram_unreachable_at=datetime(2099, 11, 30, tzinfo=UTC),
@@ -131,11 +131,11 @@ async def test_skips_a_notification_without_complete_enabled_preferences(
 
 
 async def test_prepares_a_localized_countdown_in_redis() -> None:
-    mortal = Mortal(
+    current_mortal = mortal(
         id=340_019,
         death_date=date(2100, 1, 1),
     )
-    repository = MortalRepositoryDouble(mortal)
+    repository = MortalRepositoryDouble(current_mortal)
     payloads = responses()
     subject = PrepareMortalNotificationActivity(
         mortals=repository,

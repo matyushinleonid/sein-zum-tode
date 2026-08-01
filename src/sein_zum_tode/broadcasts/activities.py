@@ -8,6 +8,9 @@ from sein_zum_tode.bot.errors import (
     TelegramRecipientUnavailableError,
 )
 from sein_zum_tode.bot.models import TelegramResponse
+from sein_zum_tode.bot.temporal_errors import (
+    TELEGRAM_RECIPIENT_UNAVAILABLE_ERROR_TYPE,
+)
 from sein_zum_tode.broadcasts.models import (
     DELIVER_SCREAM_ACTIVITY_NAME,
     LIST_SCREAM_RECIPIENTS_ACTIVITY_NAME,
@@ -71,7 +74,7 @@ class DeliverScreamActivity:
         except TelegramRecipientUnavailableError as error:
             raise ApplicationError(
                 f"Telegram recipient {input.recipient_id} is unavailable",
-                type="TelegramRecipientUnavailable",
+                type=TELEGRAM_RECIPIENT_UNAVAILABLE_ERROR_TYPE,
                 non_retryable=True,
             ) from error
         except PermanentTelegramDeliveryError as error:

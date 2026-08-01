@@ -66,7 +66,7 @@ class WorkerSettings(Settings):
     yandex_ai_studio_folder_id: str | None = None
     yandex_ai_studio_enable_server_data_logging: bool = False
     openai_api_key: SecretStr | None = None
-    socks5_proxy_host: str = "167.233.46.190"
-    socks5_proxy_port: int = Field(default=32768, ge=1, le=65535)
-    socks5_proxy_username: str = "matyushinleonid"
+    socks5_proxy_host: str | None = None
+    socks5_proxy_port: int | None = Field(default=None, ge=1, le=65535)
+    socks5_proxy_username: str | None = None
     socks5_proxy_password: SecretStr | None = None

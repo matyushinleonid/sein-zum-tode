@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import cast
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
+from temporalio.exceptions import ActivityError, CancelledError
 
 from sein_zum_tode.bot.models import (
     CLEANUP_PAYLOADS_ACTIVITY_NAME,
@@ -11,11 +11,13 @@ from sein_zum_tode.bot.models import (
     CleanupPayloadsInput,
     DeliverResponseInput,
 )
+from sein_zum_tode.bot.temporal_errors import is_telegram_recipient_unavailable
 from sein_zum_tode.mortals.activities import (
     MARK_MORTAL_UNREACHABLE_ACTIVITY_NAME,
     MortalActivityInput,
 )
 from sein_zum_tode.observability import LogContext
+from sein_zum_tode.payload_keys import QuestionnairePayloadKeys
 from sein_zum_tode.prediction.activities import (
     APPLY_DEATH_PREDICTION_ACTIVITY_NAME,
     GENERATE_DEATH_PREDICTION_ACTIVITY_NAME,
@@ -198,8 +200,9 @@ class TelegramQuestionnaireWorkflow:
         return True
 
     async def _predict(self) -> tuple[str, ...]:
-        prediction_key = f"{self._questionnaire_key}:prediction"
-        response_key = f"{self._questionnaire_key}:prediction-response"
+        payload_keys = QuestionnairePayloadKeys(self._questionnaire_key)
+        prediction_key = payload_keys.prediction()
+        response_key = payload_keys.prediction_response()
         self._prepared_response_keys.append(response_key)
         try:
             await workflow.execute_activity(
@@ -326,10 +329,7 @@ class TelegramQuestionnaireWorkflow:
             raise asyncio.CancelledError from error
 
     def _recipient_unavailable(self, error: ActivityError) -> bool:
-        cause = error.cause
-        return isinstance(cause, ApplicationError) and cause.type == (
-            "TelegramRecipientUnavailable"
-        )
+        return is_telegram_recipient_unavailable(error)
 
     def _log_failure(
         self,

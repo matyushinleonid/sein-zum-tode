@@ -3,7 +3,6 @@ from aiogram.types import Update
 
 from sein_zum_tode.bot.errors import InvalidStoredPayloadError
 from sein_zum_tode.bot.models import TelegramResponse
-from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.ports.documents import DocumentReader, DocumentStore, DocumentWriter
 from sein_zum_tode.questionnaire.activities import (
     RecordTelegramQuestionnaireAnswerActivity,
@@ -23,6 +22,7 @@ from tests.support import (
     SilentLogger,
     TelegramMemory,
     TelegramUpdates,
+    mortal,
 )
 
 pytestmark = pytest.mark.fast
@@ -61,7 +61,7 @@ async def test_starts_with_a_redis_snapshot_and_two_prepared_messages() -> None:
     memory = QuestionnaireMemory()
     subject = StartTelegramQuestionnaireActivity(
         content=content,
-        mortals=MortalMemory({226_973: Mortal(id=226_973)}),
+        mortals=MortalMemory({226_973: mortal(id=226_973)}),
         questionnaires=memory.questionnaire_repository,
         responses=memory.response_documents,
         questionnaire_ttl_seconds=2243,

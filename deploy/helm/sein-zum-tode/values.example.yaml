@@ -106,9 +106,9 @@ openai:
   apiKeySecretKey: OPENAI_API_KEY
 
 socks5Proxy:
-  host: 167.233.46.190
-  port: 32768
-  username: matyushinleonid
+  host: proxy.example.com
+  port: 1080
+  username: replace-with-proxy-username
   passwordSecretKey: SOCKS5_PROXY_PASSWORD
 
 deathPrediction:

@@ -7,6 +7,7 @@ from typing import Any, cast
 from pydantic import SecretStr
 
 from sein_zum_tode.config import Settings, WorkerSettings
+from sein_zum_tode.mortals.models import MortalRegistrationDefaults
 
 
 def explicit_settings() -> WorkerSettings:
@@ -311,6 +312,9 @@ class WorkerAssembly:
         )
         self.predictor = PredictorResource(self.events)
         self.notification_schedule_config = SimpleNamespace(
+            default_timezone="Asia/Tokyo",
+            default_cron=lambda: "17 8 * * *",
+            presets=object(),
             provider="mock",
             minimum_interval_hours=20,
             system_prompt="Interpret schedule",
@@ -498,8 +502,20 @@ class WorkerAssembly:
         self.events.append(("cleaner", redis is self.redis_client))
         return self.cleaner
 
-    def create_mortals(self, postgres: object) -> object:
-        self.events.append(("mortals", postgres is self.postgres))
+    def create_mortals(
+        self,
+        postgres: object,
+        *,
+        registration_defaults: MortalRegistrationDefaults,
+    ) -> object:
+        self.events.append(
+            (
+                "mortals",
+                postgres is self.postgres,
+                registration_defaults.timezone,
+                registration_defaults.notification_cron,
+            )
+        )
         return self.mortals
 
     def create_schedules(self, **options: object) -> object:

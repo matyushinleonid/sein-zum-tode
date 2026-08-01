@@ -1,11 +1,10 @@
 import logging
-from datetime import UTC, datetime
-from typing import Protocol
 
 from temporalio import activity
 
 from sein_zum_tode.bot.content import BotContent
 from sein_zum_tode.bot.models import TelegramResponse
+from sein_zum_tode.infrastructure.clock import SystemClock
 from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.notifications.models import (
     PREPARE_MORTAL_NOTIFICATION_ACTIVITY_NAME,
@@ -13,16 +12,8 @@ from sein_zum_tode.notifications.models import (
     PrepareMortalNotificationInput,
 )
 from sein_zum_tode.observability import LogContext
+from sein_zum_tode.ports.clock import Clock
 from sein_zum_tode.ports.documents import DocumentWriter
-
-
-class Clock(Protocol):
-    def now(self) -> datetime: ...
-
-
-class SystemClock:
-    def now(self) -> datetime:
-        return datetime.now(UTC)
 
 
 class PrepareMortalNotificationActivity:

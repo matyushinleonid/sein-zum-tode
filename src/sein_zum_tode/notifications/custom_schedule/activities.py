@@ -1,7 +1,5 @@
 import logging
-from datetime import UTC, datetime
 from hashlib import sha256
-from typing import Protocol
 from zoneinfo import ZoneInfo
 
 from aiogram.types import Update
@@ -10,6 +8,7 @@ from temporalio.exceptions import ApplicationError
 
 from sein_zum_tode.bot.content import BotContent
 from sein_zum_tode.bot.models import TelegramResponse
+from sein_zum_tode.infrastructure.clock import SystemClock
 from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.notifications.custom_schedule.models import (
     APPLY_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME,
@@ -31,16 +30,8 @@ from sein_zum_tode.notifications.custom_schedule.validation import (
 )
 from sein_zum_tode.notifications.ports import MortalSchedule
 from sein_zum_tode.observability import LogContext
+from sein_zum_tode.ports.clock import Clock
 from sein_zum_tode.ports.documents import DocumentReader, DocumentStore, DocumentWriter
-
-
-class Clock(Protocol):
-    def now(self) -> datetime: ...
-
-
-class SystemClock:
-    def now(self) -> datetime:
-        return datetime.now(UTC)
 
 
 class GenerateCustomNotificationScheduleActivity:

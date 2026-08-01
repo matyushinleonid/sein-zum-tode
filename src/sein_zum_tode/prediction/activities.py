@@ -1,17 +1,17 @@
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from hashlib import sha256
-from typing import Protocol
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from sein_zum_tode.bot.content import BotContent
 from sein_zum_tode.bot.models import TelegramResponse
+from sein_zum_tode.infrastructure.clock import SystemClock
 from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.notifications.ports import MortalSchedule
 from sein_zum_tode.observability import LogContext
+from sein_zum_tode.ports.clock import Clock
 from sein_zum_tode.ports.documents import DocumentStore, DocumentWriter
 from sein_zum_tode.prediction.models import DeathPredictionRequest, StoredDeathPrediction
 from sein_zum_tode.prediction.ports import DeathPredictor
@@ -20,15 +20,6 @@ from sein_zum_tode.questionnaire.models import QuestionnaireState
 GENERATE_DEATH_PREDICTION_ACTIVITY_NAME = "generate_death_prediction"
 APPLY_DEATH_PREDICTION_ACTIVITY_NAME = "apply_death_prediction"
 PREPARE_PREDICTION_FAILURE_ACTIVITY_NAME = "prepare_prediction_failure"
-
-
-class Clock(Protocol):
-    def now(self) -> datetime: ...
-
-
-class SystemClock:
-    def now(self) -> datetime:
-        return datetime.now(UTC)
 
 
 @dataclass(frozen=True, slots=True)

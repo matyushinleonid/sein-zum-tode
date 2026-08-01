@@ -9,6 +9,7 @@ from sein_zum_tode.bot.errors import InvalidStoredPayloadError
 from sein_zum_tode.bot.models import TelegramResponse
 from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.observability import LogContext
+from sein_zum_tode.payload_keys import QuestionnairePayloadKeys
 from sein_zum_tode.ports.documents import DocumentReader, DocumentStore, DocumentWriter
 from sein_zum_tode.questionnaire.models import (
     RECORD_QUESTIONNAIRE_ANSWER_ACTIVITY_NAME,
@@ -74,7 +75,7 @@ class StartTelegramQuestionnaireActivity:
                 TelegramResponse(chat_id=input.chat_id, text=text),
                 self._response_ttl_seconds,
             )
-        privacy_response_key = f"{input.questionnaire_key}:privacy"
+        privacy_response_key = QuestionnairePayloadKeys(input.questionnaire_key).privacy_response()
         await self._responses.store(
             privacy_response_key,
             TelegramResponse(chat_id=input.chat_id, text=state.deleted_message),
@@ -154,7 +155,7 @@ class RecordTelegramQuestionnaireAnswerActivity:
             text=answer.response_text,
         )
         await self._responses.store(
-            f"{input.questionnaire_key}:privacy",
+            QuestionnairePayloadKeys(input.questionnaire_key).privacy_response(),
             TelegramResponse(chat_id=state.chat_id, text=state.deleted_message),
             self._privacy_response_ttl_seconds,
         )

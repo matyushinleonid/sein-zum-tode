@@ -2,7 +2,7 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from sein_zum_tode.bot.models import PrepareResponseInput
-from sein_zum_tode.mortals.models import Mortal
+from sein_zum_tode.notifications.custom_schedule.config import NotificationPresets
 from sein_zum_tode.notifications.settings import ConfigureMortalNotificationsActivity
 from tests.support import (
     BotContents,
@@ -11,6 +11,7 @@ from tests.support import (
     SilentLogger,
     TelegramMemory,
     TelegramUpdates,
+    mortal,
 )
 
 pytestmark = pytest.mark.fast
@@ -19,9 +20,9 @@ pytestmark = pytest.mark.fast
 @pytest.mark.parametrize(
     ("frequency", "cron", "label"),
     [
-        ("daily", "0 9 * * *", "Daily"),
-        ("weekly", "0 9 * * 1", "Weekly"),
-        ("monthly", "0 9 1 * *", "Monthly"),
+        ("daily", "17 8 * * *", "Daily"),
+        ("weekly", "19 9 * * 2", "Weekly"),
+        ("monthly", "23 10 3 * *", "Monthly"),
         ("never", None, "Never"),
     ],
 )
@@ -44,7 +45,7 @@ async def test_configures_each_notification_frequency(
         send_result=None,
         delete_result=None,
     )
-    mortals = MortalMemory({user_id: Mortal(id=user_id)})
+    mortals = MortalMemory({user_id: mortal(id=user_id)})
     schedules = MortalScheduleMemory()
     subject = ConfigureMortalNotificationsActivity(
         updates=payloads.update_documents,
@@ -52,6 +53,12 @@ async def test_configures_each_notification_frequency(
         mortals=mortals,
         schedules=schedules,
         content=BotContents.debug(),
+        presets=NotificationPresets(
+            daily="17 8 * * *",
+            weekly="19 9 * * 2",
+            monthly="23 10 3 * *",
+            never=None,
+        ),
         response_ttl_seconds=3517,
         logger=SilentLogger(),
     )
@@ -99,6 +106,12 @@ async def test_rejects_an_unknown_notification_callback() -> None:
         mortals=MortalMemory(),
         schedules=MortalScheduleMemory(),
         content=BotContents.debug(),
+        presets=NotificationPresets(
+            daily="17 8 * * *",
+            weekly="19 9 * * 2",
+            monthly="23 10 3 * *",
+            never=None,
+        ),
         response_ttl_seconds=3529,
         logger=SilentLogger(),
     )
