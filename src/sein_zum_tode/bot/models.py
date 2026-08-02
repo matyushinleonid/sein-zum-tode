@@ -112,5 +112,6 @@ class TelegramResponse(BaseModel):
     chat_id: int
     text: str
     parse_mode: str | None = None
+    fallback_text: str | None = None
     keyboard: tuple[tuple[TelegramButton, ...], ...] = ()
     callback_query_id: str | None = None

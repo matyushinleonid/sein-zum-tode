@@ -42,8 +42,114 @@ application:
     - 162573173
 
 botContent:
-  version: production-v2
+  version: production-v3
   default_locale: en
+  notification_decoration:
+    probability: 0.1
+    rtl_walk_ids:
+      - "5337276388959330956"
+      - "5465469325815074451"
+      - "5296654502374416489"
+      - "5314653194188500603"
+      - "5386568779427757100"
+      - "6325605323625203500"
+      - "5334795456935374032"
+      - "5310095271814771268"
+      - "5393501634032575141"
+      - "5463250403976031619"
+      - "5462922427388403566"
+      - "5474402823431008532"
+      - "6328007932625553184"
+      - "6327816282594870896"
+    ltr_walk_ids:
+      - "5240476433221953356"
+      - "5463036858202069793"
+      - "5242203297837755532"
+      - "5327906514076191761"
+      - "5393153836170890904"
+      - "5287496906249871965"
+      - "5332539628442368304"
+      - "5334616442698477067"
+      - "5337253342164826000"
+      - "5461166687707472655"
+      - "5237981615568723131"
+      - "5314289590847157038"
+      - "5415619208073458698"
+      - "5258180924071230410"
+      - "6325383570168744080"
+      - "5397809391741181485"
+      - "5395463008157705871"
+      - "5285155917145320763"
+      - "5372888286387776136"
+      - "5285280213498869172"
+      - "5393383127294953991"
+      - "5406966974980828470"
+      - "5199414711921155936"
+      - "5337184210371227463"
+      - "5294407813571813593"
+      - "5461025099815590555"
+      - "5206480418454380560"
+      - "5240086364292129541"
+      - "5188185489860997343"
+    rtl_arrow_ids:
+      - "5391090636961099009"
+      - "5341437628153615340"
+      - "5400169738263352182"
+      - "5416113713428057601"
+      - "5388817624303946854"
+      - "5269720500468201056"
+      - "5256247952564825322"
+      - "5363896514655564837"
+    ltr_arrow_ids:
+      - "5314413376099595303"
+      - "5355075407743826720"
+      - "5415758949129404605"
+      - "5416117059207572332"
+      - "5192781392630537817"
+      - "5472362688195602137"
+    dead_ids:
+      - "5334985844245670956"
+      - "5334809063391767866"
+      - "5337244490237225801"
+      - "5337128715098792908"
+      - "5336824433845742459"
+      - "5337237248922364713"
+      - "5337135183319542200"
+      - "5336854356882893242"
+      - "5334530826820398405"
+      - "5334914857026201875"
+      - "5334806671094983856"
+      - "5336965175629064110"
+      - "5336879886168502673"
+      - "5336858067734639095"
+      - "5850233013249510652"
+      - "5294042462178779996"
+      - "5294525581575070104"
+      - "5397707669735744293"
+      - "5314510047223491715"
+      - "5314591900710220584"
+      - "5314752699990814151"
+      - "5397607030062063372"
+      - "5309896547972953593"
+      - "5307763684393629810"
+      - "5285155917145320763"
+      - "5285294382595977819"
+      - "5355136271725373954"
+      - "5325522244586190841"
+      - "5355087437947218476"
+      - "5388751580591827693"
+      - "5355233071698291672"
+      - "5389000662925192836"
+      - "5251228497300435102"
+      - "5354979024382733334"
+      - "5355244041044765485"
+      - "5251537369873526874"
+      - "5420195826439827816"
+      - "5318970761602413501"
+      - "5325923123948695594"
+      - "5372865660500067203"
+      - "5258174868167341275"
+      - "5420100774518597586"
   locales:
     en:
       help: Mock help response. Use /localization to change language.
@@ -51,7 +157,39 @@ botContent:
       unsupported: Use /help to learn how to use the bot
       group_unsupported: Group chats are not supported. Please message me directly.
       scream_denied: You can't scream 🤷‍♂️
-      notification: "mock notification: {days_left}"
+      notification:
+        default:
+          other: "Days left: {days_left}"
+        variants:
+          - id: natural
+            probability: 0.5
+            text:
+              one: "{days_left} day remains"
+              other: "{days_left} days remain"
+          - id: haunting
+            probability: 0.01
+            text:
+              one: "There is {days_left} day left. It gets harder to ignore with each passing day"
+              other: "There are {days_left} days left. It gets harder to ignore with each passing day"
+          - id: witch_house
+            probability: 0.01
+            style: witch_house
+            text:
+              one: "{days_left} day remains"
+              other: "{days_left} days remain"
+          - id: words
+            probability: 0.01
+            number_style: words
+            text:
+              one: "{days_left} day remains"
+              other: "{days_left} days remain"
+          - id: witch_house_words
+            probability: 0.01
+            style: witch_house
+            number_style: words
+            text:
+              one: "{days_left} day remains"
+              other: "{days_left} days remain"
       localization:
         prompt: Choose your language / Выберите язык
         russian: "🇷🇺 RU"
@@ -90,7 +228,49 @@ botContent:
       unsupported: Нажмите /help, чтобы узнать, как пользоваться ботом
       group_unsupported: Групповые чаты не поддерживаются. Напишите боту напрямую.
       scream_denied: Ты не можешь кричать 🤷‍♂️
-      notification: "Тестовое уведомление: осталось дней — {days_left}"
+      notification:
+        default:
+          other: "Осталось дней: {days_left}"
+        variants:
+          - id: natural
+            probability: 0.5
+            text:
+              one: "Остался {days_left} день"
+              few: "Осталось {days_left} дня"
+              many: "Осталось {days_left} дней"
+              other: "Осталось {days_left} дня"
+          - id: haunting
+            probability: 0.01
+            text:
+              one: "Остался {days_left} день. Игнорировать с каждым днём всё сложнее"
+              few: "Осталось {days_left} дня. Игнорировать с каждым днём всё сложнее"
+              many: "Осталось {days_left} дней. Игнорировать с каждым днём всё сложнее"
+              other: "Осталось {days_left} дня. Игнорировать с каждым днём всё сложнее"
+          - id: witch_house
+            probability: 0.01
+            style: witch_house
+            text:
+              one: "Остался {days_left} день"
+              few: "Осталось {days_left} дня"
+              many: "Осталось {days_left} дней"
+              other: "Осталось {days_left} дня"
+          - id: words
+            probability: 0.01
+            number_style: words
+            text:
+              one: "Остался {days_left} день"
+              few: "Осталось {days_left} дня"
+              many: "Осталось {days_left} дней"
+              other: "Осталось {days_left} дня"
+          - id: witch_house_words
+            probability: 0.01
+            style: witch_house
+            number_style: words
+            text:
+              one: "Остался {days_left} день"
+              few: "Осталось {days_left} дня"
+              many: "Осталось {days_left} дней"
+              other: "Осталось {days_left} дня"
       localization:
         prompt: Выберите язык.
         russian: "🇷🇺 RU"

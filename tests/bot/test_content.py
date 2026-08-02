@@ -8,7 +8,11 @@ from sein_zum_tode.bot.content import (
     LLMContent,
     LocalizationContent,
     LocalizedBotContent,
+    NotificationContent,
+    NotificationDecorationContent,
     NotificationSettingsContent,
+    NotificationTextForms,
+    NotificationTextVariant,
     PredictionContent,
     QuestionContent,
     QuestionnaireContent,
@@ -19,14 +23,30 @@ from sein_zum_tode.bot.errors import ContentConfigurationError
 pytestmark = pytest.mark.fast
 
 
-def localized_content(notification: str = "Days left: {days_left}") -> LocalizedBotContent:
+def notification_decoration() -> NotificationDecorationContent:
+    return NotificationDecorationContent(
+        probability=0.1,
+        rtl_walk_ids=("127",),
+        ltr_walk_ids=("131",),
+        rtl_arrow_ids=("137",),
+        ltr_arrow_ids=("139",),
+        dead_ids=("149",),
+    )
+
+
+def localized_content(
+    notification: NotificationContent | None = None,
+) -> LocalizedBotContent:
     return LocalizedBotContent(
         help="Navigate",
         about="About",
         unsupported="Unsupported",
         group_unsupported="Groups unsupported",
         scream_denied="Scream denied",
-        notification=notification,
+        notification=notification
+        or NotificationContent(
+            default=NotificationTextForms(other="Days left: {days_left}"),
+        ),
         localization=LocalizationContent(
             prompt="Choose your language",
             russian="🇷🇺 RU",
@@ -67,6 +87,13 @@ def test_loads_versioned_localized_bot_content_from_yaml(tmp_path: Path) -> None
         """
 version: stellar-v7
 default_locale: en
+notification_decoration:
+  probability: 0.1
+  rtl_walk_ids: ["127"]
+  ltr_walk_ids: ["131"]
+  rtl_arrow_ids: ["137"]
+  ltr_arrow_ids: ["139"]
+  dead_ids: ["149"]
 locales:
   en:
     help: Navigate by the constellations
@@ -74,7 +101,9 @@ locales:
     unsupported: Unsupported
     group_unsupported: Groups unsupported
     scream_denied: Scream denied
-    notification: "Days left: {days_left}"
+    notification:
+      default:
+        other: "Days left: {days_left}"
     localization:
       prompt: Choose your language
       russian: "🇷🇺 RU"
@@ -114,7 +143,7 @@ locales:
     assert (
         actual.version,
         actual.default().help,
-        actual.default().notification_text(17),
+        actual.default().notification.default.render(17, "other"),
         actual.default().questionnaire.questions,
     ) == (
         "stellar-v7",
@@ -151,6 +180,7 @@ def test_rejects_a_default_locale_without_content() -> None:
         BotContent(
             version="stellar-v11",
             default_locale="ru",
+            notification_decoration=notification_decoration(),
             locales={"en": localized},
         )
 
@@ -177,7 +207,62 @@ def test_rejects_duplicate_question_ids() -> None:
 )
 def test_rejects_an_invalid_notification_template(notification: str) -> None:
     with pytest.raises(ValidationError):
-        localized_content(notification)
+        localized_content(
+            NotificationContent(
+                default=NotificationTextForms(other=notification),
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "variants",
+    [
+        (
+            NotificationTextVariant(
+                id="duplicate",
+                probability=0.2,
+                text=NotificationTextForms(other="First {days_left}"),
+            ),
+            NotificationTextVariant(
+                id="duplicate",
+                probability=0.3,
+                text=NotificationTextForms(other="Second {days_left}"),
+            ),
+        ),
+        (
+            NotificationTextVariant(
+                id="first",
+                probability=0.7,
+                text=NotificationTextForms(other="First {days_left}"),
+            ),
+            NotificationTextVariant(
+                id="second",
+                probability=0.4,
+                text=NotificationTextForms(other="Second {days_left}"),
+            ),
+        ),
+    ],
+)
+def test_rejects_ambiguous_notification_variant_configuration(
+    variants: tuple[NotificationTextVariant, ...],
+) -> None:
+    with pytest.raises(ValidationError):
+        NotificationContent(
+            default=NotificationTextForms(other="Default {days_left}"),
+            variants=variants,
+        )
+
+
+def test_rejects_a_non_numeric_custom_emoji_identifier() -> None:
+    with pytest.raises(ValidationError):
+        NotificationDecorationContent(
+            probability=0.1,
+            rtl_walk_ids=("not-an-id",),
+            ltr_walk_ids=("131",),
+            rtl_arrow_ids=("137",),
+            ltr_arrow_ids=("139",),
+            dead_ids=("149",),
+        )
 
 
 def test_rejects_invalid_notification_settings_and_mock_templates() -> None:
@@ -222,6 +307,7 @@ def test_falls_back_to_default_content_for_an_unknown_locale() -> None:
     content = BotContent(
         version="stellar-v13",
         default_locale="en",
+        notification_decoration=notification_decoration(),
         locales={"en": localized_content()},
     )
 

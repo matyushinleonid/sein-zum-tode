@@ -13,7 +13,10 @@ from sein_zum_tode.bot.content import (
     LLMContent,
     LocalizationContent,
     LocalizedBotContent,
+    NotificationContent,
+    NotificationDecorationContent,
     NotificationSettingsContent,
+    NotificationTextForms,
     PredictionContent,
     QuestionContent,
     QuestionnaireContent,
@@ -60,6 +63,16 @@ class SilentLogger(logging.Logger):
         self.disabled = True
 
 
+class NumberSpellerMemory:
+    def __init__(self, words: dict[tuple[int, str], str]) -> None:
+        self.words = words
+        self.events: list[tuple[object, ...]] = []
+
+    def spell(self, value: int, locale: str) -> str:
+        self.events.append(("spell", value, locale))
+        return self.words[(value, locale)]
+
+
 class BotContents:
     @staticmethod
     def debug(
@@ -70,6 +83,14 @@ class BotContents:
         return BotContent(
             version="debug-cosmos-v1",
             default_locale="en",
+            notification_decoration=NotificationDecorationContent(
+                probability=0,
+                rtl_walk_ids=("101",),
+                ltr_walk_ids=("103",),
+                rtl_arrow_ids=("107",),
+                ltr_arrow_ids=("109",),
+                dead_ids=("113",),
+            ),
             locales={
                 "en": LocalizedBotContent(
                     help="Navigate by the constellations",
@@ -80,7 +101,11 @@ class BotContents:
                     unsupported="Use /help to learn how to use the bot",
                     group_unsupported="Group chats are not supported.",
                     scream_denied="You can't scream 🤷‍♂️",
-                    notification="mock notification: {days_left}",
+                    notification=NotificationContent(
+                        default=NotificationTextForms(
+                            other="mock notification: {days_left}",
+                        ),
+                    ),
                     localization=LocalizationContent(
                         prompt="Choose your language / Выберите язык",
                         russian="🇷🇺 RU",
@@ -125,7 +150,11 @@ class BotContents:
                     unsupported="Нажмите /help, чтобы узнать, как пользоваться ботом",
                     group_unsupported="Групповые чаты не поддерживаются.",
                     scream_denied="Ты не можешь кричать 🤷‍♂️",
-                    notification="Осталось дней: {days_left}",
+                    notification=NotificationContent(
+                        default=NotificationTextForms(
+                            other="Осталось дней: {days_left}",
+                        ),
+                    ),
                     localization=LocalizationContent(
                         prompt="Выберите язык.",
                         russian="🇷🇺 RU",

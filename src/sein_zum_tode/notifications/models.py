@@ -49,3 +49,12 @@ class PreparedMortalNotification:
 
     def terminal(self) -> bool:
         return self.days_left == 0
+
+
+@dataclass(frozen=True, slots=True)
+class RenderedNotification:
+    text: str
+    parse_mode: str | None
+    fallback_text: str | None
+    variant_id: str | None
+    decorated: bool
