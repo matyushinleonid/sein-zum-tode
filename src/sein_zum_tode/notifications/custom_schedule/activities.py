@@ -137,13 +137,10 @@ class ApplyCustomNotificationScheduleActivity:
             )
         localized = self._content.localized(mortal.locale)
         proposal = stored.proposal
-        text = proposal.message
+        text = proposal.explanation
         applied = False
         if proposal.understood:
-            settings = proposal.resolve(
-                current_cron=mortal.notification_cron,
-                current_timezone=mortal.timezone,
-            )
+            settings = proposal.settings()
             try:
                 self._validator.validate(settings, now=self._clock.now())
             except NotificationScheduleTooFrequentError:

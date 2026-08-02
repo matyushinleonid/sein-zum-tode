@@ -12,12 +12,8 @@ from sein_zum_tode.notifications.custom_schedule.mock import (
     MockNotificationScheduleInterpreter,
 )
 from sein_zum_tode.notifications.custom_schedule.models import (
-    CronChange,
-    CronOperation,
     NotificationScheduleProposal,
     NotificationScheduleRequest,
-    TimezoneChange,
-    TimezoneOperation,
 )
 from tests.support import BotContents
 
@@ -52,9 +48,9 @@ class CompletionClientDouble:
 async def test_llm_adapter_delegates_typed_prompt_and_provider_metadata() -> None:
     expected = NotificationScheduleProposal(
         understood=True,
-        cron=CronChange(operation=CronOperation.SET, value="0 19 * * 1-5"),
-        timezone=TimezoneChange(operation=TimezoneOperation.KEEP),
-        message="Weekday evening notifications configured.",
+        cron="0 19 * * 1-5",
+        timezone="Europe/Moscow",
+        explanation="Weekday evening notifications configured.",
     )
     client = CompletionClientDouble(expected)
     interpreter = LLMNotificationScheduleInterpreter(client=client)
@@ -73,15 +69,13 @@ async def test_llm_adapter_delegates_typed_prompt_and_provider_metadata() -> Non
         expected,
         ("close",),
     ), "LLM schedule adapter changed the typed result or provider metadata"
-    assert "Required language for the message field: en" in str(client.events[0][1])
+    assert "Required language for the explanation field: en" in str(client.events[0][1])
 
 
 async def test_mock_adapter_returns_a_localized_configured_schedule_without_quota() -> None:
     interpreter = MockNotificationScheduleInterpreter(
         config=MockNotificationScheduleConfig(
-            cron_operation=CronOperation.SET,
-            cron_expression="0 12 * * *",
-            timezone_operation=TimezoneOperation.KEEP,
+            cron="0 12 * * *",
             timezone=None,
         ),
         content=BotContents.debug(),
@@ -99,8 +93,8 @@ async def test_mock_adapter_returns_a_localized_configured_schedule_without_quot
         False,
         NotificationScheduleProposal(
             understood=True,
-            cron=CronChange(operation=CronOperation.SET, value="0 12 * * *"),
-            timezone=TimezoneChange(operation=TimezoneOperation.KEEP),
-            message="Расписание уведомлений обновлено",
+            cron="0 12 * * *",
+            timezone="Europe/Moscow",
+            explanation="Расписание уведомлений обновлено",
         ),
     )

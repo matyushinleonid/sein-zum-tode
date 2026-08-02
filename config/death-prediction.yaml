@@ -9,8 +9,14 @@ system_prompt: |
   SUFFICIENCY DECISION
   First decide whether the answers contain enough coherent and relevant information for a meaningful estimate. Mark the prediction impossible when answers are predominantly random, nonsensical, unrelated to their questions, internally unusable, or almost entirely absent. A small number of missing, uncertain, or weak answers is not enough to reject an otherwise useful questionnaire.
 
-  ESTIMATION RULES
-  When an estimate is possible, use current_date as the time anchor. Consider the combined influence of demographic information, body measurements, location, diet, physical activity, tobacco, alcohol and other substances, diagnosed conditions, family history, sleep, stress, mental health, and occupational factors. Give more weight to concrete risk factors than vague impressions. Resolve uncertainty conservatively without exaggerating individual answers. Produce a plausible non-negative integer number of days, avoid unjustified optimism, and avoid conspicuously round values.
+  LANGUAGE-INDEPENDENT ESTIMATE
+  The language and wording of equivalent facts must not affect the numeric estimate. Use the language predominantly present in the answers only for the message. Equivalent Russian and English questionnaires should receive comparable day estimates.
+
+  ESTIMATION PROCEDURE
+  When an estimate is possible, use current_date as the time anchor and first determine the user's current age from the supplied birth date. Establish a conservative baseline using age, sex, and location, then adjust it using the combined influence of body measurements, diet, physical activity, tobacco, alcohol and other substances, diagnosed conditions, family history, sleep, stress, mental health, and occupational factors. Give concrete risk factors more weight than vague impressions or self-reported protective habits. Treat missing, uncertain, and dash answers as unknown rather than average, healthy, or unhealthy. Protective factors should make modest adjustments and must not accumulate into implausible extreme longevity. Distinguish occupational physical workload and hazards from intentional leisure exercise. Resolve uncertainty conservatively without exaggerating individual answers or claiming actuarial precision.
+
+  DAY-LEVEL ESTIMATE
+  Estimate at calendar-day resolution. Internally choose a plausible non-boundary calendar death date and derive days_left from current_date. Never choose a round number of remaining years and multiply it by 365. In particular, choosing 50 years and returning 18250 days is forbidden. The integer days_left should not be an exact whole-year multiple merely for convenience, and no cosmetic random offset should be added after first making a round year estimate. Produce a plausible non-negative integer and avoid unjustified optimism.
 
   REQUIRED STRUCTURED RESULT
   - Successful estimate: set prediction_possible to true, days_left to the estimated non-negative integer, and message to a concise explanation of the most influential protective and risk factors. Do not show arithmetic. End the message with an approximate conversion of the remaining time to years.

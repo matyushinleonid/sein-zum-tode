@@ -12,15 +12,11 @@ from sein_zum_tode.notifications.custom_schedule.activities import (
 )
 from sein_zum_tode.notifications.custom_schedule.models import (
     ApplyCustomNotificationScheduleInput,
-    CronChange,
-    CronOperation,
     GenerateCustomNotificationScheduleInput,
     NotificationScheduleProposal,
     NotificationScheduleRequest,
     PrepareCustomNotificationFailureInput,
     StoredNotificationScheduleProposal,
-    TimezoneChange,
-    TimezoneOperation,
 )
 from sein_zum_tode.notifications.custom_schedule.validation import (
     NotificationScheduleValidator,
@@ -91,16 +87,13 @@ class ProposalMemory:
 def accepted_proposal(
     *,
     cron: str = "30 19 * * 1-5",
-    timezone: str | None = None,
+    timezone: str = "Europe/Moscow",
 ) -> NotificationScheduleProposal:
     return NotificationScheduleProposal(
         understood=True,
-        cron=CronChange(operation=CronOperation.SET, value=cron),
-        timezone=TimezoneChange(
-            operation=(TimezoneOperation.SET if timezone is not None else TimezoneOperation.KEEP),
-            value=timezone,
-        ),
-        message="Расписание настроено.",
+        cron=cron,
+        timezone=timezone,
+        explanation="Расписание настроено.",
     )
 
 
@@ -283,9 +276,9 @@ async def test_returns_a_model_rejection_without_changing_preferences() -> None:
     proposal_key = "telegram:update:4139:notification-schedule"
     proposal = NotificationScheduleProposal(
         understood=False,
-        cron=CronChange(operation=CronOperation.KEEP),
-        timezone=TimezoneChange(operation=TimezoneOperation.KEEP),
-        message="Please describe a time and frequency.",
+        cron="0 9 * * *",
+        timezone="Europe/Moscow",
+        explanation="Please describe a time and frequency.",
     )
     original = mortal(id=user_id, locale="en")
     proposals = ProposalMemory({proposal_key: stored_proposal(proposal)})
