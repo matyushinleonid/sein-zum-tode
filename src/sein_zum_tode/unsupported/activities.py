@@ -2,11 +2,13 @@ import logging
 
 from temporalio import activity
 
+from sein_zum_tode.bot.content import BotContent
 from sein_zum_tode.bot.errors import InvalidStoredPayloadError
 from sein_zum_tode.bot.models import (
     PrepareResponseInput,
     TelegramResponse,
 )
+from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.observability import LogContext
 from sein_zum_tode.payload_keys import UnsupportedUpdatePayloadKey
 from sein_zum_tode.ports.documents import DocumentStore, DocumentWriter
@@ -25,6 +27,8 @@ class PrepareUnsupportedResponseActivity:
         sessions: DocumentStore[UnsupportedUpdateSession],
         responses: DocumentWriter[TelegramResponse],
         content: UnsupportedUpdateContent,
+        bot_content: BotContent,
+        mortals: MortalRepository,
         bot_id: int,
         session_ttl_seconds: int,
         response_ttl_seconds: int,
@@ -33,6 +37,8 @@ class PrepareUnsupportedResponseActivity:
         self._sessions = sessions
         self._responses = responses
         self._content = content
+        self._bot_content = bot_content
+        self._mortals = mortals
         self._bot_id = bot_id
         self._session_ttl_seconds = session_ttl_seconds
         self._response_ttl_seconds = response_ttl_seconds
@@ -61,6 +67,10 @@ class PrepareUnsupportedResponseActivity:
             updated,
             self._session_ttl_seconds,
         )
+        if response_text is None and input.is_text_message:
+            mortal = await self._mortals.get(user_id)
+            locale = mortal.locale if mortal is not None else self._bot_content.default_locale
+            response_text = self._bot_content.localized(locale).text_unsupported
         if response_text is not None:
             await self._responses.store(
                 input.response_key,

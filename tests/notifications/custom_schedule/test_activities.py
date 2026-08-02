@@ -18,6 +18,9 @@ from sein_zum_tode.notifications.custom_schedule.models import (
     PrepareCustomNotificationFailureInput,
     StoredNotificationScheduleProposal,
 )
+from sein_zum_tode.notifications.custom_schedule.presentation import (
+    NotificationSchedulePresenter,
+)
 from sein_zum_tode.notifications.custom_schedule.validation import (
     NotificationScheduleValidator,
 )
@@ -37,6 +40,15 @@ pytestmark = pytest.mark.fast
 class FixedClock:
     def now(self) -> datetime:
         return datetime(2026, 8, 1, 12, 7, tzinfo=UTC)
+
+
+class DescriptionMemory:
+    def describe(self, expression: str, locale: str) -> str:
+        return "Weekdays at 19:30"
+
+
+def presenter() -> NotificationSchedulePresenter:
+    return NotificationSchedulePresenter(descriptions=DescriptionMemory())
 
 
 class InterpreterDouble:
@@ -288,6 +300,7 @@ async def test_applies_cron_timezone_schedule_and_model_message() -> None:
         mortals=mortals,
         schedules=schedules,
         validator=NotificationScheduleValidator(minimum_interval=timedelta(hours=20)),
+        presenter=presenter(),
         content=BotContents.debug(),
         response_ttl_seconds=4133,
         clock=FixedClock(),
@@ -313,7 +326,19 @@ async def test_applies_cron_timezone_schedule_and_model_message() -> None:
         "30 19 * * 1-5",
         "Europe/Berlin",
         [("ensure", current_mortal)],
-        "Расписание настроено.",
+        (
+            "Модель интерпретировала запрос так:\n"
+            "Расписание настроено.\n\n"
+            "Установленное расписание:\n"
+            "Cron: 30 19 * * 1-5\n"
+            "Описание: Weekdays at 19:30\n"
+            "Часовой пояс: Europe/Berlin\n\n"
+            "Ближайшие уведомления:\n"
+            "• пн, 3 авг. 2026, 19:30 (Europe/Berlin)\n"
+            "• вт, 4 авг. 2026, 19:30 (Europe/Berlin)\n"
+            "• ср, 5 авг. 2026, 19:30 (Europe/Berlin)\n\n"
+            "Используйте /notifications, чтобы изменить его."
+        ),
     ), "valid proposal did not atomically update PostgreSQL, Schedule, and response"
 
 
@@ -337,6 +362,7 @@ async def test_returns_a_model_rejection_without_changing_preferences() -> None:
         mortals=mortals,
         schedules=schedules,
         validator=NotificationScheduleValidator(minimum_interval=timedelta(hours=20)),
+        presenter=presenter(),
         content=BotContents.debug(),
         response_ttl_seconds=4141,
         clock=FixedClock(),
@@ -359,7 +385,7 @@ async def test_returns_a_model_rejection_without_changing_preferences() -> None:
     ) == (
         original,
         [],
-        "Please describe a time and frequency.",
+        "Please describe a time and frequency.\n\nThe schedule was not changed.",
     )
 
 
@@ -386,6 +412,7 @@ async def test_localizes_invalid_or_excessively_frequent_proposals(
         mortals=mortals,
         schedules=schedules,
         validator=NotificationScheduleValidator(minimum_interval=timedelta(hours=20)),
+        presenter=presenter(),
         content=BotContents.debug(),
         response_ttl_seconds=4153,
         clock=FixedClock(),
@@ -408,7 +435,7 @@ async def test_localizes_invalid_or_excessively_frequent_proposals(
     ) == (
         "0 9 * * *",
         [],
-        expected,
+        f"{expected}\n\nThe schedule was not changed.",
     )
 
 
@@ -431,6 +458,7 @@ async def test_rejects_expired_custom_schedule_proposals(
         mortals=MortalMemory({user_id: mortal(id=user_id)} if has_mortal else {}),
         schedules=MortalScheduleMemory(),
         validator=NotificationScheduleValidator(minimum_interval=timedelta(hours=20)),
+        presenter=presenter(),
         content=BotContents.debug(),
         response_ttl_seconds=4163,
         clock=FixedClock(),

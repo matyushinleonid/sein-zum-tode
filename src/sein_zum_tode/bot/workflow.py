@@ -285,6 +285,7 @@ class TelegramUserWorkflow:
                 chat_id=inspected.chat_id,
                 user_id=self._user_id,
                 callback_query_id=inspected.callback_query_id,
+                is_text_message=inspected.kind == InspectionKind.TEXT,
             )
             response_prepared = True
             if inspected.kind in UNSUPPORTED_INSPECTION_KINDS:

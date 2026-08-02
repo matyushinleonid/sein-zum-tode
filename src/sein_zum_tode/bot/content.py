@@ -104,6 +104,7 @@ class QuestionContent(BaseModel):
 class QuestionnaireContent(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    privacy_notice: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     started: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     completed: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     deleted: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
@@ -131,6 +132,20 @@ class NotificationSettingsContent(BaseModel):
     custom_invalid: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     custom_too_frequent: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     custom_failed: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    custom_interpretation: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    custom_schedule: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    custom_cron: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    custom_description: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    custom_timezone: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    custom_next_notifications: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    custom_disabled: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    custom_description_unavailable: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    custom_next_notifications_unavailable: str = Field(
+        min_length=1,
+        max_length=TELEGRAM_TEXT_LIMIT,
+    )
+    custom_unchanged: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    custom_change_hint: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     updated: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
 
     @model_validator(mode="after")
@@ -199,6 +214,7 @@ class LocalizedBotContent(BaseModel):
 
     help: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     about: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    text_unsupported: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     group_unsupported: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     scream_denied: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     notification: NotificationContent

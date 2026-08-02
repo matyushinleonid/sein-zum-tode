@@ -56,7 +56,7 @@ def record_activity(
     )
 
 
-async def test_starts_with_a_redis_snapshot_and_two_prepared_messages() -> None:
+async def test_starts_with_a_redis_snapshot_and_three_prepared_messages() -> None:
     content = BotContents.debug()
     memory = QuestionnaireMemory()
     subject = StartTelegramQuestionnaireActivity(
@@ -88,15 +88,20 @@ async def test_starts_with_a_redis_snapshot_and_two_prepared_messages() -> None:
         (
             "telegram:questionnaire:2269:initial:0",
             "telegram:questionnaire:2269:initial:1",
+            "telegram:questionnaire:2269:initial:2",
         ),
         "telegram:questionnaire:2269:privacy",
         "debug-cosmos-v1",
         {
             "telegram:questionnaire:2269:initial:0": TelegramResponse(
                 chat_id=226_979,
-                text="mock questionnaire started",
+                text="Private answers are temporary.",
             ),
             "telegram:questionnaire:2269:initial:1": TelegramResponse(
+                chat_id=226_979,
+                text="mock questionnaire started",
+            ),
+            "telegram:questionnaire:2269:initial:2": TelegramResponse(
                 chat_id=226_979,
                 text="q1?",
             ),
@@ -112,6 +117,7 @@ async def test_starts_with_a_redis_snapshot_and_two_prepared_messages() -> None:
         if event[0] in {"store_questionnaire", "store_response"}
     ] == [
         2243,
+        2251,
         2251,
         2251,
         2267,

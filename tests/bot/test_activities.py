@@ -33,6 +33,7 @@ from tests.support import (
     TelegramMemory,
     TelegramUpdates,
     mortal,
+    notification_presets,
 )
 
 pytestmark = pytest.mark.fast
@@ -517,6 +518,7 @@ async def test_prepares_each_static_response(
         ttl_seconds=1433,
         content=BotContents.debug(),
         mortals=MortalMemory(),
+        notification_presets=notification_presets(),
         logger=SilentLogger(),
     )
     input = PrepareResponseInput(
@@ -545,6 +547,7 @@ async def test_localizes_scream_denial_for_a_russian_mortal() -> None:
         ttl_seconds=1441,
         content=BotContents.debug(),
         mortals=MortalMemory({144_149: mortal(id=144_149, locale="ru")}),
+        notification_presets=notification_presets(),
         logger=SilentLogger(),
     )
     input = PrepareResponseInput(
@@ -568,6 +571,7 @@ async def test_prepares_html_about_and_callback_keyboards() -> None:
         ttl_seconds=1451,
         content=BotContents.debug(),
         mortals=MortalMemory({145_459: mortal(id=145_459)}),
+        notification_presets=notification_presets(),
         logger=SilentLogger(),
     )
     about = PrepareResponseInput(
@@ -609,6 +613,7 @@ async def test_prepares_html_about_and_callback_keyboards() -> None:
         about_response.parse_mode,
         "github" in about_response.text,
         tuple(button.callback_data for row in notification_response.keyboard for button in row),
+        tuple(button.text for row in notification_response.keyboard for button in row),
         tuple(button.callback_data for row in localization_response.keyboard for button in row),
         notification_response.text,
         custom_response.text,
@@ -622,6 +627,13 @@ async def test_prepares_html_about_and_callback_keyboards() -> None:
             "notifications:monthly",
             "notifications:never",
             "notifications:custom",
+        ),
+        (
+            "Daily · 09:00",
+            "Weekly · 09:00",
+            "Monthly · 09:00",
+            "Never",
+            "✨ Custom schedule",
         ),
         (
             "localization:ru",
@@ -639,6 +651,7 @@ async def test_rejects_notification_keyboard_for_a_missing_mortal() -> None:
         ttl_seconds=1469,
         content=BotContents.debug(),
         mortals=MortalMemory(),
+        notification_presets=notification_presets(),
         logger=SilentLogger(),
     )
 

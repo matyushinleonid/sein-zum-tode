@@ -28,6 +28,7 @@ from sein_zum_tode.broadcasts.activities import (
 from sein_zum_tode.broadcasts.workflow import TelegramScreamWorkflow
 from sein_zum_tode.config import WorkerSettings
 from sein_zum_tode.infrastructure.completion_config import CompletionProvider
+from sein_zum_tode.infrastructure.cron_descriptor import CronDescriptor
 from sein_zum_tode.infrastructure.metrics import PrometheusHttpServer, PrometheusMetrics
 from sein_zum_tode.infrastructure.numbers import Num2WordsNumberSpeller
 from sein_zum_tode.infrastructure.openai import (
@@ -75,6 +76,9 @@ from sein_zum_tode.notifications.custom_schedule.models import (
 )
 from sein_zum_tode.notifications.custom_schedule.ports import (
     NotificationScheduleInterpreter,
+)
+from sein_zum_tode.notifications.custom_schedule.presentation import (
+    NotificationSchedulePresenter,
 )
 from sein_zum_tode.notifications.custom_schedule.validation import (
     NotificationScheduleValidator,
@@ -359,12 +363,15 @@ async def run(settings: WorkerSettings) -> None:
         ttl_seconds=settings.telegram_update_ttl_seconds,
         content=content,
         mortals=mortals,
+        notification_presets=notification_schedule_config.presets,
         metrics=metrics,
     )
     prepare_unsupported = PrepareUnsupportedResponseActivity(
         sessions=unsupported_update_sessions,
         responses=response_documents,
         content=content.unsupported_updates,
+        bot_content=content,
+        mortals=mortals,
         bot_id=bot.id,
         session_ttl_seconds=settings.unsupported_update_session_ttl_seconds,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
@@ -436,6 +443,7 @@ async def run(settings: WorkerSettings) -> None:
         validator=NotificationScheduleValidator(
             minimum_interval=timedelta(hours=notification_schedule_config.minimum_interval_hours)
         ),
+        presenter=NotificationSchedulePresenter(descriptions=CronDescriptor()),
         content=content,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
         metrics=metrics,

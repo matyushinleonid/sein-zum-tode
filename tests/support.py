@@ -30,6 +30,7 @@ from sein_zum_tode.bot.models import (
 from sein_zum_tode.infrastructure.redis import RedisClient
 from sein_zum_tode.ingress.models import StoredUpdate
 from sein_zum_tode.mortals.models import Mortal
+from sein_zum_tode.notifications.custom_schedule.config import NotificationPresets
 from sein_zum_tode.prediction.models import StoredDeathPrediction
 from sein_zum_tode.questionnaire.models import QuestionnaireState
 from sein_zum_tode.unsupported.models import UnsupportedUpdateContent, UnsupportedUpdateSession
@@ -55,6 +56,14 @@ def mortal(
         death_date=death_date,
         telegram_unreachable_at=telegram_unreachable_at,
         llm_requests_remaining=llm_requests_remaining,
+    )
+
+
+def notification_presets() -> NotificationPresets:
+    return NotificationPresets(
+        daily="0 9 * * *",
+        weekly="0 9 * * 1",
+        monthly="0 9 1 * *",
     )
 
 
@@ -103,6 +112,7 @@ class BotContents:
                         'About: <a href="https://github.com/matyushinleonid/'
                         'sein-zum-tode">github</a>'
                     ),
+                    text_unsupported="Use /help to learn how to use the bot.",
                     group_unsupported="Group chats are not supported.",
                     scream_denied="You can't scream 🤷‍♂️",
                     notification=NotificationContent(
@@ -128,6 +138,17 @@ class BotContents:
                         custom_invalid="Custom notification schedule is invalid",
                         custom_too_frequent="Notifications cannot be sent more than daily",
                         custom_failed="Custom notification schedule failed",
+                        custom_interpretation="The model interpreted your request as:",
+                        custom_schedule="Applied schedule:",
+                        custom_cron="Cron",
+                        custom_description="Description",
+                        custom_timezone="Timezone",
+                        custom_next_notifications="Next notifications:",
+                        custom_disabled="Notifications are disabled.",
+                        custom_description_unavailable="Description unavailable.",
+                        custom_next_notifications_unavailable="Next times unavailable.",
+                        custom_unchanged="The schedule was not changed.",
+                        custom_change_hint="Use /notifications to change it.",
                         updated="Notifications: {frequency}",
                     ),
                     llm=LLMContent(limit_exhausted="LLM request limit exhausted"),
@@ -136,6 +157,7 @@ class BotContents:
                         mock="Mock prediction: {answers}",
                     ),
                     questionnaire=QuestionnaireContent(
+                        privacy_notice="Private answers are temporary.",
                         started="mock questionnaire started",
                         completed="thanks for your answers!",
                         deleted="your answers were deleted from our system",
@@ -151,6 +173,7 @@ class BotContents:
                         'О боте: <a href="https://github.com/matyushinleonid/'
                         'sein-zum-tode">github</a>'
                     ),
+                    text_unsupported="Нажмите /help, чтобы узнать, как пользоваться ботом.",
                     group_unsupported="Групповые чаты не поддерживаются.",
                     scream_denied="Ты не можешь кричать 🤷‍♂️",
                     notification=NotificationContent(
@@ -176,6 +199,17 @@ class BotContents:
                         custom_invalid="Расписание уведомлений некорректно",
                         custom_too_frequent="Уведомления нельзя присылать чаще раза в день",
                         custom_failed="Не удалось настроить расписание уведомлений",
+                        custom_interpretation="Модель интерпретировала запрос так:",
+                        custom_schedule="Установленное расписание:",
+                        custom_cron="Cron",
+                        custom_description="Описание",
+                        custom_timezone="Часовой пояс",
+                        custom_next_notifications="Ближайшие уведомления:",
+                        custom_disabled="Уведомления отключены.",
+                        custom_description_unavailable="Описание недоступно.",
+                        custom_next_notifications_unavailable="Даты недоступны.",
+                        custom_unchanged="Расписание не изменено.",
+                        custom_change_hint="Используйте /notifications, чтобы изменить его.",
                         updated="Уведомления: {frequency}",
                     ),
                     llm=LLMContent(limit_exhausted="Лимит LLM-запросов исчерпан"),
@@ -184,6 +218,7 @@ class BotContents:
                         mock="Тестовое предсказание: {answers}",
                     ),
                     questionnaire=QuestionnaireContent(
+                        privacy_notice="Ответы хранятся временно.",
                         started="Тестовая анкета начата",
                         completed="Спасибо за ваши ответы!",
                         deleted="Ваши ответы удалены из нашей системы",
