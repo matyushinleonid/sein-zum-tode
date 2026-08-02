@@ -3,6 +3,20 @@
 replicaCount: 1
 workerReplicaCount: 1
 
+metrics:
+  enabled: true
+  host: 0.0.0.0
+  port: 8000
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    additionalLabels:
+      release: kube-prometheus-stack
+  prometheusRule:
+    enabled: true
+    additionalLabels:
+      release: kube-prometheus-stack
+
 image:
   repository: cr.yandex/crp00000000000000000/sein-zum-tode
   tag: latest

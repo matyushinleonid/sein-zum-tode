@@ -768,3 +768,29 @@ async def test_cleans_both_ephemeral_payloads() -> None:
     assert payloads.events == [("delete", keys)], (
         "cleanup failed to delete both the update and response references"
     )
+
+
+async def test_propagates_an_ephemeral_payload_cleanup_failure() -> None:
+    failure = RuntimeError("redis cleanup failed 1523")
+    payloads = TelegramMemory(
+        update_result=None,
+        response_result=None,
+        store_result=None,
+        send_result=None,
+        delete_result=failure,
+    )
+    subject = CleanupTelegramPayloadsActivity(
+        cleaner=payloads,
+        logger=SilentLogger(),
+    )
+
+    with pytest.raises(RuntimeError) as raised:
+        await subject.cleanup(
+            CleanupPayloadsInput(
+                keys=("telegram:update:1517",),
+                update_key="telegram:update:1517",
+                user_id=151_701,
+            )
+        )
+
+    assert raised.value is failure, "cleanup swallowed the failure required for Activity retry"

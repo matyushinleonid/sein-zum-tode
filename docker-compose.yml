@@ -7,6 +7,8 @@ services:
       APP_NAME: ${APP_NAME:-sein-zum-tode-telegram-ingress}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: ${LOG_FORMAT:-console}
+      METRICS_HOST: 0.0.0.0
+      METRICS_PORT: 8000
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env}
       TELEGRAM_POLLING_TIMEOUT_SECONDS: ${TELEGRAM_POLLING_TIMEOUT_SECONDS:-30}
       TELEGRAM_REQUEST_TIMEOUT_SECONDS: ${TELEGRAM_REQUEST_TIMEOUT_SECONDS:-40}
@@ -24,6 +26,8 @@ services:
       REDIS_DATABASE: ${REDIS_DATABASE:-0}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
     restart: unless-stopped
+    ports:
+      - "${INGRESS_METRICS_FORWARD_PORT:-8000}:8000"
     depends_on:
       redis:
         condition: service_healthy
@@ -37,6 +41,8 @@ services:
       APP_NAME: ${APP_NAME:-sein-zum-tode-telegram-worker}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: ${LOG_FORMAT:-console}
+      METRICS_HOST: 0.0.0.0
+      METRICS_PORT: 8000
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env}
       TELEGRAM_ADMIN_USER_IDS: ${TELEGRAM_ADMIN_USER_IDS:-[162573173]}
       TELEGRAM_UPDATE_TTL_SECONDS: ${TELEGRAM_UPDATE_TTL_SECONDS:-3600}
@@ -70,6 +76,8 @@ services:
       POSTGRES_SSL: ${POSTGRES_SSL:-false}
       POSTGRES_PGBOUNCER: ${POSTGRES_PGBOUNCER:-false}
     restart: unless-stopped
+    ports:
+      - "${WORKER_METRICS_FORWARD_PORT:-8001}:8000"
     depends_on:
       redis:
         condition: service_healthy

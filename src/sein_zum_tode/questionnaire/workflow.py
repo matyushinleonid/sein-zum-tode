@@ -10,6 +10,8 @@ from sein_zum_tode.bot.models import (
     DELIVER_RESPONSE_ACTIVITY_NAME,
     CleanupPayloadsInput,
     DeliverResponseInput,
+    DeliveryKind,
+    PayloadKind,
 )
 from sein_zum_tode.bot.temporal_errors import is_telegram_recipient_unavailable
 from sein_zum_tode.mortals.activities import (
@@ -184,6 +186,7 @@ class TelegramQuestionnaireWorkflow:
                         response_key=response_key,
                         update_key=update_key,
                         user_id=self._user_id,
+                        delivery_kind=DeliveryKind.QUESTIONNAIRE,
                     ),
                     schedule_to_close_timeout=self._activity_timeout,
                 )
@@ -303,6 +306,7 @@ class TelegramQuestionnaireWorkflow:
                     keys=unique_keys,
                     update_key=self._active_update_key,
                     user_id=self._user_id,
+                    payload_kind=PayloadKind.QUESTIONNAIRE,
                 ),
                 schedule_to_close_timeout=self._activity_timeout,
             )

@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from hashlib import sha256
+from time import monotonic
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -13,6 +14,7 @@ from sein_zum_tode.notifications.ports import MortalSchedule
 from sein_zum_tode.observability import LogContext
 from sein_zum_tode.ports.clock import Clock
 from sein_zum_tode.ports.documents import DocumentStore, DocumentWriter
+from sein_zum_tode.ports.metrics import ApplicationMetrics, NoopApplicationMetrics
 from sein_zum_tode.prediction.models import DeathPredictionRequest, StoredDeathPrediction
 from sein_zum_tode.prediction.ports import DeathPredictor
 from sein_zum_tode.questionnaire.models import QuestionnaireState
@@ -55,6 +57,7 @@ class GenerateDeathPredictionActivity:
         ttl_seconds: int,
         clock: Clock | None = None,
         logger: logging.Logger | None = None,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._predictor = predictor
         self._predictions = predictions
@@ -63,6 +66,7 @@ class GenerateDeathPredictionActivity:
         self._ttl_seconds = ttl_seconds
         self._clock = clock or SystemClock()
         self._logger = logger or logging.getLogger(__name__)
+        self._metrics = metrics or NoopApplicationMetrics()
 
     @activity.defn(name=GENERATE_DEATH_PREDICTION_ACTIVITY_NAME)
     async def generate(self, input: GenerateDeathPredictionInput) -> None:
@@ -81,7 +85,23 @@ class GenerateDeathPredictionActivity:
                 locale=state.locale,
                 answers=state.prediction_answers(),
             )
-            prediction = await self._predictor.predict(request)
+            started = monotonic()
+            try:
+                prediction = await self._predictor.predict(request)
+            except Exception:
+                self._metrics.llm_request(
+                    use_case="death_prediction",
+                    provider=self._predictor.provider_name,
+                    outcome="failed",
+                    elapsed_seconds=monotonic() - started,
+                )
+                raise
+            self._metrics.llm_request(
+                use_case="death_prediction",
+                provider=self._predictor.provider_name,
+                outcome="success",
+                elapsed_seconds=monotonic() - started,
+            )
             stored = StoredDeathPrediction(
                 request_id=sha256(input.prediction_key.encode()).hexdigest(),
                 provider=self._predictor.provider_name,
@@ -115,6 +135,7 @@ class ApplyDeathPredictionActivity:
         responses: DocumentWriter[TelegramResponse],
         response_ttl_seconds: int,
         logger: logging.Logger | None = None,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._predictions = predictions
         self._mortals = mortals
@@ -122,6 +143,7 @@ class ApplyDeathPredictionActivity:
         self._responses = responses
         self._response_ttl_seconds = response_ttl_seconds
         self._logger = logger or logging.getLogger(__name__)
+        self._metrics = metrics or NoopApplicationMetrics()
 
     @activity.defn(name=APPLY_DEATH_PREDICTION_ACTIVITY_NAME)
     async def apply(self, input: ApplyDeathPredictionInput) -> None:
@@ -133,6 +155,7 @@ class ApplyDeathPredictionActivity:
                 non_retryable=True,
             )
         death_date = stored.death_date()
+        outcome = "accepted" if death_date is not None else "rejected"
         if death_date is not None:
             mortal = await self._mortals.set_death_date(input.user_id, death_date)
             await self._schedules.ensure(mortal)
@@ -141,13 +164,13 @@ class ApplyDeathPredictionActivity:
             TelegramResponse(chat_id=input.chat_id, text=stored.prediction.message),
             self._response_ttl_seconds,
         )
+        self._metrics.prediction(provider=stored.provider, outcome=outcome)
         self._logger.info(
             "Death prediction applied",
             extra=LogContext(component="worker", user_id=input.user_id).event(
                 "death_prediction_applied",
                 provider=stored.provider,
                 prediction_possible=stored.prediction.prediction_possible,
-                death_date=death_date.isoformat() if death_date is not None else None,
             ),
         )
 

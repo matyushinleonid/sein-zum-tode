@@ -62,6 +62,20 @@ class InterpreterDouble:
         return None
 
 
+class FailingInterpreter:
+    provider_name = "yandex"
+    consumes_quota = True
+
+    async def interpret(
+        self,
+        request: NotificationScheduleRequest,
+    ) -> NotificationScheduleProposal:
+        raise RuntimeError("schedule provider failed 4109")
+
+    async def close(self) -> None:
+        return None
+
+
 class ProposalMemory:
     def __init__(
         self,
@@ -116,6 +130,38 @@ def telegram(update: object = None) -> TelegramMemory:
         send_result=None,
         delete_result=None,
     )
+
+
+async def test_propagates_a_schedule_completion_failure_for_temporal_retry() -> None:
+    user_id = 410_009
+    update_key = "telegram:update:4109"
+    subject = GenerateCustomNotificationScheduleActivity(
+        interpreter=FailingInterpreter(),
+        proposals=ProposalMemory(),
+        updates=telegram(
+            TelegramUpdates.message(
+                update_id=4109,
+                user_id=user_id,
+                chat_id=user_id,
+                text="Every evening",
+                chat_type="private",
+            )
+        ).update_documents,
+        mortals=MortalMemory({user_id: mortal(id=user_id)}),
+        default_locale="en",
+        ttl_seconds=4111,
+        clock=FixedClock(),
+        logger=SilentLogger(),
+    )
+
+    with pytest.raises(RuntimeError, match="schedule provider failed"):
+        await subject.generate(
+            GenerateCustomNotificationScheduleInput(
+                update_key=update_key,
+                proposal_key=f"{update_key}:notification-schedule",
+                user_id=user_id,
+            )
+        )
 
 
 async def test_generates_once_with_locale_local_time_and_idempotent_global_quota() -> None:

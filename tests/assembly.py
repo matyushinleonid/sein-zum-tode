@@ -15,6 +15,8 @@ def explicit_settings() -> WorkerSettings:
         app_name="telegram-cosmos-1811",
         log_level="WARNING",
         log_format="json",
+        metrics_host="127.0.0.19",
+        metrics_port=8191,
         telegram_bot_token=SecretStr("181:irregular-token"),
         telegram_polling_timeout_seconds=43,
         telegram_request_timeout_seconds=59,
@@ -117,6 +119,14 @@ class WorkerResource:
         self.events.append(("worker.exit", exception_type))
 
 
+class MetricsServerResource:
+    def __init__(self, events: list[tuple[object, ...]]) -> None:
+        self._events = events
+
+    def close(self) -> None:
+        self._events.append(("metrics.close",))
+
+
 class IngressAssembly:
     def __init__(self) -> None:
         self.events: list[tuple[object, ...]] = []
@@ -125,6 +135,8 @@ class IngressAssembly:
         self.temporal = object()
         self.temporal_adapter = object()
         self.update_documents = object()
+        self.metrics = object()
+        self.metrics_registry = object()
 
     def install(self, monkeypatch: Any, module: Any) -> None:
         monkeypatch.setattr(module, "Bot", self.create_bot)
@@ -141,11 +153,36 @@ class IngressAssembly:
         monkeypatch.setattr(module, "TemporalUpdateHandoff", self.create_handoff)
         monkeypatch.setattr(module, "ExponentialRetryWaiter", self.create_waiter)
         monkeypatch.setattr(module, "TelegramPoller", self.create_poller)
+        monkeypatch.setattr(
+            module,
+            "PrometheusMetrics",
+            SimpleNamespace(create=self.create_metrics),
+        )
+        monkeypatch.setattr(
+            module,
+            "PrometheusHttpServer",
+            SimpleNamespace(start=self.start_metrics),
+        )
         monkeypatch.setattr(module, "install_signal_handlers", self.install_signals)
 
     def create_bot(self, *, token: str) -> BotResource:
         self.events.append(("bot", token))
         return self.bot
+
+    def create_metrics(self, *, component: str) -> tuple[object, object]:
+        self.events.append(("metrics", component))
+        return self.metrics, self.metrics_registry
+
+    def start_metrics(self, **options: object) -> MetricsServerResource:
+        self.events.append(
+            (
+                "metrics.start",
+                options["host"],
+                options["port"],
+                options["registry"] is self.metrics_registry,
+            )
+        )
+        return MetricsServerResource(self.events)
 
     def create_redis(self, **options: object) -> RedisResource:
         self.events.append(("redis", options))
@@ -217,7 +254,7 @@ class IngressAssembly:
         )
         return object()
 
-    def create_handoff(self, starter: object) -> object:
+    def create_handoff(self, starter: object, **options: object) -> object:
         self.events.append(("handoff", starter.__class__ is object))
         return object()
 
@@ -232,7 +269,7 @@ class IngressAssembly:
         return object()
 
     def create_poller(self, **options: object) -> PollerResource:
-        self.events.append(("poller", tuple(options)))
+        self.events.append(("poller", tuple(key for key in options if key != "metrics")))
         return PollerResource(self.events)
 
     def install_signals(self, stop_event: asyncio.Event) -> None:
@@ -327,6 +364,8 @@ class WorkerAssembly:
             openai=object(),
         )
         self.schedule_interpreter = ScheduleInterpreterResource(self.events)
+        self.metrics = object()
+        self.metrics_registry = object()
 
     def install(self, monkeypatch: Any, module: Any) -> None:
         monkeypatch.setattr(module, "Bot", self.create_bot)
@@ -443,11 +482,36 @@ class WorkerAssembly:
             self.create_notification_schedule_failure,
         )
         monkeypatch.setattr(module, "Worker", self.create_worker)
+        monkeypatch.setattr(
+            module,
+            "PrometheusMetrics",
+            SimpleNamespace(create=self.create_metrics),
+        )
+        monkeypatch.setattr(
+            module,
+            "PrometheusHttpServer",
+            SimpleNamespace(start=self.start_metrics),
+        )
         monkeypatch.setattr(module, "install_signal_handlers", self.install_signals)
 
     def create_bot(self, *, token: str) -> BotResource:
         self.events.append(("bot", token))
         return self.bot
+
+    def create_metrics(self, *, component: str) -> tuple[object, object]:
+        self.events.append(("metrics", component))
+        return self.metrics, self.metrics_registry
+
+    def start_metrics(self, **options: object) -> MetricsServerResource:
+        self.events.append(
+            (
+                "metrics.start",
+                options["host"],
+                options["port"],
+                options["registry"] is self.metrics_registry,
+            )
+        )
+        return MetricsServerResource(self.events)
 
     def create_redis(self, **options: object) -> RedisResource:
         self.events.append(("redis", options))
@@ -704,7 +768,7 @@ class WorkerAssembly:
         return self.notification_presenter
 
     def create_configure_notifications(self, **options: object) -> ActivityDefinitions:
-        self.events.append(("configure_notifications", tuple(options)))
+        self.events.append(("configure_notifications", self._without_metrics(options)))
         return ActivityDefinitions(("configure",))
 
     def create_configure_localization(self, **options: object) -> ActivityDefinitions:
@@ -712,11 +776,11 @@ class WorkerAssembly:
         return ActivityDefinitions(("configure",))
 
     def create_generate_prediction(self, **options: object) -> ActivityDefinitions:
-        self.events.append(("generate_prediction", tuple(options)))
+        self.events.append(("generate_prediction", self._without_metrics(options)))
         return ActivityDefinitions(("generate",))
 
     def create_apply_prediction(self, **options: object) -> ActivityDefinitions:
-        self.events.append(("apply_prediction", tuple(options)))
+        self.events.append(("apply_prediction", self._without_metrics(options)))
         return ActivityDefinitions(("apply",))
 
     def create_prediction_failure(self, **options: object) -> ActivityDefinitions:
@@ -727,14 +791,14 @@ class WorkerAssembly:
         self,
         **options: object,
     ) -> ActivityDefinitions:
-        self.events.append(("generate_notification_schedule", tuple(options)))
+        self.events.append(("generate_notification_schedule", self._without_metrics(options)))
         return ActivityDefinitions(("generate",))
 
     def create_apply_notification_schedule(
         self,
         **options: object,
     ) -> ActivityDefinitions:
-        self.events.append(("apply_notification_schedule", tuple(options)))
+        self.events.append(("apply_notification_schedule", self._without_metrics(options)))
         return ActivityDefinitions(("apply",))
 
     def create_notification_schedule_failure(
@@ -743,6 +807,9 @@ class WorkerAssembly:
     ) -> ActivityDefinitions:
         self.events.append(("notification_schedule_failure", tuple(options)))
         return ActivityDefinitions(("prepare",))
+
+    def _without_metrics(self, options: dict[str, object]) -> tuple[str, ...]:
+        return tuple(key for key in options if key != "metrics")
 
     def create_worker(
         self,

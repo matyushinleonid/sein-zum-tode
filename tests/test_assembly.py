@@ -96,6 +96,7 @@ async def test_assembles_and_closes_the_ingress_process(
 
     assert assembly.events == [
         ("signals", False),
+        ("metrics", "ingress"),
         ("bot", "181:irregular-token"),
         (
             "redis",
@@ -122,7 +123,9 @@ async def test_assembles_and_closes_the_ingress_process(
         ("handoff", True),
         ("waiter", 0.73, 18.29),
         ("poller", ("source", "store", "handoff", "retry_waiter")),
+        ("metrics.start", "127.0.0.19", 8191, True),
         ("poller.run", False),
+        ("metrics.close",),
         ("bot.close",),
         ("redis.close",),
     ], "ingress composition root wired wrong settings or leaked a client"
@@ -138,6 +141,7 @@ async def test_assembles_and_closes_the_temporal_worker(
 
     assert assembly.events == [
         ("signals", False),
+        ("metrics", "worker"),
         ("content_loader", Path("config/cosmos-content.yaml")),
         ("content.load",),
         ("prediction_config_loader", Path("config/death-prediction.yaml")),
@@ -331,8 +335,10 @@ async def test_assembles_and_closes_the_temporal_worker(
                 "activity:prepare",
             ),
         ),
+        ("metrics.start", "127.0.0.19", 8191, True),
         ("worker.enter",),
         ("worker.exit", None),
+        ("metrics.close",),
         ("predictor.close",),
         ("schedule_interpreter.close",),
         ("bot.close",),

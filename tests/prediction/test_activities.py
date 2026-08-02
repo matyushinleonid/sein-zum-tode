@@ -70,6 +70,17 @@ class PredictorDouble:
         return None
 
 
+class FailingPredictor:
+    provider_name = "yandex"
+    consumes_quota = True
+
+    async def predict(self, request: DeathPredictionRequest) -> DeathPrediction:
+        raise RuntimeError("prediction provider failed 3719")
+
+    async def close(self) -> None:
+        return None
+
+
 def completed_state() -> QuestionnaireState:
     content = BotContents.debug()
     state = QuestionnaireState.begin(
@@ -81,6 +92,29 @@ def completed_state() -> QuestionnaireState:
     )
     state = state.apply_answer(update_key="answer:1", text="Alpha").state
     return state.apply_answer(update_key="answer:2", text="Beta").state
+
+
+async def test_propagates_a_completion_failure_for_temporal_retry() -> None:
+    key = "questionnaire:3719"
+    state = completed_state()
+    subject = GenerateDeathPredictionActivity(
+        predictor=FailingPredictor(),
+        predictions=QuestionnaireMemory().prediction_repository,
+        questionnaires=QuestionnaireMemory(questionnaires={key: state}).questionnaire_repository,
+        mortals=MortalMemory({state.user_id: mortal(id=state.user_id)}),
+        ttl_seconds=3727,
+        clock=FixedClock(),
+        logger=SilentLogger(),
+    )
+
+    with pytest.raises(RuntimeError, match="prediction provider failed"):
+        await subject.generate(
+            GenerateDeathPredictionInput(
+                questionnaire_key=key,
+                prediction_key=f"{key}:prediction",
+                user_id=state.user_id,
+            )
+        )
 
 
 @pytest.mark.parametrize(

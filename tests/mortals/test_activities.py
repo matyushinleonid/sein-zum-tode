@@ -86,6 +86,7 @@ async def test_registers_a_mortal_and_restores_its_schedule() -> None:
     assert (actual, events) == (
         MortalRegistration(localization_required=True),
         [
+            ("get", 330_017),
             ("ensure", 330_017),
             ("ensure_schedule", mortal(id=330_017)),
         ],

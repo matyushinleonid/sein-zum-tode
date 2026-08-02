@@ -9,6 +9,8 @@ from sein_zum_tode.bot.models import (
     DELIVER_RESPONSE_ACTIVITY_NAME,
     CleanupPayloadsInput,
     DeliverResponseInput,
+    DeliveryKind,
+    PayloadKind,
 )
 from sein_zum_tode.bot.temporal_errors import is_telegram_recipient_unavailable
 from sein_zum_tode.mortals.activities import (
@@ -86,6 +88,7 @@ class MortalNotificationWorkflow:
                 DeliverResponseInput(
                     response_key=response_key,
                     user_id=mortal_id,
+                    delivery_kind=DeliveryKind.NOTIFICATION,
                 ),
                 schedule_to_close_timeout=activity_timeout,
             )
@@ -108,6 +111,7 @@ class MortalNotificationWorkflow:
                 CleanupPayloadsInput(
                     keys=(response_key,),
                     user_id=mortal_id,
+                    payload_kind=PayloadKind.NOTIFICATION,
                 ),
                 schedule_to_close_timeout=activity_timeout,
             )

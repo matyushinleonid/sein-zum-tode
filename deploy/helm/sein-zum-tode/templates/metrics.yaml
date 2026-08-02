@@ -1,0 +1,61 @@
+{{- if .Values.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sein-zum-tode.fullname" . }}-ingress-metrics
+  labels:
+    {{- include "sein-zum-tode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress
+    component: ingress
+    sein-zum-tode.io/metrics: "true"
+spec:
+  selector:
+    {{- include "sein-zum-tode.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress
+  ports:
+    - name: metrics
+      port: {{ .Values.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sein-zum-tode.fullname" . }}-worker-metrics
+  labels:
+    {{- include "sein-zum-tode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+    component: worker
+    sein-zum-tode.io/metrics: "true"
+spec:
+  selector:
+    {{- include "sein-zum-tode.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+  ports:
+    - name: metrics
+      port: {{ .Values.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+{{- if .Values.metrics.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "sein-zum-tode.fullname" . }}
+  labels:
+    {{- include "sein-zum-tode.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      sein-zum-tode.io/metrics: "true"
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+  targetLabels:
+    - component
+{{- end }}
+{{- end }}
