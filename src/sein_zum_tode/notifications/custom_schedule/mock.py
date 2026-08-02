@@ -3,10 +3,8 @@ from sein_zum_tode.notifications.custom_schedule.config import (
     MockNotificationScheduleConfig,
 )
 from sein_zum_tode.notifications.custom_schedule.models import (
-    CronChange,
     NotificationScheduleProposal,
     NotificationScheduleRequest,
-    TimezoneChange,
 )
 
 
@@ -34,15 +32,9 @@ class MockNotificationScheduleInterpreter:
     ) -> NotificationScheduleProposal:
         return NotificationScheduleProposal(
             understood=True,
-            cron=CronChange(
-                operation=self._config.cron_operation,
-                value=self._config.cron_expression,
-            ),
-            timezone=TimezoneChange(
-                operation=self._config.timezone_operation,
-                value=self._config.timezone,
-            ),
-            message=self._content.localized(request.locale).notification_settings.custom_mock,
+            cron=self._config.cron,
+            timezone=self._config.timezone or request.current_timezone,
+            explanation=self._content.localized(request.locale).notification_settings.custom_mock,
         )
 
     async def close(self) -> None:

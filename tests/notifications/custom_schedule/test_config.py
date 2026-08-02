@@ -8,10 +8,6 @@ from sein_zum_tode.notifications.custom_schedule.config import (
     NotificationScheduleConfigurationError,
     YamlNotificationScheduleConfigLoader,
 )
-from sein_zum_tode.notifications.custom_schedule.models import (
-    CronOperation,
-    TimezoneOperation,
-)
 
 pytestmark = pytest.mark.fast
 
@@ -31,9 +27,7 @@ provider: yandex
 minimum_interval_hours: 19
 system_prompt: Return a structured cron proposal
 mock:
-  cron_operation: set
-  cron_expression: "0 12 * * *"
-  timezone_operation: keep
+  cron: "0 12 * * *"
   timezone: null
 yandex:
   model: aliceai-llm
@@ -57,8 +51,8 @@ openai:
         actual.default_timezone,
         actual.default_cron(),
         actual.minimum_interval_hours,
-        actual.mock.cron_operation,
-        actual.mock.timezone_operation,
+        actual.mock.cron,
+        actual.mock.timezone,
         actual.yandex.max_tokens,
         actual.openai.reasoning_effort,
     ) == (
@@ -66,8 +60,8 @@ openai:
         "Asia/Tokyo",
         "19 9 * * 2",
         19,
-        CronOperation.SET,
-        TimezoneOperation.KEEP,
+        "0 12 * * *",
+        None,
         701,
         "high",
     )
@@ -101,8 +95,7 @@ provider: mock
 minimum_interval_hours: 20
 system_prompt: Prompt
 mock:
-  cron_operation: keep
-  timezone_operation: keep
+  timezone: Europe/Moscow
 yandex: {model: a, model_version: latest}
 openai: {model: b}
 """,
@@ -110,8 +103,7 @@ openai: {model: b}
 provider: mock
 system_prompt: Prompt
 mock:
-  cron_operation: set
-  timezone_operation: keep
+  cron: ""
 yandex: {model: a, model_version: latest}
 openai: {model: b}
 """,
@@ -119,8 +111,8 @@ openai: {model: b}
 provider: mock
 system_prompt: Prompt
 mock:
-  cron_operation: disable
-  timezone_operation: set
+  cron: "0 12 * * *"
+  timezone: ""
 yandex: {model: a, model_version: latest}
 openai: {model: b}
 """,
@@ -169,9 +161,7 @@ provider: mock
 minimum_interval_hours: 20
 system_prompt: Prompt
 mock:
-  cron_operation: set
-  cron_expression: "0 12 * * *"
-  timezone_operation: keep
+  cron: "0 12 * * *"
   timezone: null
 yandex: {{model: a, model_version: latest}}
 openai: {{model: b}}

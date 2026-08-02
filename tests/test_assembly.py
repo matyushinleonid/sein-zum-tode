@@ -21,10 +21,6 @@ from sein_zum_tode.notifications.custom_schedule.config import (
     NotificationScheduleConfig,
     NotificationScheduleConfigurationError,
 )
-from sein_zum_tode.notifications.custom_schedule.models import (
-    CronOperation,
-    TimezoneOperation,
-)
 from sein_zum_tode.notifications.models import NotificationFrequency
 from sein_zum_tode.prediction.config import (
     DeathPredictionConfig,
@@ -75,9 +71,7 @@ def notification_schedule_config(
         minimum_interval_hours=20,
         system_prompt="Return a localized structured schedule",
         mock=MockNotificationScheduleConfig(
-            cron_operation=CronOperation.SET,
-            cron_expression="0 12 * * *",
-            timezone_operation=TimezoneOperation.KEEP,
+            cron="0 12 * * *",
             timezone=None,
         ),
         yandex=YandexCompletionConfig(

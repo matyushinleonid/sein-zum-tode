@@ -44,7 +44,7 @@ class DeathPrediction(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     prediction_possible: bool
-    days_left: int | None = Field(default=None, ge=0)
+    days_left: int | None = Field(ge=0)
     message: str = Field(min_length=1)
 
     @model_validator(mode="after")

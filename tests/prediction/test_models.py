@@ -13,6 +13,14 @@ from sein_zum_tode.prediction.models import (
 pytestmark = pytest.mark.fast
 
 
+def test_requires_every_death_prediction_field_in_the_structured_output_schema() -> None:
+    assert set(DeathPrediction.model_json_schema()["required"]) == {
+        "prediction_possible",
+        "days_left",
+        "message",
+    }, "Yandex structured output requires nullable fields to remain explicitly required"
+
+
 def test_builds_a_dated_localized_questionnaire_prompt() -> None:
     request = DeathPredictionRequest(
         current_date=date(2026, 7, 30),

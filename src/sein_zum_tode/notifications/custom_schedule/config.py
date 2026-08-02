@@ -12,11 +12,7 @@ from sein_zum_tode.infrastructure.completion_config import (
     OpenAICompletionConfig,
     YandexCompletionConfig,
 )
-from sein_zum_tode.notifications.custom_schedule.models import (
-    CronOperation,
-    NotificationScheduleSettings,
-    TimezoneOperation,
-)
+from sein_zum_tode.notifications.custom_schedule.models import NotificationScheduleSettings
 from sein_zum_tode.notifications.custom_schedule.validation import (
     NotificationScheduleValidator,
 )
@@ -43,23 +39,8 @@ class NotificationPresets(BaseModel):
 class MockNotificationScheduleConfig(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    cron_operation: CronOperation
-    cron_expression: str | None = Field(default=None, min_length=1, max_length=128)
-    timezone_operation: TimezoneOperation
+    cron: str | None = Field(min_length=1, max_length=128)
     timezone: str | None = Field(default=None, min_length=1, max_length=64)
-
-    @model_validator(mode="after")
-    def validate_changes(self) -> Self:
-        if (self.cron_operation == CronOperation.SET) != (self.cron_expression is not None):
-            raise ValueError("mock cron_expression must be present exactly for the set operation")
-        if (self.timezone_operation == TimezoneOperation.SET) != (self.timezone is not None):
-            raise ValueError("mock timezone must be present exactly for the set operation")
-        if (
-            self.cron_operation == CronOperation.KEEP
-            and self.timezone_operation == TimezoneOperation.KEEP
-        ):
-            raise ValueError("mock notification schedule must change a setting")
-        return self
 
 
 class NotificationScheduleConfig(BaseModel):
