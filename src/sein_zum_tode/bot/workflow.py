@@ -17,7 +17,6 @@ from sein_zum_tode.bot.models import (
     PREPARE_LOCALIZATION_ACTIVITY_NAME,
     PREPARE_NOTIFICATIONS_ACTIVITY_NAME,
     PREPARE_SCREAM_DENIED_ACTIVITY_NAME,
-    PREPARE_UNSUPPORTED_ACTIVITY_NAME,
     TELEGRAM_UPDATE_SIGNAL_NAME,
     TELEGRAM_USER_WORKFLOW_NAME,
     CleanupPayloadsInput,
@@ -67,10 +66,13 @@ from sein_zum_tode.questionnaire.models import (
     QuestionnaireWorkflowInput,
 )
 from sein_zum_tode.questionnaire.workflow import TelegramQuestionnaireWorkflow
+from sein_zum_tode.unsupported.models import (
+    PREPARE_UNSUPPORTED_ACTIVITY_NAME,
+    UnsupportedResponsePreparation,
+)
 
 RECENT_UPDATE_KEYS_LIMIT = 256
 PREPARE_ACTIVITY_NAMES = {
-    InspectionKind.TEXT: PREPARE_UNSUPPORTED_ACTIVITY_NAME,
     InspectionKind.HELP: PREPARE_HELP_ACTIVITY_NAME,
     InspectionKind.ABOUT: PREPARE_ABOUT_ACTIVITY_NAME,
     InspectionKind.LOCALIZATION: PREPARE_LOCALIZATION_ACTIVITY_NAME,
@@ -81,8 +83,11 @@ PREPARE_ACTIVITY_NAMES = {
     InspectionKind.LIMIT_EXHAUSTED: PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
     InspectionKind.GROUP_UNSUPPORTED: PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
     InspectionKind.SCREAM_DENIED: PREPARE_SCREAM_DENIED_ACTIVITY_NAME,
-    InspectionKind.SCREAM_UNSUPPORTED: PREPARE_UNSUPPORTED_ACTIVITY_NAME,
-    InspectionKind.UNSUPPORTED: PREPARE_UNSUPPORTED_ACTIVITY_NAME,
+}
+UNSUPPORTED_INSPECTION_KINDS = {
+    InspectionKind.TEXT,
+    InspectionKind.SCREAM_UNSUPPORTED,
+    InspectionKind.UNSUPPORTED,
 }
 
 
@@ -280,20 +285,34 @@ class TelegramUserWorkflow:
                 user_id=self._user_id,
                 callback_query_id=inspected.callback_query_id,
             )
-            await workflow.execute_activity(
-                self._prepare_activity_name(inspected.kind),
-                prepare_input,
-                schedule_to_close_timeout=self._activity_timeout,
-            )
-            await workflow.execute_activity(
-                DELIVER_RESPONSE_ACTIVITY_NAME,
-                DeliverResponseInput(
-                    response_key=response_key,
-                    update_key=update_key,
-                    user_id=self._user_id,
-                ),
-                schedule_to_close_timeout=self._activity_timeout,
-            )
+            response_prepared = True
+            if inspected.kind in UNSUPPORTED_INSPECTION_KINDS:
+                preparation = cast(
+                    UnsupportedResponsePreparation,
+                    await workflow.execute_activity(
+                        PREPARE_UNSUPPORTED_ACTIVITY_NAME,
+                        prepare_input,
+                        result_type=UnsupportedResponsePreparation,
+                        schedule_to_close_timeout=self._activity_timeout,
+                    ),
+                )
+                response_prepared = preparation.response_prepared
+            else:
+                await workflow.execute_activity(
+                    self._prepare_activity_name(inspected.kind),
+                    prepare_input,
+                    schedule_to_close_timeout=self._activity_timeout,
+                )
+            if response_prepared:
+                await workflow.execute_activity(
+                    DELIVER_RESPONSE_ACTIVITY_NAME,
+                    DeliverResponseInput(
+                        response_key=response_key,
+                        update_key=update_key,
+                        user_id=self._user_id,
+                    ),
+                    schedule_to_close_timeout=self._activity_timeout,
+                )
         except ActivityError as error:
             if self._recipient_unavailable(error):
                 recipient_available = False

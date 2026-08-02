@@ -23,7 +23,6 @@ from sein_zum_tode.bot.models import (
     PREPARE_LOCALIZATION_ACTIVITY_NAME,
     PREPARE_NOTIFICATIONS_ACTIVITY_NAME,
     PREPARE_SCREAM_DENIED_ACTIVITY_NAME,
-    PREPARE_UNSUPPORTED_ACTIVITY_NAME,
     CleanupPayloadsInput,
     DeliverResponseInput,
     InspectedUpdate,
@@ -352,10 +351,6 @@ class PrepareTelegramResponseActivities:
             InspectionKind.LIMIT_EXHAUSTED,
             localized.llm.limit_exhausted,
         )
-
-    @activity.defn(name=PREPARE_UNSUPPORTED_ACTIVITY_NAME)
-    async def prepare_unsupported(self, input: PrepareResponseInput) -> None:
-        await self._prepare_localized(input, InspectionKind.UNSUPPORTED, "unsupported")
 
     @activity.defn(name=PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME)
     async def prepare_group_unsupported(self, input: PrepareResponseInput) -> None:

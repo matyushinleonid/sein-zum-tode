@@ -55,6 +55,7 @@ class Settings(BaseSettings):
 
 class WorkerSettings(Settings):
     telegram_admin_user_ids: frozenset[int] = frozenset({162573173})
+    unsupported_update_session_ttl_seconds: int = Field(default=3600, ge=1)
     postgres_host: str = "localhost"
     postgres_port: int = Field(default=5432, ge=1, le=65535)
     postgres_database: str = "sein_zum_tode"
@@ -70,3 +71,15 @@ class WorkerSettings(Settings):
     socks5_proxy_port: int | None = Field(default=None, ge=1, le=65535)
     socks5_proxy_username: str | None = None
     socks5_proxy_password: SecretStr | None = None
+
+    @model_validator(mode="after")
+    def validate_unsupported_session_retry_timeout(self) -> Self:
+        if (
+            self.temporal_activity_retry_timeout_seconds
+            >= self.unsupported_update_session_ttl_seconds
+        ):
+            raise ValueError(
+                "TEMPORAL_ACTIVITY_RETRY_TIMEOUT_SECONDS must be less than "
+                "UNSUPPORTED_UPDATE_SESSION_TTL_SECONDS"
+            )
+        return self

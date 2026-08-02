@@ -1,0 +1,1 @@
+"""Unsupported Telegram update handling."""

@@ -19,6 +19,10 @@ from sein_zum_tode.bot.content import (
     YamlBotContentLoader,
 )
 from sein_zum_tode.bot.errors import ContentConfigurationError
+from sein_zum_tode.unsupported.models import (
+    VISUALLY_EMPTY_TELEGRAM_MESSAGE,
+    UnsupportedUpdateContent,
+)
 
 pytestmark = pytest.mark.fast
 
@@ -40,7 +44,6 @@ def localized_content(
     return LocalizedBotContent(
         help="Navigate",
         about="About",
-        unsupported="Unsupported",
         group_unsupported="Groups unsupported",
         scream_denied="Scream denied",
         notification=notification
@@ -87,6 +90,10 @@ def test_loads_versioned_localized_bot_content_from_yaml(tmp_path: Path) -> None
         """
 version: stellar-v7
 default_locale: en
+unsupported_updates:
+  initial_silence_count: 2
+  stanzas:
+    - ["First line", "Second line"]
 notification_decoration:
   probability: 0.1
   rtl_walk_ids: ["127"]
@@ -98,7 +105,6 @@ locales:
   en:
     help: Navigate by the constellations
     about: About the constellations
-    unsupported: Unsupported
     group_unsupported: Groups unsupported
     scream_denied: Scream denied
     notification:
@@ -145,11 +151,13 @@ locales:
         actual.default().help,
         actual.default().notification.default.render(17, "other"),
         actual.default().questionnaire.questions,
+        actual.unsupported_updates.messages(),
     ) == (
         "stellar-v7",
         "Navigate by the constellations",
         "Days left: 17",
         (QuestionContent(id="star", text="Which star?"),),
+        ("First line", "Second line", VISUALLY_EMPTY_TELEGRAM_MESSAGE),
     ), "YAML loading changed the configured version, locale, or questions"
 
 
@@ -180,6 +188,10 @@ def test_rejects_a_default_locale_without_content() -> None:
         BotContent(
             version="stellar-v11",
             default_locale="ru",
+            unsupported_updates=UnsupportedUpdateContent(
+                initial_silence_count=1,
+                stanzas=(("Decay",),),
+            ),
             notification_decoration=notification_decoration(),
             locales={"en": localized},
         )
@@ -307,6 +319,10 @@ def test_falls_back_to_default_content_for_an_unknown_locale() -> None:
     content = BotContent(
         version="stellar-v13",
         default_locale="en",
+        unsupported_updates=UnsupportedUpdateContent(
+            initial_silence_count=1,
+            stanzas=(("Decay",),),
+        ),
         notification_decoration=notification_decoration(),
         locales={"en": localized_content()},
     )

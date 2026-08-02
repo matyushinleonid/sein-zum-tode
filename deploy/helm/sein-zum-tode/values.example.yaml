@@ -25,17 +25,17 @@ application:
   logFormat: json
   temporalActivityRetryTimeoutSeconds: 300
   questionnaireTtlSeconds: 3600
+  unsupportedUpdateSessionTtlSeconds: 3600
   telegramAdminUserIds:
     - 162573173
 
 botContent:
-  version: production-v3
+  version: production-v4
   default_locale: en
   locales:
     en:
       help: Show available commands. Use /localization to change language.
       about: 'About this bot: <a href="https://github.com/matyushinleonid/sein-zum-tode">github</a>'
-      unsupported: Use /help to learn how to use the bot
       group_unsupported: Group chats are not supported. Please message me directly.
       scream_denied: You can't scream 🤷‍♂️
       notification:
@@ -100,7 +100,6 @@ botContent:
     ru:
       help: Показать доступные команды. Используйте /localization, чтобы изменить язык.
       about: 'О боте: <a href="https://github.com/matyushinleonid/sein-zum-tode">github</a>'
-      unsupported: Нажмите /help, чтобы узнать, как пользоваться ботом
       group_unsupported: Групповые чаты не поддерживаются. Напишите боту напрямую.
       scream_denied: Ты не можешь кричать 🤷‍♂️
       notification:

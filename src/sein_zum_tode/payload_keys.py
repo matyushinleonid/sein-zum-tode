@@ -46,3 +46,12 @@ class MortalNotificationPayloadKeys:
 
     def response(self) -> str:
         return f"telegram:notification:{self.mortal_id}:{self.run_id}:response"
+
+
+@dataclass(frozen=True, slots=True)
+class UnsupportedUpdatePayloadKey:
+    bot_id: int
+    user_id: int
+
+    def session(self) -> str:
+        return f"telegram:unsupported:{self.bot_id}:{self.user_id}"

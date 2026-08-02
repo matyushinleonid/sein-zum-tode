@@ -102,6 +102,8 @@ from sein_zum_tode.questionnaire.activities import (
 from sein_zum_tode.questionnaire.models import QuestionnaireState
 from sein_zum_tode.questionnaire.workflow import TelegramQuestionnaireWorkflow
 from sein_zum_tode.runtime import install_signal_handlers
+from sein_zum_tode.unsupported.activities import PrepareUnsupportedResponseActivity
+from sein_zum_tode.unsupported.models import UnsupportedUpdateSession
 
 
 def create_death_predictor(
@@ -314,6 +316,11 @@ async def run(settings: WorkerSettings) -> None:
         codec=PydanticJsonCodec(model=StoredNotificationScheduleProposal),
         document_name="notification schedule proposal",
     )
+    unsupported_update_sessions = RedisJsonDocumentStore(
+        redis=redis,
+        codec=PydanticJsonCodec(model=UnsupportedUpdateSession),
+        document_name="unsupported Telegram update session",
+    )
     cleaner = RedisKeyCleaner(redis)
     postgres = PostgresClient.create(
         host=settings.postgres_host,
@@ -347,6 +354,14 @@ async def run(settings: WorkerSettings) -> None:
         ttl_seconds=settings.telegram_update_ttl_seconds,
         content=content,
         mortals=mortals,
+    )
+    prepare_unsupported = PrepareUnsupportedResponseActivity(
+        sessions=unsupported_update_sessions,
+        responses=response_documents,
+        content=content.unsupported_updates,
+        bot_id=bot.id,
+        session_ttl_seconds=settings.unsupported_update_session_ttl_seconds,
+        response_ttl_seconds=settings.telegram_update_ttl_seconds,
     )
     start_questionnaire = StartTelegramQuestionnaireActivity(
         content=content,
@@ -471,7 +486,7 @@ async def run(settings: WorkerSettings) -> None:
             prepare.prepare_notifications,
             prepare.prepare_custom_notification,
             prepare.prepare_limit_exhausted,
-            prepare.prepare_unsupported,
+            prepare_unsupported.prepare_unsupported,
             prepare.prepare_group_unsupported,
             prepare.prepare_scream_denied,
             start_questionnaire.start,

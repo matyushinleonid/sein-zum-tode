@@ -30,7 +30,6 @@ from sein_zum_tode.bot.models import (
     PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
     PREPARE_LOCALIZATION_ACTIVITY_NAME,
     PREPARE_SCREAM_DENIED_ACTIVITY_NAME,
-    PREPARE_UNSUPPORTED_ACTIVITY_NAME,
     TELEGRAM_UPDATE_SIGNAL_NAME,
     TELEGRAM_USER_WORKFLOW_NAME,
     CleanupPayloadsInput,
@@ -76,6 +75,12 @@ from sein_zum_tode.questionnaire.models import (
     QuestionnaireWorkflowInput,
 )
 from sein_zum_tode.questionnaire.workflow import TelegramQuestionnaireWorkflow
+from sein_zum_tode.unsupported.activities import PrepareUnsupportedResponseActivity
+from sein_zum_tode.unsupported.models import (
+    PREPARE_UNSUPPORTED_ACTIVITY_NAME,
+    UnsupportedResponsePreparation,
+    UnsupportedUpdateContent,
+)
 from tests.support import (
     TEST_TIMEOUT_SECONDS,
     BotContents,
@@ -83,6 +88,7 @@ from tests.support import (
     SilentLogger,
     TelegramMemory,
     TelegramUpdates,
+    UnsupportedSessionMemory,
     mortal,
 )
 
@@ -179,6 +185,7 @@ class ActivityTranscript:
         localization_required: bool = False,
         scream_requests: dict[str, ScreamRequest] | None = None,
         failing_custom_schedule: bool = False,
+        silent_unsupported_updates: set[str] | None = None,
     ) -> None:
         self.inspections = inspections
         self.failing_inspection = failing_inspection
@@ -192,6 +199,7 @@ class ActivityTranscript:
         self.localization_required = localization_required
         self.scream_requests = dict(scream_requests or {})
         self.failing_custom_schedule = failing_custom_schedule
+        self.silent_unsupported_updates = silent_unsupported_updates or set()
         self.events: list[tuple[str, str, int | None]] = []
         self.changed = asyncio.Event()
         self.inspection_started = asyncio.Event()
@@ -237,7 +245,10 @@ class ActivityTranscript:
         )
 
     @activity.defn(name=PREPARE_UNSUPPORTED_ACTIVITY_NAME)
-    async def prepare_unsupported(self, input: PrepareResponseInput) -> None:
+    async def prepare_unsupported(
+        self,
+        input: PrepareResponseInput,
+    ) -> UnsupportedResponsePreparation:
         self.record(
             operation="prepare_unsupported",
             update_key=input.update_key,
@@ -245,6 +256,9 @@ class ActivityTranscript:
         )
         if input.update_key == self.failing_response:
             raise ApplicationError("response rejected", non_retryable=True)
+        return UnsupportedResponsePreparation(
+            response_prepared=input.update_key not in self.silent_unsupported_updates
+        )
 
     @activity.defn(name=PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME)
     async def prepare_group_unsupported(self, input: PrepareResponseInput) -> None:
@@ -440,8 +454,14 @@ class ActivityRouter:
         await self.selected("prepare_localization")(input)
 
     @activity.defn(name=PREPARE_UNSUPPORTED_ACTIVITY_NAME)
-    async def prepare_unsupported(self, input: PrepareResponseInput) -> None:
-        await self.selected("prepare_unsupported")(input)
+    async def prepare_unsupported(
+        self,
+        input: PrepareResponseInput,
+    ) -> UnsupportedResponsePreparation:
+        return cast(
+            UnsupportedResponsePreparation,
+            await self.selected("prepare_unsupported")(input),
+        )
 
     @activity.defn(name=PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME)
     async def prepare_group_unsupported(self, input: PrepareResponseInput) -> None:
@@ -734,6 +754,30 @@ async def test_routes_unique_signals_through_the_complete_pipeline(
             ("deliver", "redis:group:1753", 173_357),
             ("cleanup", "redis:group:1753", 173_357),
         ], "workflow duplicated a signal or selected an incorrect Activity pipeline"
+
+
+async def test_cleans_a_silent_unsupported_update_without_delivering_it(
+    workflow_worker_pool: WorkflowWorkerPool,
+) -> None:
+    update_key = "redis:silent-unsupported:17531"
+    transcript = ActivityTranscript(
+        inspections={update_key: InspectionKind.UNSUPPORTED},
+        failing_inspection=None,
+        failing_cleanup=False,
+        silent_unsupported_updates={update_key},
+    )
+    async with await WorkflowStory.open(
+        pool=workflow_worker_pool,
+        activities=transcript.definitions(),
+    ) as story:
+        await story.start(update_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+
+    assert transcript.events == [
+        ("inspect", update_key, 173_357),
+        ("prepare_unsupported", update_key, 173_357),
+        ("cleanup", update_key, 173_357),
+    ], "workflow delivered a Telegram message for a silent unsupported update"
 
 
 async def test_denies_a_non_admin_scream_through_the_normal_response_pipeline(
@@ -1443,6 +1487,19 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
         mortals=MortalMemory({173_357: mortal(id=173_357)}),
         logger=SilentLogger(),
     )
+    unsupported_sessions = UnsupportedSessionMemory()
+    prepare_unsupported = PrepareUnsupportedResponseActivity(
+        sessions=unsupported_sessions,
+        responses=telegram.response_documents,
+        content=UnsupportedUpdateContent(
+            initial_silence_count=10,
+            stanzas=(("Decay remembers nothing",),),
+        ),
+        bot_id=1801,
+        session_ttl_seconds=1807,
+        response_ttl_seconds=1801,
+        logger=SilentLogger(),
+    )
     deliver = DeliverTelegramResponseActivity(
         response_reader=telegram.response_documents,
         sender=telegram,
@@ -1460,7 +1517,7 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
     definitions: Sequence[Callable[..., object]] = [
         inspect.inspect,
         prepare.prepare_help,
-        prepare.prepare_unsupported,
+        prepare_unsupported.prepare_unsupported,
         prepare.prepare_group_unsupported,
         deliver.deliver,
         cleanup.cleanup,
@@ -1472,10 +1529,7 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
         activities=definitions,
     ) as story:
         handle = await story.start("telegram:updates:1801:1789", continue_after=None)
-        await asyncio.wait_for(
-            telegram.sent.wait(),
-            timeout=TEST_TIMEOUT_SECONDS,
-        )
+        await asyncio.wait_for(telegram.deleted.wait(), timeout=TEST_TIMEOUT_SECONDS)
         history = await handle.fetch_history()
         telegram.update_result = TelegramUpdates.membership(
             update_id=1801,
@@ -1491,15 +1545,11 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
         await handle.result()
 
     assert (
-        (
-            "send_text",
-            179_297,
-            "Use /help to learn how to use the bot",
-        )
-        in telegram.events,
+        all(event[0] != "send_text" for event in telegram.events),
+        unsupported_sessions.sessions["telegram:unsupported:1801:173357"].ignored_updates,
         all(secret not in str(event) for event in telegram.events),
         secret not in json.dumps(history.to_json_dict()),
-    ) == (True, True, True), "plain text was returned or persisted in Temporal history"
+    ) == (True, 1, True, True), "plain text was returned or persisted in Temporal history"
 
 
 async def test_skips_processing_when_mortal_registration_fails(
