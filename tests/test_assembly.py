@@ -293,6 +293,7 @@ async def test_assembles_and_closes_the_temporal_worker(
             ("mortals", "responses", "content", "response_ttl_seconds"),
         ),
         ("prepare_notification", True, True, True, 1823),
+        ("prepare_notification_sample", True, True, True, True, 1823),
         (
             "worker",
             True,
@@ -325,6 +326,7 @@ async def test_assembles_and_closes_the_temporal_worker(
                 "activity:has_quota",
                 "activity:mark_unreachable",
                 "activity:delete_schedule",
+                "activity:prepare",
                 "activity:prepare",
                 "activity:configure",
                 "activity:configure",

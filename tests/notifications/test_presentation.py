@@ -3,18 +3,23 @@ import pytest
 from sein_zum_tode.bot.content import (
     BotContent,
     NotificationContent,
-    NotificationDecorationContent,
+    NotificationEmojiPool,
+    NotificationMedia,
+    NotificationMediaKind,
+    NotificationMythicVariant,
     NotificationNumberStyle,
     NotificationTextForms,
     NotificationTextStyle,
     NotificationTextVariant,
+    NotificationTier,
 )
+from sein_zum_tode.bot.models import TelegramAttachment, TelegramAttachmentKind
 from sein_zum_tode.notifications.models import RenderedNotification
 from sein_zum_tode.notifications.presentation import (
     NotificationMessagePresenter,
     StableNotificationRandomizer,
 )
-from tests.support import BotContents, NumberSpellerMemory
+from tests.support import BotContents, NumberSpellerMemory, notification_rewards
 
 pytestmark = pytest.mark.fast
 
@@ -23,10 +28,10 @@ class RandomizerMemory:
     def __init__(
         self,
         *,
-        values: dict[str, float],
+        values: dict[str, float] | None = None,
         indexes: dict[str, int] | None = None,
     ) -> None:
-        self.values = values
+        self.values = values or {}
         self.indexes = indexes or {}
         self.events: list[tuple[object, ...]] = []
 
@@ -46,32 +51,43 @@ def notification_content() -> NotificationContent:
         many="Осталось {days_left} дней",
         other="Осталось {days_left} дня",
     )
-    haunting = NotificationTextForms(
-        one="Остался {days_left} день. Игнорировать всё сложнее",
-        few="Осталось {days_left} дня. Игнорировать всё сложнее",
-        many="Осталось {days_left} дней. Игнорировать всё сложнее",
-        other="Осталось {days_left} дня. Игнорировать всё сложнее",
-    )
     return NotificationContent(
         default=NotificationTextForms(other="Осталось дней: {days_left}"),
-        variants=(
-            NotificationTextVariant(id="natural", probability=0.5, text=natural),
-            NotificationTextVariant(id="haunting", probability=0.01, text=haunting),
+        natural=natural,
+        epic=(
+            NotificationTextVariant(
+                id="haunting",
+                text=NotificationTextForms(
+                    other="Осталось {days_left} дней. Игнорировать всё сложнее"
+                ),
+            ),
             NotificationTextVariant(
                 id="witch_house",
-                probability=0.01,
                 text=natural,
                 style=NotificationTextStyle.WITCH_HOUSE,
             ),
             NotificationTextVariant(
                 id="words",
-                probability=0.01,
                 text=natural,
                 number_style=NotificationNumberStyle.WORDS,
             ),
             NotificationTextVariant(
                 id="witch_house_words",
-                probability=0.01,
+                text=natural,
+                style=NotificationTextStyle.WITCH_HOUSE,
+                number_style=NotificationNumberStyle.WORDS,
+            ),
+        ),
+        mythic=(
+            NotificationMythicVariant(
+                id="stupa",
+                media=NotificationMedia(
+                    kind=NotificationMediaKind.AUDIO,
+                    url="https://example.com/stupa.mp3",
+                ),
+            ),
+            NotificationMythicVariant(
+                id="mythic_words",
                 text=natural,
                 style=NotificationTextStyle.WITCH_HOUSE,
                 number_style=NotificationNumberStyle.WORDS,
@@ -80,178 +96,321 @@ def notification_content() -> NotificationContent:
     )
 
 
-def content(
-    *,
-    decoration_probability: float,
-    notification: NotificationContent | None = None,
-) -> BotContent:
+def content() -> BotContent:
     original = BotContents.debug()
-    russian = original.localized("ru").model_copy(
-        update={"notification": notification or notification_content()}
-    )
+    russian = original.localized("ru").model_copy(update={"notification": notification_content()})
+    rewards = notification_rewards()
     return original.model_copy(
         update={
-            "notification_decoration": NotificationDecorationContent(
-                probability=decoration_probability,
-                rtl_walk_ids=("11", "13"),
-                ltr_walk_ids=("17", "19"),
-                rtl_arrow_ids=("23", "29"),
-                ltr_arrow_ids=("31", "37"),
-                dead_ids=("41", "43"),
+            "notification_rewards": rewards.model_copy(
+                update={
+                    "lucky": NotificationEmojiPool(
+                        probability=0.1,
+                        prelude="🍀 Lucky!",
+                        rtl_walk_ids=("11",),
+                        ltr_walk_ids=("17",),
+                        rtl_arrow_ids=("23",),
+                        ltr_arrow_ids=("31",),
+                        dead_ids=("41",),
+                        rtl_walk_emoji=("🏃",),
+                        ltr_walk_emoji=("🚀",),
+                        rtl_arrow_emoji=("👈",),
+                        ltr_arrow_emoji=("➡️",),
+                        dead_emoji=("☠️",),
+                    ),
+                    "rare": NotificationEmojiPool(
+                        probability=0.05,
+                        prelude="✨ Rare!",
+                        rtl_walk_ids=("13",),
+                        ltr_walk_ids=("19",),
+                        rtl_arrow_ids=("29",),
+                        ltr_arrow_ids=("37",),
+                        dead_ids=("43",),
+                    ),
+                }
             ),
             "locales": {"en": original.localized("en"), "ru": russian},
         }
     )
 
 
-@pytest.mark.parametrize(
-    ("draw", "expected_variant", "expected_text"),
-    [
-        (0.1, "natural", "Осталось 120 дней"),
-        (0.505, "haunting", "Осталось 120 дней. Игнорировать всё сложнее"),
-        (0.515, "witch_house", "Ωϲŧλлωϲь 120 δнξй"),
-        (0.525, "words", "Осталось сто двадцать дней"),
-        (0.535, "witch_house_words", "Ωϲŧλлωϲь ϲŧω δвλδцλŧь δнξй"),
-        (0.9, None, "Осталось дней: 120"),
-    ],
-)
-def test_selects_one_configured_text_variant_or_the_default(
-    draw: float,
-    expected_variant: str | None,
-    expected_text: str,
-) -> None:
-    speller = NumberSpellerMemory(words={(120, "ru"): "сто двадцать"})
-    subject = NotificationMessagePresenter(
-        content=content(decoration_probability=0),
-        number_speller=speller,
-        randomizer=RandomizerMemory(
-            values={"text_variant": draw, "decoration": 0.99},
-        ),
-    )
-
-    actual = subject.render(locale="ru", days_left=120, seed="response-120")
-
-    assert actual == RenderedNotification(
-        text=expected_text,
-        parse_mode=None,
-        fallback_text=None,
-        variant_id=expected_variant,
-        decorated=False,
-    ), "notification text selection did not respect its configured probability interval"
-
-
-@pytest.mark.parametrize(
-    ("direction", "expected_text", "expected_fallback", "expected_index_events"),
-    [
-        (
-            0.25,
-            '<tg-emoji emoji-id="19">🚶</tg-emoji>'
-            '<tg-emoji emoji-id="31">➡️</tg-emoji>'
-            '<tg-emoji emoji-id="43">💀</tg-emoji>\nDays &lt; 7 &amp; counting',
-            "🚶➡️💀\nDays < 7 & counting",
-            (
-                ("index", "response-7", "ltr_walk", 2),
-                ("index", "response-7", "ltr_arrow", 2),
-                ("index", "response-7", "ltr_dead", 2),
-            ),
-        ),
-        (
-            0.75,
-            '<tg-emoji emoji-id="43">💀</tg-emoji>'
-            '<tg-emoji emoji-id="29">⬅️</tg-emoji>'
-            '<tg-emoji emoji-id="11">🚶</tg-emoji>\nDays &lt; 7 &amp; counting',
-            "💀⬅️🚶\nDays < 7 & counting",
-            (
-                ("index", "response-7", "rtl_dead", 2),
-                ("index", "response-7", "rtl_arrow", 2),
-                ("index", "response-7", "rtl_walk", 2),
-            ),
-        ),
-    ],
-)
-def test_decorates_in_either_direction_and_keeps_a_plain_fallback(
-    direction: float,
-    expected_text: str,
-    expected_fallback: str,
-    expected_index_events: tuple[tuple[object, ...], ...],
-) -> None:
-    randomizer = RandomizerMemory(
-        values={"text_variant": 0.99, "decoration": 0.05, "direction": direction},
-        indexes={
-            "ltr_walk": 1,
-            "ltr_arrow": 0,
-            "ltr_dead": 1,
-            "rtl_dead": 1,
-            "rtl_arrow": 1,
-            "rtl_walk": 0,
-        },
-    )
-    notification = NotificationContent(
-        default=NotificationTextForms(other="Days < {days_left} & counting"),
-    )
-    subject = NotificationMessagePresenter(
-        content=content(
-            decoration_probability=0.1,
-            notification=notification,
-        ),
-        number_speller=NumberSpellerMemory(words={}),
+def presenter(randomizer: RandomizerMemory) -> NotificationMessagePresenter:
+    return NotificationMessagePresenter(
+        content=content(),
+        number_speller=NumberSpellerMemory(words={(120, "ru"): "сто двадцать"}),
         randomizer=randomizer,
     )
 
-    actual = subject.render(locale="ru", days_left=7, seed="response-7")
+
+@pytest.mark.parametrize(
+    ("message_draw", "emoji_draw", "expected_tier", "expected_prelude"),
+    [
+        (0.0, 0.99, NotificationTier.MYTHIC, "👑 Mythic!"),
+        (0.01, 0.99, NotificationTier.EPIC, "🌟 Epic!"),
+        (0.9, 0.01, NotificationTier.RARE, "✨ Rare!"),
+        (0.9, 0.1, NotificationTier.LUCKY, "🍀 Lucky!"),
+        (0.9, 0.9, None, None),
+    ],
+)
+def test_selects_mutually_exclusive_reward_tiers(
+    message_draw: float,
+    emoji_draw: float,
+    expected_tier: NotificationTier | None,
+    expected_prelude: str | None,
+) -> None:
+    randomizer = RandomizerMemory(
+        values={
+            "message_tier": message_draw,
+            "emoji_tier": emoji_draw,
+            "rare_direction": 0.25,
+            "lucky_direction": 0.25,
+        },
+        indexes={
+            "base_text": 0,
+            "epic_variant": 0,
+            "mythic_variant": 0,
+            "rare_ltr_walk": 0,
+            "rare_ltr_arrow": 0,
+            "rare_ltr_dead": 0,
+            "lucky_ltr_walk": 0,
+            "lucky_ltr_arrow": 0,
+            "lucky_ltr_dead": 0,
+        },
+    )
+
+    actual = presenter(randomizer).render(locale="ru", days_left=120, seed="reward-120")
+
+    assert (actual.tier, actual.prelude_text) == (
+        expected_tier,
+        expected_prelude,
+    ), "notification reward probabilities did not produce the configured exclusive tier"
+
+
+@pytest.mark.parametrize(
+    ("base_index", "expected_variant", "expected_text"),
+    [
+        (0, "default", "Осталось дней: 120"),
+        (1, "natural", "Осталось 120 дней"),
+    ],
+)
+def test_selects_default_and_natural_text_with_equal_index_space(
+    base_index: int,
+    expected_variant: str,
+    expected_text: str,
+) -> None:
+    actual = presenter(
+        RandomizerMemory(
+            values={"message_tier": 0.99, "emoji_tier": 0.99},
+            indexes={"base_text": base_index},
+        )
+    ).render(
+        locale="ru",
+        days_left=120,
+        seed="base-120",
+        sample=None,
+    )
+
+    assert (actual.variant_id, actual.text) == (
+        expected_variant,
+        expected_text,
+    ), "base notification did not select default and natural text from equal slots"
+
+
+@pytest.mark.parametrize(
+    ("variant_index", "expected_variant", "expected_text"),
+    [
+        (0, "haunting", "Осталось 120 дней. Игнорировать всё сложнее"),
+        (1, "witch_house", "Ωϲŧλлωϲь 120 δнξй"),
+        (2, "words", "Осталось сто двадцать дней"),
+        (3, "witch_house_words", "Ωϲŧλлωϲь ϲŧω δвλδцλŧь δнξй"),
+    ],
+)
+def test_selects_each_epic_text_with_equal_index_space(
+    variant_index: int,
+    expected_variant: str,
+    expected_text: str,
+) -> None:
+    randomizer = RandomizerMemory(
+        values={"rare_direction": 0.25},
+        indexes={
+            "epic_variant": variant_index,
+            "rare_ltr_walk": 0,
+            "rare_ltr_arrow": 0,
+            "rare_ltr_dead": 0,
+        },
+    )
+
+    actual = presenter(randomizer).render(
+        locale="ru",
+        days_left=120,
+        seed="epic-120",
+        sample=NotificationTier.EPIC,
+    )
+
+    assert (actual.variant_id, actual.fallback_text) == (
+        expected_variant,
+        f"🚶➡️💀\n{expected_text}",
+    ), "epic pool did not select its text variants uniformly or force Rare emoji"
+
+
+def test_renders_a_mythic_s3_attachment_with_base_text_and_rare_emoji() -> None:
+    randomizer = RandomizerMemory(
+        values={"rare_direction": 0.25},
+        indexes={
+            "mythic_variant": 0,
+            "base_text": 1,
+            "rare_ltr_walk": 0,
+            "rare_ltr_arrow": 0,
+            "rare_ltr_dead": 0,
+        },
+    )
+
+    actual = presenter(randomizer).render(
+        locale="ru",
+        days_left=120,
+        seed="mythic-120",
+        sample=NotificationTier.MYTHIC,
+    )
+
+    assert actual == RenderedNotification(
+        text=(
+            '<tg-emoji emoji-id="19">🚶</tg-emoji>'
+            '<tg-emoji emoji-id="37">➡️</tg-emoji>'
+            '<tg-emoji emoji-id="43">💀</tg-emoji>\nОсталось 120 дней'
+        ),
+        parse_mode="HTML",
+        fallback_text="🚶➡️💀\nОсталось 120 дней",
+        prelude_text="👑 Mythic!",
+        attachment=TelegramAttachment(
+            kind=TelegramAttachmentKind.AUDIO,
+            url="https://example.com/stupa.mp3",
+        ),
+        variant_id="stupa",
+        tier=NotificationTier.MYTHIC,
+    ), "Mythic reward lost its S3 media, separate prelude, base text, or forced Rare emoji"
+
+
+def test_supports_a_text_only_mythic_variant() -> None:
+    randomizer = RandomizerMemory(
+        values={"rare_direction": 0.75},
+        indexes={
+            "mythic_variant": 1,
+            "rare_rtl_dead": 0,
+            "rare_rtl_arrow": 0,
+            "rare_rtl_walk": 0,
+        },
+    )
+
+    actual = presenter(randomizer).render(
+        locale="ru",
+        days_left=120,
+        seed="mythic-words-120",
+        sample=NotificationTier.MYTHIC,
+    )
 
     assert (
-        actual,
-        tuple(event for event in randomizer.events if event[0] == "index"),
+        actual.variant_id,
+        actual.fallback_text,
+        actual.attachment,
     ) == (
-        RenderedNotification(
-            text=expected_text,
-            parse_mode="HTML",
-            fallback_text=expected_fallback,
-            variant_id=None,
-            decorated=True,
+        "mythic_words",
+        "💀⬅️🚶\nΩϲŧλлωϲь ϲŧω δвλδцλŧь δнξй",
+        None,
+    ), "Mythic pool could not represent an Epic-like text-only reward"
+
+
+@pytest.mark.parametrize(
+    ("tier", "direction", "expected_rich", "expected_fallback"),
+    [
+        (
+            NotificationTier.LUCKY,
+            0.25,
+            "🚀➡️☠️",
+            "🚀➡️☠️",
         ),
-        expected_index_events,
-    ), "custom emoji direction, IDs, HTML escaping, or fallback text changed"
+        (
+            NotificationTier.LUCKY,
+            0.75,
+            "☠️👈🏃",
+            "☠️👈🏃",
+        ),
+        (
+            NotificationTier.RARE,
+            0.25,
+            (
+                '<tg-emoji emoji-id="19">🚶</tg-emoji>'
+                '<tg-emoji emoji-id="37">➡️</tg-emoji>'
+                '<tg-emoji emoji-id="43">💀</tg-emoji>'
+            ),
+            "🚶➡️💀",
+        ),
+    ],
+)
+def test_draws_custom_and_regular_emoji_in_both_directions(
+    tier: NotificationTier,
+    direction: float,
+    expected_rich: str,
+    expected_fallback: str,
+) -> None:
+    prefix = tier.value
+    direction_name = "ltr" if direction < 0.5 else "rtl"
+    indexes = {
+        "base_text": 0,
+        f"{prefix}_{direction_name}_walk": 1 if tier == NotificationTier.LUCKY else 0,
+        f"{prefix}_{direction_name}_arrow": 1 if tier == NotificationTier.LUCKY else 0,
+        f"{prefix}_{direction_name}_dead": 1 if tier == NotificationTier.LUCKY else 0,
+    }
+    randomizer = RandomizerMemory(
+        values={f"{prefix}_direction": direction},
+        indexes=indexes,
+    )
+
+    actual = presenter(randomizer).render(
+        locale="ru",
+        days_left=7,
+        seed=f"{prefix}-7",
+        sample=tier,
+    )
+
+    assert (actual.text, actual.fallback_text) == (
+        f"{expected_rich}\nОсталось дней: 7",
+        f"{expected_fallback}\nОсталось дней: 7",
+    ), "emoji reward changed direction, custom/plain selection, or plain fallback"
 
 
 def test_uses_default_locale_plural_rules_for_an_unknown_locale() -> None:
-    original = BotContents.debug()
-    english = original.localized("en").model_copy(
-        update={
-            "notification": NotificationContent(
-                default=NotificationTextForms(
-                    one="{days_left} day",
-                    other="{days_left} days",
-                )
-            )
-        }
-    )
-    configured = original.model_copy(update={"locales": {"en": english}})
     subject = NotificationMessagePresenter(
-        content=configured,
+        content=BotContents.debug(),
         number_speller=NumberSpellerMemory(words={}),
         randomizer=RandomizerMemory(
-            values={"text_variant": 0.99, "decoration": 0.99},
+            values={"message_tier": 0.99, "emoji_tier": 0.99},
+            indexes={"base_text": 0},
         ),
     )
 
-    actual = subject.render(locale="unknown", days_left=1, seed="response-1")
+    actual = subject.render(
+        locale="unknown",
+        days_left=1,
+        seed="unknown-1",
+        sample=None,
+    )
 
-    assert actual.text == "1 day", "unknown locale bypassed the configured default plural rules"
+    assert actual.text == "mock notification: 1", (
+        "unknown locale bypassed the configured default plural rules"
+    )
 
 
 def test_derives_repeatable_independent_values_from_a_notification_seed() -> None:
     subject = StableNotificationRandomizer()
 
     actual = (
-        subject.value("response-47", "decoration"),
-        subject.value("response-47", "direction"),
+        subject.value("response-47", "message_tier"),
+        subject.value("response-47", "emoji_tier"),
         subject.index("response-47", "walk", 29),
     )
 
     assert actual == (
-        subject.value("response-47", "decoration"),
-        subject.value("response-47", "direction"),
+        subject.value("response-47", "message_tier"),
+        subject.value("response-47", "emoji_tier"),
         subject.index("response-47", "walk", 29),
     ), "notification retry produced different pseudo-random choices for the same seed"

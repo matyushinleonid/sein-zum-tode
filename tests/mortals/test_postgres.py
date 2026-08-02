@@ -92,7 +92,7 @@ def mortal_row(
     death_date: date | None = None,
     notification_cron: str | None = "0 9 * * *",
     timezone: str = "Europe/Moscow",
-    llm_requests_remaining: int = 50,
+    llm_requests_remaining: int = 15,
     telegram_unreachable_at: datetime | None = None,
 ) -> Mapping[str, Any]:
     return {
@@ -149,7 +149,7 @@ async def test_registers_a_mortal_idempotently_with_configured_defaults() -> Non
             "notification_cron": "17 8 * * *",
             "death_date": None,
             "telegram_unreachable_at": None,
-            "llm_requests_remaining": 50,
+            "llm_requests_remaining": 15,
             "param_1": None,
         },
         True,

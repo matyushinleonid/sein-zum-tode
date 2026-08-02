@@ -6,7 +6,7 @@ from aiogram.types import Chat, Message, Update
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from sein_zum_tode.bot.content import BotContent, LocalizedBotContent
+from sein_zum_tode.bot.content import BotContent, LocalizedBotContent, NotificationTier
 from sein_zum_tode.bot.errors import (
     InvalidStoredPayloadError,
     PermanentTelegramDeliveryError,
@@ -157,6 +157,8 @@ class InspectTelegramUpdateActivity:
             )
         if self._is_scream_command(message.text):
             return self._scream(input, message)
+        if self._is_sample_command(message.text):
+            return self._sample(input, message)
         if message.text == "/begin":
             kind = InspectionKind.BEGIN
         elif message.text == "/help":
@@ -223,6 +225,36 @@ class InspectTelegramUpdateActivity:
             return False
         command = text.split(maxsplit=1)[0]
         return command == "/scream"
+
+    def _sample(self, input: InspectUpdateInput, message: Message) -> InspectedUpdate:
+        author = message.from_user
+        parts = message.text.split() if message.text is not None else []
+        if author is None or author.id not in self._admin_user_ids or len(parts) != 2:
+            return InspectedUpdate(
+                kind=InspectionKind.UNSUPPORTED,
+                update_key=input.update_key,
+                chat_id=message.chat.id,
+            )
+        try:
+            tier = NotificationTier(parts[1].lower())
+        except ValueError:
+            return InspectedUpdate(
+                kind=InspectionKind.UNSUPPORTED,
+                update_key=input.update_key,
+                chat_id=message.chat.id,
+            )
+        return InspectedUpdate(
+            kind=InspectionKind.NOTIFICATION_SAMPLE,
+            update_key=input.update_key,
+            chat_id=message.chat.id,
+            notification_sample=tier,
+        )
+
+    def _is_sample_command(self, text: str | None) -> bool:
+        if text is None:
+            return False
+        command = text.split(maxsplit=1)[0]
+        return command == "/sample"
 
     def _scream_content_types(self) -> frozenset[ContentType]:
         return frozenset(

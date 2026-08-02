@@ -1,8 +1,12 @@
 from dataclasses import dataclass
 from enum import StrEnum
 
+from sein_zum_tode.bot.content import NotificationTier
+from sein_zum_tode.bot.models import TelegramAttachment
+
 MORTAL_NOTIFICATION_WORKFLOW_NAME = "MortalNotificationWorkflow"
 PREPARE_MORTAL_NOTIFICATION_ACTIVITY_NAME = "prepare_mortal_notification"
+PREPARE_NOTIFICATION_SAMPLE_ACTIVITY_NAME = "prepare_notification_sample"
 CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME = "configure_mortal_notifications"
 CUSTOM_NOTIFICATION_CALLBACK_DATA = "notifications:custom"
 
@@ -56,5 +60,7 @@ class RenderedNotification:
     text: str
     parse_mode: str | None
     fallback_text: str | None
+    prelude_text: str | None
+    attachment: TelegramAttachment | None
     variant_id: str | None
-    decorated: bool
+    tier: NotificationTier | None

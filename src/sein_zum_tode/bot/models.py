@@ -3,6 +3,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
+from sein_zum_tode.bot.content import NotificationTier
 from sein_zum_tode.broadcasts.models import ScreamRequest
 from sein_zum_tode.payload_keys import UpdatePayloadKeys
 
@@ -34,6 +35,7 @@ class InspectionKind(StrEnum):
     SCREAM = "scream"
     SCREAM_DENIED = "scream_denied"
     SCREAM_UNSUPPORTED = "scream_unsupported"
+    NOTIFICATION_SAMPLE = "notification_sample"
     UNSUPPORTED = "unsupported"
     GROUP_UNSUPPORTED = "group_unsupported"
     LIMIT_EXHAUSTED = "limit_exhausted"
@@ -85,6 +87,7 @@ class InspectedUpdate:
     chat_id: int
     callback_query_id: str | None = None
     scream_request: ScreamRequest | None = None
+    notification_sample: NotificationTier | None = None
 
     def response_key(self) -> str:
         return UpdatePayloadKeys(self.update_key).response()
@@ -98,6 +101,7 @@ class PrepareResponseInput:
     user_id: int | None = None
     callback_query_id: str | None = None
     is_text_message: bool = False
+    notification_sample: NotificationTier | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +127,20 @@ class TelegramButton(BaseModel):
     callback_data: str
 
 
+class TelegramAttachmentKind(StrEnum):
+    AUDIO = "audio"
+    PHOTO = "photo"
+    VIDEO = "video"
+    DOCUMENT = "document"
+
+
+class TelegramAttachment(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    kind: TelegramAttachmentKind
+    url: str
+
+
 class TelegramResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -130,5 +148,7 @@ class TelegramResponse(BaseModel):
     text: str
     parse_mode: str | None = None
     fallback_text: str | None = None
+    prelude_text: str | None = None
+    attachment: TelegramAttachment | None = None
     keyboard: tuple[tuple[TelegramButton, ...], ...] = ()
     callback_query_id: str | None = None

@@ -23,6 +23,46 @@ class TelegramSendingClient(Protocol):
         reply_markup: InlineKeyboardMarkup | None = None,
     ) -> object: ...
 
+    async def send_audio(
+        self,
+        *,
+        chat_id: int,
+        audio: str,
+        caption: str,
+        parse_mode: str | None = None,
+        reply_markup: InlineKeyboardMarkup | None = None,
+    ) -> object: ...
+
+    async def send_photo(
+        self,
+        *,
+        chat_id: int,
+        photo: str,
+        caption: str,
+        parse_mode: str | None = None,
+        reply_markup: InlineKeyboardMarkup | None = None,
+    ) -> object: ...
+
+    async def send_video(
+        self,
+        *,
+        chat_id: int,
+        video: str,
+        caption: str,
+        parse_mode: str | None = None,
+        reply_markup: InlineKeyboardMarkup | None = None,
+    ) -> object: ...
+
+    async def send_document(
+        self,
+        *,
+        chat_id: int,
+        document: str,
+        caption: str,
+        parse_mode: str | None = None,
+        reply_markup: InlineKeyboardMarkup | None = None,
+    ) -> object: ...
+
     async def answer_callback_query(self, callback_query_id: str) -> object: ...
 
     async def copy_message(

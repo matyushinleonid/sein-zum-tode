@@ -6,7 +6,7 @@ from aiogram.exceptions import (
     TelegramForbiddenError,
     TelegramNetworkError,
 )
-from aiogram.methods import CopyMessage, SendMessage
+from aiogram.methods import CopyMessage, SendAudio, SendMessage
 from aiogram.types import InlineKeyboardMarkup
 
 from sein_zum_tode.bot.errors import (
@@ -14,7 +14,12 @@ from sein_zum_tode.bot.errors import (
     TelegramDeliveryError,
     TelegramRecipientUnavailableError,
 )
-from sein_zum_tode.bot.models import TelegramButton, TelegramResponse
+from sein_zum_tode.bot.models import (
+    TelegramAttachment,
+    TelegramAttachmentKind,
+    TelegramButton,
+    TelegramResponse,
+)
 from sein_zum_tode.bot.sender import AiogramTelegramMessageSender
 from sein_zum_tode.broadcasts.models import ScreamRequest
 from tests.support import TelegramBotDouble
@@ -42,6 +47,33 @@ class CustomEmojiRejectedBot(TelegramBotDouble):
     ) -> object:
         self.events.append(("send_message", (chat_id, text, parse_mode, reply_markup)))
         if len(self.events) == 1:
+            raise self.failure
+        return None
+
+
+class CustomEmojiRejectedAudioBot(TelegramBotDouble):
+    def __init__(self, failure: TelegramBadRequest) -> None:
+        super().__init__(
+            updates=[],
+            delete_result=None,
+            receive_result=None,
+            send_result=None,
+        )
+        self.failure = failure
+        self.audio_attempts = 0
+
+    async def send_audio(
+        self,
+        *,
+        chat_id: int,
+        audio: str,
+        caption: str,
+        parse_mode: str | None = None,
+        reply_markup: InlineKeyboardMarkup | None = None,
+    ) -> object:
+        self.audio_attempts += 1
+        self.events.append(("send_audio", (chat_id, audio, caption, parse_mode, reply_markup)))
+        if self.audio_attempts == 1:
             raise self.failure
         return None
 
@@ -170,6 +202,135 @@ async def test_retries_a_rejected_custom_emoji_message_with_plain_fallback() -> 
         ),
         ("send_message", (172_223, "🚶\n5 days remain", None, None)),
     ], "custom emoji rejection prevented delivery of the plain notification fallback"
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected_method"),
+    [
+        (TelegramAttachmentKind.AUDIO, "send_audio"),
+        (TelegramAttachmentKind.PHOTO, "send_photo"),
+        (TelegramAttachmentKind.VIDEO, "send_video"),
+        (TelegramAttachmentKind.DOCUMENT, "send_document"),
+    ],
+)
+async def test_sends_each_s3_attachment_kind_with_a_caption(
+    kind: TelegramAttachmentKind,
+    expected_method: str,
+) -> None:
+    bot = TelegramBotDouble(
+        updates=[],
+        delete_result=None,
+        receive_result=None,
+        send_result=None,
+    )
+    response = TelegramResponse(
+        chat_id=172_229,
+        text="Rare emoji\n5 days remain",
+        parse_mode="HTML",
+        attachment=TelegramAttachment(
+            kind=kind,
+            url="https://storage.example.com/reward.bin",
+        ),
+    )
+
+    await AiogramTelegramMessageSender(bot).send(response)
+
+    assert bot.events == [
+        (
+            expected_method,
+            (
+                172_229,
+                "https://storage.example.com/reward.bin",
+                "Rare emoji\n5 days remain",
+                "HTML",
+                None,
+            ),
+        )
+    ], "S3 reward was not sent through its configured Telegram media method"
+
+
+async def test_sends_a_reward_prelude_before_the_main_notification() -> None:
+    bot = TelegramBotDouble(
+        updates=[],
+        delete_result=None,
+        receive_result=None,
+        send_result=None,
+    )
+
+    await AiogramTelegramMessageSender(bot).send(
+        TelegramResponse(
+            chat_id=172_231,
+            text="Rare emoji\n5 days remain",
+            prelude_text="👑 Mythic!",
+            attachment=TelegramAttachment(
+                kind=TelegramAttachmentKind.AUDIO,
+                url="https://storage.example.com/stupa.mp3",
+            ),
+        )
+    )
+
+    assert bot.events == [
+        ("send_message", (172_231, "👑 Mythic!", None, None)),
+        (
+            "send_audio",
+            (
+                172_231,
+                "https://storage.example.com/stupa.mp3",
+                "Rare emoji\n5 days remain",
+                None,
+                None,
+            ),
+        ),
+    ], "reward prelude was not delivered as a separate message before the notification"
+
+
+async def test_retries_only_the_media_caption_without_custom_emoji() -> None:
+    method = SendAudio(
+        chat_id=172_233,
+        audio="https://storage.example.com/stupa.mp3",
+        caption="custom emoji",
+    )
+    bot = CustomEmojiRejectedAudioBot(
+        TelegramBadRequest(method=method, message="custom emoji entities are not allowed")
+    )
+
+    await AiogramTelegramMessageSender(bot).send(
+        TelegramResponse(
+            chat_id=172_233,
+            text='<tg-emoji emoji-id="227">🚶</tg-emoji>\n5 days remain',
+            parse_mode="HTML",
+            fallback_text="🚶\n5 days remain",
+            prelude_text="👑 Mythic!",
+            attachment=TelegramAttachment(
+                kind=TelegramAttachmentKind.AUDIO,
+                url="https://storage.example.com/stupa.mp3",
+            ),
+        )
+    )
+
+    assert bot.events == [
+        ("send_message", (172_233, "👑 Mythic!", None, None)),
+        (
+            "send_audio",
+            (
+                172_233,
+                "https://storage.example.com/stupa.mp3",
+                '<tg-emoji emoji-id="227">🚶</tg-emoji>\n5 days remain',
+                "HTML",
+                None,
+            ),
+        ),
+        (
+            "send_audio",
+            (
+                172_233,
+                "https://storage.example.com/stupa.mp3",
+                "🚶\n5 days remain",
+                None,
+                None,
+            ),
+        ),
+    ], "media fallback resent the prelude or failed to remove rejected custom emoji"
 
 
 async def test_classifies_a_network_problem_as_a_retryable_failure() -> None:

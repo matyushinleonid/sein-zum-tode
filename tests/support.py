@@ -14,9 +14,16 @@ from sein_zum_tode.bot.content import (
     LocalizationContent,
     LocalizedBotContent,
     NotificationContent,
-    NotificationDecorationContent,
+    NotificationEmojiPool,
+    NotificationEpicPool,
+    NotificationMedia,
+    NotificationMediaKind,
+    NotificationMythicPool,
+    NotificationMythicVariant,
+    NotificationRewards,
     NotificationSettingsContent,
     NotificationTextForms,
+    NotificationTextVariant,
     PredictionContent,
     QuestionContent,
     QuestionnaireContent,
@@ -46,7 +53,7 @@ def mortal(
     notification_cron: str | None = "0 9 * * *",
     death_date: date | None = None,
     telegram_unreachable_at: datetime | None = None,
-    llm_requests_remaining: int = 50,
+    llm_requests_remaining: int = 15,
 ) -> Mortal:
     return Mortal(
         id=id,
@@ -64,6 +71,37 @@ def notification_presets() -> NotificationPresets:
         daily="0 9 * * *",
         weekly="0 9 * * 1",
         monthly="0 9 1 * *",
+    )
+
+
+def notification_rewards() -> NotificationRewards:
+    return NotificationRewards(
+        lucky=NotificationEmojiPool(
+            probability=0.1,
+            prelude="🍀 Lucky!",
+            rtl_walk_ids=("101",),
+            ltr_walk_ids=("103",),
+            rtl_arrow_ids=("107",),
+            ltr_arrow_ids=("109",),
+            dead_ids=("113",),
+        ),
+        rare=NotificationEmojiPool(
+            probability=0.05,
+            prelude="✨ Rare!",
+            rtl_walk_ids=("127",),
+            ltr_walk_ids=("131",),
+            rtl_arrow_ids=("137",),
+            ltr_arrow_ids=("139",),
+            dead_ids=("149",),
+        ),
+        epic=NotificationEpicPool(
+            probability=1 / 60,
+            prelude="🌟 Epic!",
+        ),
+        mythic=NotificationMythicPool(
+            probability=1 / 180,
+            prelude="👑 Mythic!",
+        ),
     )
 
 
@@ -97,14 +135,7 @@ class BotContents:
                 initial_silence_count=10,
                 stanzas=(("First decay line", "Second decay line"),),
             ),
-            notification_decoration=NotificationDecorationContent(
-                probability=0,
-                rtl_walk_ids=("101",),
-                ltr_walk_ids=("103",),
-                rtl_arrow_ids=("107",),
-                ltr_arrow_ids=("109",),
-                dead_ids=("113",),
-            ),
+            notification_rewards=notification_rewards(),
             locales={
                 "en": LocalizedBotContent(
                     help="Navigate by the constellations",
@@ -118,6 +149,26 @@ class BotContents:
                     notification=NotificationContent(
                         default=NotificationTextForms(
                             other="mock notification: {days_left}",
+                        ),
+                        natural=NotificationTextForms(
+                            other="mock notification: {days_left}",
+                        ),
+                        epic=(
+                            NotificationTextVariant(
+                                id="mock_epic",
+                                text=NotificationTextForms(
+                                    other="epic mock notification: {days_left}",
+                                ),
+                            ),
+                        ),
+                        mythic=(
+                            NotificationMythicVariant(
+                                id="mock_mythic",
+                                media=NotificationMedia(
+                                    kind=NotificationMediaKind.AUDIO,
+                                    url="https://example.com/mock.mp3",
+                                ),
+                            ),
                         ),
                     ),
                     localization=LocalizationContent(
@@ -179,6 +230,26 @@ class BotContents:
                     notification=NotificationContent(
                         default=NotificationTextForms(
                             other="Осталось дней: {days_left}",
+                        ),
+                        natural=NotificationTextForms(
+                            other="Осталось дней: {days_left}",
+                        ),
+                        epic=(
+                            NotificationTextVariant(
+                                id="mock_epic_ru",
+                                text=NotificationTextForms(
+                                    other="Эпическое уведомление: {days_left}",
+                                ),
+                            ),
+                        ),
+                        mythic=(
+                            NotificationMythicVariant(
+                                id="mock_mythic_ru",
+                                media=NotificationMedia(
+                                    kind=NotificationMediaKind.AUDIO,
+                                    url="https://example.com/mock.mp3",
+                                ),
+                            ),
                         ),
                     ),
                     localization=LocalizationContent(
@@ -547,6 +618,56 @@ class TelegramBotDouble:
         reply_markup: InlineKeyboardMarkup | None = None,
     ) -> object:
         self.events.append(("send_message", (chat_id, text, parse_mode, reply_markup)))
+        return result_or_raise(self.send_result)
+
+    async def send_audio(
+        self,
+        *,
+        chat_id: int,
+        audio: str,
+        caption: str,
+        parse_mode: str | None = None,
+        reply_markup: InlineKeyboardMarkup | None = None,
+    ) -> object:
+        self.events.append(("send_audio", (chat_id, audio, caption, parse_mode, reply_markup)))
+        return result_or_raise(self.send_result)
+
+    async def send_photo(
+        self,
+        *,
+        chat_id: int,
+        photo: str,
+        caption: str,
+        parse_mode: str | None = None,
+        reply_markup: InlineKeyboardMarkup | None = None,
+    ) -> object:
+        self.events.append(("send_photo", (chat_id, photo, caption, parse_mode, reply_markup)))
+        return result_or_raise(self.send_result)
+
+    async def send_video(
+        self,
+        *,
+        chat_id: int,
+        video: str,
+        caption: str,
+        parse_mode: str | None = None,
+        reply_markup: InlineKeyboardMarkup | None = None,
+    ) -> object:
+        self.events.append(("send_video", (chat_id, video, caption, parse_mode, reply_markup)))
+        return result_or_raise(self.send_result)
+
+    async def send_document(
+        self,
+        *,
+        chat_id: int,
+        document: str,
+        caption: str,
+        parse_mode: str | None = None,
+        reply_markup: InlineKeyboardMarkup | None = None,
+    ) -> object:
+        self.events.append(
+            ("send_document", (chat_id, document, caption, parse_mode, reply_markup))
+        )
         return result_or_raise(self.send_result)
 
     async def answer_callback_query(self, callback_query_id: str) -> object:

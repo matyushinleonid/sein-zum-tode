@@ -120,8 +120,8 @@ async def test_propagates_a_completion_failure_for_temporal_retry() -> None:
 @pytest.mark.parametrize(
     ("consumes_quota", "remaining"),
     [
-        (False, 50),
-        (True, 49),
+        (False, 15),
+        (True, 14),
     ],
 )
 async def test_generates_once_and_replays_quota_consumption_idempotently(
@@ -200,7 +200,7 @@ async def test_consumes_quota_for_a_successful_model_rejection() -> None:
         mortals.mortals[state.user_id].llm_requests_remaining,
     ) == (
         False,
-        49,
+        14,
     ), "a valid structured rejection was treated as a failed, free API call"
 
 

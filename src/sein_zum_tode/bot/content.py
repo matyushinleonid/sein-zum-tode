@@ -1,5 +1,4 @@
 from enum import StrEnum
-from math import fsum
 from pathlib import Path
 from string import Formatter
 from typing import Annotated, Self
@@ -23,6 +22,27 @@ class NotificationTextStyle(StrEnum):
 class NotificationNumberStyle(StrEnum):
     DIGITS = "digits"
     WORDS = "words"
+
+
+class NotificationTier(StrEnum):
+    LUCKY = "lucky"
+    RARE = "rare"
+    EPIC = "epic"
+    MYTHIC = "mythic"
+
+
+class NotificationMediaKind(StrEnum):
+    AUDIO = "audio"
+    PHOTO = "photo"
+    VIDEO = "video"
+    DOCUMENT = "document"
+
+
+class NotificationMedia(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: NotificationMediaKind
+    url: str = Field(pattern=r"^https://", min_length=9, max_length=2048)
 
 
 class NotificationTextForms(BaseModel):
@@ -61,37 +81,109 @@ class NotificationTextVariant(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     id: str = Field(min_length=1, max_length=128)
-    probability: float = Field(gt=0, le=1)
     text: NotificationTextForms
     style: NotificationTextStyle = NotificationTextStyle.PLAIN
     number_style: NotificationNumberStyle = NotificationNumberStyle.DIGITS
+
+
+class NotificationMythicVariant(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(min_length=1, max_length=128)
+    text: NotificationTextForms | None = None
+    style: NotificationTextStyle = NotificationTextStyle.PLAIN
+    number_style: NotificationNumberStyle = NotificationNumberStyle.DIGITS
+    media: NotificationMedia | None = None
+
+    @model_validator(mode="after")
+    def validate_content(self) -> Self:
+        if self.text is None and self.media is None:
+            raise ValueError("mythic notification variant must contain text or media")
+        return self
 
 
 class NotificationContent(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     default: NotificationTextForms
-    variants: tuple[NotificationTextVariant, ...] = ()
+    natural: NotificationTextForms
+    epic: tuple[NotificationTextVariant, ...] = Field(min_length=1)
+    mythic: tuple[NotificationMythicVariant, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_variants(self) -> Self:
-        ids = tuple(variant.id for variant in self.variants)
+    def validate_epic_variants(self) -> Self:
+        ids = tuple(variant.id for variant in self.epic + self.mythic)
         if len(ids) != len(set(ids)):
-            raise ValueError("notification variant IDs must be unique")
-        if fsum(variant.probability for variant in self.variants) > 1:
-            raise ValueError("notification variant probabilities must not exceed one")
+            raise ValueError("notification reward variant IDs must be unique")
         return self
 
 
-class NotificationDecorationContent(BaseModel):
+class NotificationEmojiPool(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    probability: float = Field(ge=0, le=1)
+    probability: float = Field(gt=0, le=1)
+    prelude: str = Field(min_length=1, max_length=64)
     rtl_walk_ids: tuple[CustomEmojiId, ...] = Field(min_length=1)
     ltr_walk_ids: tuple[CustomEmojiId, ...] = Field(min_length=1)
     rtl_arrow_ids: tuple[CustomEmojiId, ...] = Field(min_length=1)
     ltr_arrow_ids: tuple[CustomEmojiId, ...] = Field(min_length=1)
     dead_ids: tuple[CustomEmojiId, ...] = Field(min_length=1)
+    rtl_walk_emoji: tuple[str, ...] = ()
+    ltr_walk_emoji: tuple[str, ...] = ()
+    rtl_arrow_emoji: tuple[str, ...] = ()
+    ltr_arrow_emoji: tuple[str, ...] = ()
+    dead_emoji: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_unique_emoji(self) -> Self:
+        custom = (
+            self.rtl_walk_ids
+            + self.ltr_walk_ids
+            + self.rtl_arrow_ids
+            + self.ltr_arrow_ids
+            + self.dead_ids
+        )
+        regular = (
+            self.rtl_walk_emoji
+            + self.ltr_walk_emoji
+            + self.rtl_arrow_emoji
+            + self.ltr_arrow_emoji
+            + self.dead_emoji
+        )
+        if len(custom) != len(set(custom)) or len(regular) != len(set(regular)):
+            raise ValueError("notification emoji must be unique within a tier")
+        return self
+
+
+class NotificationEpicPool(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    probability: float = Field(gt=0, le=1)
+    prelude: str = Field(min_length=1, max_length=64)
+
+
+class NotificationMythicPool(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    probability: float = Field(gt=0, le=1)
+    prelude: str = Field(min_length=1, max_length=64)
+
+
+class NotificationRewards(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    lucky: NotificationEmojiPool
+    rare: NotificationEmojiPool
+    epic: NotificationEpicPool
+    mythic: NotificationMythicPool
+
+    @model_validator(mode="after")
+    def validate_probabilities(self) -> Self:
+        if self.lucky.probability + self.rare.probability > 1:
+            raise ValueError("notification emoji tier probabilities must not exceed one")
+        if self.epic.probability + self.mythic.probability > 1:
+            raise ValueError("notification message tier probabilities must not exceed one")
+        return self
 
 
 class QuestionContent(BaseModel):
@@ -231,7 +323,7 @@ class BotContent(BaseModel):
     version: str = Field(min_length=1, max_length=128)
     default_locale: str = Field(min_length=2, max_length=16)
     unsupported_updates: UnsupportedUpdateContent
-    notification_decoration: NotificationDecorationContent
+    notification_rewards: NotificationRewards
     locales: dict[str, LocalizedBotContent] = Field(min_length=1)
 
     @model_validator(mode="after")

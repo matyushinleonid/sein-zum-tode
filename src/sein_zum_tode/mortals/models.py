@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-DEFAULT_LLM_REQUESTS_REMAINING = 50
+DEFAULT_LLM_REQUESTS_REMAINING = 15
 
 
 class Mortal(BaseModel):

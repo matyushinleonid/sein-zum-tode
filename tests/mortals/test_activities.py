@@ -53,7 +53,7 @@ class MortalRepositoryDouble:
 
     async def consume_llm_request(self, mortal_id: int, request_id: str) -> Mortal:
         self.events.append(("consume_llm_request", mortal_id, request_id))
-        return mortal(id=mortal_id, llm_requests_remaining=49)
+        return mortal(id=mortal_id, llm_requests_remaining=14)
 
     async def mark_unreachable(self, mortal_id: int) -> None:
         self.events.append(("mark_unreachable", mortal_id))

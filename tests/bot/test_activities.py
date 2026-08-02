@@ -10,6 +10,7 @@ from sein_zum_tode.bot.activities import (
     InspectTelegramUpdateActivity,
     PrepareTelegramResponseActivities,
 )
+from sein_zum_tode.bot.content import NotificationTier
 from sein_zum_tode.bot.errors import (
     InvalidStoredPayloadError,
     PermanentTelegramDeliveryError,
@@ -455,6 +456,69 @@ async def test_denies_a_non_admin_before_validating_the_scream_shape() -> None:
 
     assert actual.kind == InspectionKind.SCREAM_DENIED, (
         "a non-admin learned scream validation details or bypassed authorization"
+    )
+
+
+@pytest.mark.parametrize("tier", tuple(NotificationTier))
+async def test_accepts_each_notification_sample_for_an_admin(
+    tier: NotificationTier,
+) -> None:
+    update = TelegramUpdates.message(
+        update_id=1381,
+        user_id=162573173,
+        chat_id=162573173,
+        text=f"/sample {tier.value}",
+        chat_type="private",
+    )
+    subject = InspectTelegramUpdateActivity(
+        update_reader=memory(update).update_documents,
+        admin_user_ids=frozenset({162573173}),
+        logger=SilentLogger(),
+    )
+
+    actual = await subject.inspect(
+        InspectUpdateInput(update_key="telegram:sample:1381", user_id=162573173)
+    )
+
+    assert actual == InspectedUpdate(
+        kind=InspectionKind.NOTIFICATION_SAMPLE,
+        update_key="telegram:sample:1381",
+        chat_id=162573173,
+        notification_sample=tier,
+    ), "an admin notification sample lost its requested reward tier"
+
+
+@pytest.mark.parametrize(
+    ("user_id", "text"),
+    [
+        (138_307, "/sample lucky"),
+        (162573173, "/sample"),
+        (162573173, "/sample legendary"),
+    ],
+)
+async def test_hides_invalid_or_non_admin_notification_samples(
+    user_id: int,
+    text: str,
+) -> None:
+    update = TelegramUpdates.message(
+        update_id=1387,
+        user_id=user_id,
+        chat_id=user_id,
+        text=text,
+        chat_type="private",
+    )
+    subject = InspectTelegramUpdateActivity(
+        update_reader=memory(update).update_documents,
+        admin_user_ids=frozenset({162573173}),
+        logger=SilentLogger(),
+    )
+
+    actual = await subject.inspect(
+        InspectUpdateInput(update_key="telegram:sample:1387", user_id=user_id)
+    )
+
+    assert actual.kind == InspectionKind.UNSUPPORTED, (
+        "an invalid or non-admin /sample exposed the admin-only command"
     )
 
 

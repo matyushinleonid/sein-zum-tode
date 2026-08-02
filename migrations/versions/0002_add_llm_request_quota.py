@@ -15,7 +15,6 @@ def upgrade() -> None:
         sa.Column(
             "llm_requests_remaining",
             sa.Integer(),
-            server_default=sa.text("50"),
             nullable=False,
         ),
     )

@@ -9,7 +9,13 @@ from sein_zum_tode.bot.content import (
     LocalizationContent,
     LocalizedBotContent,
     NotificationContent,
-    NotificationDecorationContent,
+    NotificationEmojiPool,
+    NotificationEpicPool,
+    NotificationMedia,
+    NotificationMediaKind,
+    NotificationMythicPool,
+    NotificationMythicVariant,
+    NotificationRewards,
     NotificationSettingsContent,
     NotificationTextForms,
     NotificationTextVariant,
@@ -27,14 +33,44 @@ from sein_zum_tode.unsupported.models import (
 pytestmark = pytest.mark.fast
 
 
-def notification_decoration() -> NotificationDecorationContent:
-    return NotificationDecorationContent(
-        probability=0.1,
-        rtl_walk_ids=("127",),
-        ltr_walk_ids=("131",),
-        rtl_arrow_ids=("137",),
-        ltr_arrow_ids=("139",),
-        dead_ids=("149",),
+def emoji_pool(*, probability: float, first_id: int, prelude: str) -> NotificationEmojiPool:
+    return NotificationEmojiPool(
+        probability=probability,
+        prelude=prelude,
+        rtl_walk_ids=(str(first_id),),
+        ltr_walk_ids=(str(first_id + 1),),
+        rtl_arrow_ids=(str(first_id + 2),),
+        ltr_arrow_ids=(str(first_id + 3),),
+        dead_ids=(str(first_id + 4),),
+    )
+
+
+def notification_rewards() -> NotificationRewards:
+    return NotificationRewards(
+        lucky=emoji_pool(probability=0.1, first_id=127, prelude="🍀 Lucky!"),
+        rare=emoji_pool(probability=0.05, first_id=137, prelude="✨ Rare!"),
+        epic=NotificationEpicPool(probability=1 / 60, prelude="🌟 Epic!"),
+        mythic=NotificationMythicPool(probability=1 / 180, prelude="👑 Mythic!"),
+    )
+
+
+def notification_content(
+    default: str = "Days left: {days_left}",
+) -> NotificationContent:
+    natural = NotificationTextForms(other="{days_left} days remain")
+    return NotificationContent(
+        default=NotificationTextForms(other=default),
+        natural=natural,
+        epic=(NotificationTextVariant(id="haunting", text=natural),),
+        mythic=(
+            NotificationMythicVariant(
+                id="stupa",
+                media=NotificationMedia(
+                    kind=NotificationMediaKind.AUDIO,
+                    url="https://example.com/stupa.mp3",
+                ),
+            ),
+        ),
     )
 
 
@@ -47,10 +83,7 @@ def localized_content(
         text_unsupported="Use /help",
         group_unsupported="Groups unsupported",
         scream_denied="Scream denied",
-        notification=notification
-        or NotificationContent(
-            default=NotificationTextForms(other="Days left: {days_left}"),
-        ),
+        notification=notification or notification_content(),
         localization=LocalizationContent(
             prompt="Choose your language",
             russian="🇷🇺 RU",
@@ -107,13 +140,29 @@ unsupported_updates:
   initial_silence_count: 2
   stanzas:
     - ["First line", "Second line"]
-notification_decoration:
-  probability: 0.1
-  rtl_walk_ids: ["127"]
-  ltr_walk_ids: ["131"]
-  rtl_arrow_ids: ["137"]
-  ltr_arrow_ids: ["139"]
-  dead_ids: ["149"]
+notification_rewards:
+  lucky:
+    probability: 0.1
+    prelude: "🍀 Lucky!"
+    rtl_walk_ids: ["127"]
+    ltr_walk_ids: ["131"]
+    rtl_arrow_ids: ["137"]
+    ltr_arrow_ids: ["139"]
+    dead_ids: ["149"]
+  rare:
+    probability: 0.05
+    prelude: "✨ Rare!"
+    rtl_walk_ids: ["151"]
+    ltr_walk_ids: ["157"]
+    rtl_arrow_ids: ["163"]
+    ltr_arrow_ids: ["167"]
+    dead_ids: ["173"]
+  epic:
+    probability: 0.016666666666666666
+    prelude: "🌟 Epic!"
+  mythic:
+    probability: 0.005555555555555556
+    prelude: "👑 Mythic!"
 locales:
   en:
     help: Navigate by the constellations
@@ -124,6 +173,17 @@ locales:
     notification:
       default:
         other: "Days left: {days_left}"
+      natural:
+        other: "{days_left} days remain"
+      epic:
+        - id: haunting
+          text:
+            other: "Haunting {days_left} days"
+      mythic:
+        - id: stupa
+          media:
+            kind: audio
+            url: https://example.com/stupa.mp3
     localization:
       prompt: Choose your language
       russian: "🇷🇺 RU"
@@ -218,7 +278,7 @@ def test_rejects_a_default_locale_without_content() -> None:
                 initial_silence_count=1,
                 stanzas=(("Decay",),),
             ),
-            notification_decoration=notification_decoration(),
+            notification_rewards=notification_rewards(),
             locales={"en": localized},
         )
 
@@ -246,62 +306,73 @@ def test_rejects_duplicate_question_ids() -> None:
 )
 def test_rejects_an_invalid_notification_template(notification: str) -> None:
     with pytest.raises(ValidationError):
-        localized_content(
-            NotificationContent(
-                default=NotificationTextForms(other=notification),
-            )
-        )
+        localized_content(notification_content(notification))
 
 
-@pytest.mark.parametrize(
-    "variants",
-    [
-        (
-            NotificationTextVariant(
-                id="duplicate",
-                probability=0.2,
-                text=NotificationTextForms(other="First {days_left}"),
-            ),
-            NotificationTextVariant(
-                id="duplicate",
-                probability=0.3,
-                text=NotificationTextForms(other="Second {days_left}"),
-            ),
-        ),
-        (
-            NotificationTextVariant(
-                id="first",
-                probability=0.7,
-                text=NotificationTextForms(other="First {days_left}"),
-            ),
-            NotificationTextVariant(
-                id="second",
-                probability=0.4,
-                text=NotificationTextForms(other="Second {days_left}"),
-            ),
-        ),
-    ],
-)
-def test_rejects_ambiguous_notification_variant_configuration(
-    variants: tuple[NotificationTextVariant, ...],
-) -> None:
+def test_rejects_duplicate_notification_variant_ids_across_reward_tiers() -> None:
+    natural = NotificationTextForms(other="Natural {days_left}")
     with pytest.raises(ValidationError):
         NotificationContent(
             default=NotificationTextForms(other="Default {days_left}"),
-            variants=variants,
+            natural=natural,
+            epic=(NotificationTextVariant(id="duplicate", text=natural),),
+            mythic=(
+                NotificationMythicVariant(
+                    id="duplicate",
+                    text=natural,
+                ),
+            ),
         )
 
 
 def test_rejects_a_non_numeric_custom_emoji_identifier() -> None:
     with pytest.raises(ValidationError):
-        NotificationDecorationContent(
+        NotificationEmojiPool(
             probability=0.1,
+            prelude="🍀 Lucky!",
             rtl_walk_ids=("not-an-id",),
             ltr_walk_ids=("131",),
             rtl_arrow_ids=("137",),
             ltr_arrow_ids=("139",),
             dead_ids=("149",),
         )
+
+
+def test_rejects_duplicate_emoji_within_one_reward_tier() -> None:
+    with pytest.raises(ValidationError):
+        NotificationEmojiPool(
+            probability=0.1,
+            prelude="🍀 Lucky!",
+            rtl_walk_ids=("127",),
+            ltr_walk_ids=("127",),
+            rtl_arrow_ids=("137",),
+            ltr_arrow_ids=("139",),
+            dead_ids=("149",),
+        )
+
+
+def test_rejects_reward_probabilities_that_cannot_be_mutually_exclusive() -> None:
+    rewards = notification_rewards()
+
+    with pytest.raises(ValidationError):
+        NotificationRewards(
+            lucky=rewards.lucky.model_copy(update={"probability": 0.8}),
+            rare=rewards.rare.model_copy(update={"probability": 0.3}),
+            epic=rewards.epic,
+            mythic=rewards.mythic,
+        )
+    with pytest.raises(ValidationError):
+        NotificationRewards(
+            lucky=rewards.lucky,
+            rare=rewards.rare,
+            epic=rewards.epic.model_copy(update={"probability": 0.8}),
+            mythic=rewards.mythic.model_copy(update={"probability": 0.3}),
+        )
+
+
+def test_rejects_an_empty_mythic_reward_variant() -> None:
+    with pytest.raises(ValidationError):
+        NotificationMythicVariant(id="empty")
 
 
 def test_rejects_invalid_notification_settings_and_mock_templates() -> None:
@@ -372,7 +443,7 @@ def test_falls_back_to_default_content_for_an_unknown_locale() -> None:
             initial_silence_count=1,
             stanzas=(("Decay",),),
         ),
-        notification_decoration=notification_decoration(),
+        notification_rewards=notification_rewards(),
         locales={"en": localized_content()},
     )
 
