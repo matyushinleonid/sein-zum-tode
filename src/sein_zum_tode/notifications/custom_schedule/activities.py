@@ -1,5 +1,6 @@
 import logging
 from hashlib import sha256
+from time import monotonic
 from zoneinfo import ZoneInfo
 
 from aiogram.types import Update
@@ -32,6 +33,7 @@ from sein_zum_tode.notifications.ports import MortalSchedule
 from sein_zum_tode.observability import LogContext
 from sein_zum_tode.ports.clock import Clock
 from sein_zum_tode.ports.documents import DocumentReader, DocumentStore, DocumentWriter
+from sein_zum_tode.ports.metrics import ApplicationMetrics, NoopApplicationMetrics
 
 
 class GenerateCustomNotificationScheduleActivity:
@@ -46,6 +48,7 @@ class GenerateCustomNotificationScheduleActivity:
         ttl_seconds: int,
         clock: Clock | None = None,
         logger: logging.Logger | None = None,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._interpreter = interpreter
         self._proposals = proposals
@@ -55,6 +58,7 @@ class GenerateCustomNotificationScheduleActivity:
         self._ttl_seconds = ttl_seconds
         self._clock = clock or SystemClock()
         self._logger = logger or logging.getLogger(__name__)
+        self._metrics = metrics or NoopApplicationMetrics()
 
     @activity.defn(name=GENERATE_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME)
     async def generate(self, input: GenerateCustomNotificationScheduleInput) -> None:
@@ -77,7 +81,23 @@ class GenerateCustomNotificationScheduleActivity:
                 current_local_datetime=now.astimezone(ZoneInfo(mortal.timezone)),
                 user_request=message.text,
             )
-            proposal = await self._interpreter.interpret(request)
+            started = monotonic()
+            try:
+                proposal = await self._interpreter.interpret(request)
+            except Exception:
+                self._metrics.llm_request(
+                    use_case="notification_schedule",
+                    provider=self._interpreter.provider_name,
+                    outcome="failed",
+                    elapsed_seconds=monotonic() - started,
+                )
+                raise
+            self._metrics.llm_request(
+                use_case="notification_schedule",
+                provider=self._interpreter.provider_name,
+                outcome="success",
+                elapsed_seconds=monotonic() - started,
+            )
             stored = StoredNotificationScheduleProposal(
                 request_id=sha256(input.proposal_key.encode()).hexdigest(),
                 provider=self._interpreter.provider_name,
@@ -114,6 +134,7 @@ class ApplyCustomNotificationScheduleActivity:
         response_ttl_seconds: int,
         clock: Clock | None = None,
         logger: logging.Logger | None = None,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._proposals = proposals
         self._responses = responses
@@ -124,6 +145,7 @@ class ApplyCustomNotificationScheduleActivity:
         self._response_ttl_seconds = response_ttl_seconds
         self._clock = clock or SystemClock()
         self._logger = logger or logging.getLogger(__name__)
+        self._metrics = metrics or NoopApplicationMetrics()
 
     @activity.defn(name=APPLY_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME)
     async def apply(self, input: ApplyCustomNotificationScheduleInput) -> None:
@@ -139,14 +161,17 @@ class ApplyCustomNotificationScheduleActivity:
         proposal = stored.proposal
         text = proposal.explanation
         applied = False
+        outcome = "not_understood"
         if proposal.understood:
             settings = proposal.settings()
             try:
                 self._validator.validate(settings, now=self._clock.now())
             except NotificationScheduleTooFrequentError:
                 text = localized.notification_settings.custom_too_frequent
+                outcome = "too_frequent"
             except InvalidNotificationScheduleError:
                 text = localized.notification_settings.custom_invalid
+                outcome = "invalid"
             else:
                 mortal = await self._mortals.set_notification_settings(
                     input.user_id,
@@ -155,10 +180,16 @@ class ApplyCustomNotificationScheduleActivity:
                 )
                 await self._schedules.ensure(mortal)
                 applied = True
+                outcome = "applied"
         await self._responses.store(
             input.response_key,
             TelegramResponse(chat_id=input.chat_id, text=text),
             self._response_ttl_seconds,
+        )
+        self._metrics.notification_schedule(
+            kind="custom",
+            outcome=outcome,
+            locale=mortal.locale or "unknown",
         )
         self._logger.info(
             "Custom notification schedule applied",
@@ -166,8 +197,6 @@ class ApplyCustomNotificationScheduleActivity:
                 "custom_notification_schedule_applied",
                 provider=stored.provider,
                 applied=applied,
-                notification_cron=mortal.notification_cron,
-                timezone=mortal.timezone,
             ),
         )
 

@@ -15,6 +15,7 @@ from sein_zum_tode.notifications.models import (
 from sein_zum_tode.notifications.ports import MortalSchedule
 from sein_zum_tode.observability import LogContext
 from sein_zum_tode.ports.documents import DocumentReader, DocumentWriter
+from sein_zum_tode.ports.metrics import ApplicationMetrics, NoopApplicationMetrics
 
 
 class ConfigureMortalNotificationsActivity:
@@ -29,6 +30,7 @@ class ConfigureMortalNotificationsActivity:
         presets: NotificationPresets,
         response_ttl_seconds: int,
         logger: logging.Logger | None = None,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._updates = updates
         self._responses = responses
@@ -38,6 +40,7 @@ class ConfigureMortalNotificationsActivity:
         self._presets = presets
         self._response_ttl_seconds = response_ttl_seconds
         self._logger = logger or logging.getLogger(__name__)
+        self._metrics = metrics or NoopApplicationMetrics()
 
     @activity.defn(name=CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME)
     async def configure(self, input: PrepareResponseInput) -> None:
@@ -73,11 +76,15 @@ class ConfigureMortalNotificationsActivity:
             ),
             self._response_ttl_seconds,
         )
+        self._metrics.notification_schedule(
+            kind="preset",
+            outcome="applied",
+            locale=mortal.locale or "unknown",
+        )
         self._logger.info(
             "Mortal notification frequency configured",
             extra=LogContext(component="worker", user_id=input.user_id).event(
                 "mortal_notification_frequency_configured",
                 frequency=frequency.value,
-                notification_cron=self._presets.cron(frequency),
             ),
         )

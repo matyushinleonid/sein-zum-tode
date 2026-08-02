@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     app_name: str = "sein-zum-tode-telegram-ingress"
     log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"] = "INFO"
     log_format: Literal["console", "json"] = "console"
+    metrics_host: str = "0.0.0.0"
+    metrics_port: int = Field(default=8000, ge=1, le=65535)
 
     telegram_bot_token: SecretStr
     telegram_polling_timeout_seconds: int = Field(default=30, ge=1)

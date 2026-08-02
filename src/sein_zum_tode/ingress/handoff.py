@@ -6,11 +6,17 @@ from sein_zum_tode.ingress.errors import UpdateHandoffError
 from sein_zum_tode.ingress.models import StoredUpdate
 from sein_zum_tode.ingress.ports import UserWorkflowStarter
 from sein_zum_tode.observability import LogContext
+from sein_zum_tode.ports.metrics import ApplicationMetrics, NoopApplicationMetrics
 
 
 class LoggingUpdateHandoff:
-    def __init__(self, logger: logging.Logger | None = None) -> None:
+    def __init__(
+        self,
+        logger: logging.Logger | None = None,
+        metrics: ApplicationMetrics | None = None,
+    ) -> None:
         self._logger = logger or logging.getLogger(__name__)
+        self._metrics = metrics or NoopApplicationMetrics()
 
     async def handoff(self, update: StoredUpdate) -> None:
         context = LogContext(
@@ -26,6 +32,7 @@ class LoggingUpdateHandoff:
                 ttl_seconds=update.ttl_seconds,
             ),
         )
+        self._metrics.updates(stage="handoff", outcome="success")
 
 
 class TemporalUpdateHandoff:
@@ -33,9 +40,11 @@ class TemporalUpdateHandoff:
         self,
         workflow_starter: UserWorkflowStarter,
         logger: logging.Logger | None = None,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._workflow_starter = workflow_starter
         self._logger = logger or logging.getLogger(__name__)
+        self._metrics = metrics or NoopApplicationMetrics()
 
     async def handoff(self, update: StoredUpdate) -> None:
         context = LogContext(
@@ -44,6 +53,7 @@ class TemporalUpdateHandoff:
             update_key=update.key,
         )
         if update.user_id is None:
+            self._metrics.updates(stage="handoff", outcome="unroutable")
             self._logger.warning(
                 "Telegram update has no user route",
                 extra=context.event(
@@ -58,6 +68,7 @@ class TemporalUpdateHandoff:
                 update_key=update.key,
             )
         except TemporalError as error:
+            self._metrics.updates(stage="handoff", outcome="failed")
             raise UpdateHandoffError(
                 f"Failed to hand off Telegram update {update.update_id} to Temporal"
             ) from error
@@ -68,3 +79,4 @@ class TemporalUpdateHandoff:
                 update_id=update.update_id,
             ),
         )
+        self._metrics.updates(stage="handoff", outcome="success")

@@ -1,4 +1,5 @@
 import logging
+from time import monotonic
 
 from aiogram.enums import ChatMemberStatus, ChatType, ContentType
 from aiogram.types import Chat, Message, Update
@@ -50,6 +51,7 @@ from sein_zum_tode.notifications.models import (
 )
 from sein_zum_tode.observability import LogContext
 from sein_zum_tode.ports.documents import DocumentReader, DocumentWriter
+from sein_zum_tode.ports.metrics import ApplicationMetrics, NoopApplicationMetrics
 
 
 class InspectTelegramUpdateActivity:
@@ -59,10 +61,12 @@ class InspectTelegramUpdateActivity:
         logger: logging.Logger | None = None,
         *,
         admin_user_ids: frozenset[int] = frozenset(),
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._update_reader = update_reader
         self._admin_user_ids = admin_user_ids
         self._logger = logger or logging.getLogger(__name__)
+        self._metrics = metrics or NoopApplicationMetrics()
 
     @activity.defn(name=INSPECT_UPDATE_ACTIVITY_NAME)
     async def inspect(self, input: InspectUpdateInput) -> InspectedUpdate:
@@ -86,6 +90,7 @@ class InspectTelegramUpdateActivity:
                 chat_id=inspected.chat_id,
             ),
         )
+        self._metrics.inspected(kind=inspected.kind.value)
         return inspected
 
     def _classify(self, input: InspectUpdateInput, update: Update) -> InspectedUpdate:
@@ -258,12 +263,14 @@ class PrepareTelegramResponseActivities:
         content: BotContent,
         mortals: MortalRepository,
         logger: logging.Logger | None = None,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._response_store = response_store
         self._ttl_seconds = ttl_seconds
         self._content = content
         self._mortals = mortals
         self._logger = logger or logging.getLogger(__name__)
+        self._metrics = metrics or NoopApplicationMetrics()
 
     @activity.defn(name=PREPARE_HELP_ACTIVITY_NAME)
     async def prepare_help(self, input: PrepareResponseInput) -> None:
@@ -430,6 +437,7 @@ class PrepareTelegramResponseActivities:
         input: PrepareResponseInput,
         kind: InspectionKind,
     ) -> None:
+        self._metrics.response_prepared(kind=kind.value)
         self._logger.info(
             "Telegram response prepared",
             extra=LogContext(
@@ -450,22 +458,27 @@ class DeliverTelegramResponseActivity:
         response_reader: DocumentReader[TelegramResponse],
         sender: TelegramMessageSender,
         logger: logging.Logger | None = None,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._response_reader = response_reader
         self._sender = sender
         self._logger = logger or logging.getLogger(__name__)
+        self._metrics = metrics or NoopApplicationMetrics()
 
     @activity.defn(name=DELIVER_RESPONSE_ACTIVITY_NAME)
     async def deliver(self, input: DeliverResponseInput) -> None:
+        started = monotonic()
         try:
             response = await self._response_reader.load(input.response_key)
         except InvalidStoredPayloadError as error:
+            self._record_delivery(input, "failed", "invalid_payload", started)
             raise ApplicationError(
                 f"Invalid Telegram response at {input.response_key}",
                 type="InvalidTelegramResponse",
                 non_retryable=True,
             ) from error
         if response is None:
+            self._record_delivery(input, "failed", "expired_payload", started)
             raise ApplicationError(
                 f"Telegram response expired at {input.response_key}",
                 type="TelegramResponseNotFound",
@@ -474,17 +487,20 @@ class DeliverTelegramResponseActivity:
         try:
             await self._sender.send(response)
         except TelegramRecipientUnavailableError as error:
+            self._record_delivery(input, "failed", "recipient_unavailable", started)
             raise ApplicationError(
                 f"Telegram recipient {response.chat_id} is unavailable",
                 type=TELEGRAM_RECIPIENT_UNAVAILABLE_ERROR_TYPE,
                 non_retryable=True,
             ) from error
         except PermanentTelegramDeliveryError as error:
+            self._record_delivery(input, "failed", "permanent_rejection", started)
             raise ApplicationError(
                 f"Telegram permanently rejected response for chat {response.chat_id}",
                 type="PermanentTelegramDeliveryError",
                 non_retryable=True,
             ) from error
+        self._record_delivery(input, "success", "none", started)
         self._logger.info(
             "Telegram response delivered",
             extra=LogContext(
@@ -497,20 +513,41 @@ class DeliverTelegramResponseActivity:
             ),
         )
 
+    def _record_delivery(
+        self,
+        input: DeliverResponseInput,
+        outcome: str,
+        error_kind: str,
+        started: float,
+    ) -> None:
+        self._metrics.delivery(
+            kind=input.delivery_kind.value,
+            outcome=outcome,
+            error_kind=error_kind,
+            elapsed_seconds=monotonic() - started,
+        )
+
 
 class CleanupTelegramPayloadsActivity:
     def __init__(
         self,
         cleaner: EphemeralPayloadCleaner,
         logger: logging.Logger | None = None,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._cleaner = cleaner
         self._logger = logger or logging.getLogger(__name__)
+        self._metrics = metrics or NoopApplicationMetrics()
 
     @activity.defn(name=CLEANUP_PAYLOADS_ACTIVITY_NAME)
     async def cleanup(self, input: CleanupPayloadsInput) -> None:
-        await self._cleaner.delete(input.keys)
-        self._logger.debug(
+        try:
+            await self._cleaner.delete(input.keys)
+        except Exception:
+            self._metrics.cleanup(kind=input.payload_kind.value, outcome="failed")
+            raise
+        self._metrics.cleanup(kind=input.payload_kind.value, outcome="success")
+        self._logger.info(
             "Telegram payloads cleaned up",
             extra=LogContext(
                 component="worker",

@@ -11,6 +11,7 @@ from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.observability import LogContext
 from sein_zum_tode.payload_keys import QuestionnairePayloadKeys
 from sein_zum_tode.ports.documents import DocumentReader, DocumentStore, DocumentWriter
+from sein_zum_tode.ports.metrics import ApplicationMetrics, NoopApplicationMetrics
 from sein_zum_tode.questionnaire.models import (
     RECORD_QUESTIONNAIRE_ANSWER_ACTIVITY_NAME,
     START_QUESTIONNAIRE_ACTIVITY_NAME,
@@ -35,6 +36,7 @@ class StartTelegramQuestionnaireActivity:
         response_ttl_seconds: int,
         privacy_response_ttl_seconds: int,
         logger: logging.Logger | None = None,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._content = content
         self._mortals = mortals
@@ -44,6 +46,7 @@ class StartTelegramQuestionnaireActivity:
         self._response_ttl_seconds = response_ttl_seconds
         self._privacy_response_ttl_seconds = privacy_response_ttl_seconds
         self._logger = logger or logging.getLogger(__name__)
+        self._metrics = metrics or NoopApplicationMetrics()
 
     @activity.defn(name=START_QUESTIONNAIRE_ACTIVITY_NAME)
     async def start(self, input: StartQuestionnaireInput) -> QuestionnaireStarted:
@@ -86,13 +89,14 @@ class StartTelegramQuestionnaireActivity:
             extra=LogContext(
                 component="worker",
                 user_id=input.user_id,
-                update_key=input.questionnaire_key,
+                session_id=input.questionnaire_key,
             ).event(
                 "telegram_questionnaire_started",
                 content_version=state.content_version,
                 question_count=len(state.questions),
             ),
         )
+        self._metrics.questionnaire(event="started", locale=state.locale)
         return QuestionnaireStarted(
             response_keys=response_keys,
             privacy_response_key=privacy_response_key,
@@ -110,6 +114,7 @@ class RecordTelegramQuestionnaireAnswerActivity:
         response_ttl_seconds: int,
         privacy_response_ttl_seconds: int,
         logger: logging.Logger | None = None,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._updates = updates
         self._questionnaires = questionnaires
@@ -118,6 +123,7 @@ class RecordTelegramQuestionnaireAnswerActivity:
         self._response_ttl_seconds = response_ttl_seconds
         self._privacy_response_ttl_seconds = privacy_response_ttl_seconds
         self._logger = logger or logging.getLogger(__name__)
+        self._metrics = metrics or NoopApplicationMetrics()
 
     @activity.defn(name=RECORD_QUESTIONNAIRE_ANSWER_ACTIVITY_NAME)
     async def record(self, input: RecordQuestionnaireAnswerInput) -> QuestionnaireTurn:
@@ -126,6 +132,7 @@ class RecordTelegramQuestionnaireAnswerActivity:
         except InvalidStoredPayloadError:
             state = None
         if state is None:
+            self._metrics.questionnaire(event="expired", locale="unknown")
             return QuestionnaireTurn(kind=QuestionnaireTurnKind.EXPIRED)
 
         try:
@@ -138,6 +145,7 @@ class RecordTelegramQuestionnaireAnswerActivity:
             or update.message.chat.type != ChatType.PRIVATE
             or update.message.text is None
         ):
+            self._metrics.questionnaire(event="ignored", locale=state.locale)
             return QuestionnaireTurn(kind=QuestionnaireTurnKind.IGNORED)
 
         answer = state.apply_answer(
@@ -162,15 +170,20 @@ class RecordTelegramQuestionnaireAnswerActivity:
         kind = (
             QuestionnaireTurnKind.COMPLETED if answer.completed else QuestionnaireTurnKind.QUESTION
         )
+        self._metrics.questionnaire(
+            event=kind.value,
+            locale=state.locale,
+            question_index=state.current_question_index,
+        )
         self._logger.info(
             "Telegram questionnaire answer recorded",
             extra=LogContext(
                 component="worker",
                 user_id=input.user_id,
                 update_key=input.update_key,
+                session_id=input.questionnaire_key,
             ).event(
                 "telegram_questionnaire_answer_recorded",
-                questionnaire_key=input.questionnaire_key,
                 turn_kind=kind.value,
                 question_index=answer.state.current_question_index,
             ),

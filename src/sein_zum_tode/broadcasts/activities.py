@@ -23,6 +23,7 @@ from sein_zum_tode.broadcasts.models import (
 from sein_zum_tode.broadcasts.ports import MortalAudience, TelegramMessageCopier
 from sein_zum_tode.observability import LogContext
 from sein_zum_tode.ports.documents import DocumentWriter
+from sein_zum_tode.ports.metrics import ApplicationMetrics, NoopApplicationMetrics
 
 
 class ListScreamRecipientsActivity:
@@ -63,26 +64,31 @@ class DeliverScreamActivity:
         *,
         copier: TelegramMessageCopier,
         logger: logging.Logger | None = None,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._copier = copier
         self._logger = logger or logging.getLogger(__name__)
+        self._metrics = metrics or NoopApplicationMetrics()
 
     @activity.defn(name=DELIVER_SCREAM_ACTIVITY_NAME)
     async def deliver(self, input: DeliverScreamInput) -> None:
         try:
             await self._copier.copy(input.request, input.recipient_id)
         except TelegramRecipientUnavailableError as error:
+            self._metrics.broadcast(outcome="recipient_unavailable", locale=input.request.locale)
             raise ApplicationError(
                 f"Telegram recipient {input.recipient_id} is unavailable",
                 type=TELEGRAM_RECIPIENT_UNAVAILABLE_ERROR_TYPE,
                 non_retryable=True,
             ) from error
         except PermanentTelegramDeliveryError as error:
+            self._metrics.broadcast(outcome="permanent_rejection", locale=input.request.locale)
             raise ApplicationError(
                 f"Telegram permanently rejected scream for chat {input.recipient_id}",
                 type="PermanentTelegramDeliveryError",
                 non_retryable=True,
             ) from error
+        self._metrics.broadcast(outcome="delivered", locale=input.request.locale)
         self._logger.info(
             "Scream delivered",
             extra=LogContext(

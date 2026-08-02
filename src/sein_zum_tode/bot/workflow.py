@@ -24,6 +24,7 @@ from sein_zum_tode.bot.models import (
     InspectedUpdate,
     InspectionKind,
     InspectUpdateInput,
+    PayloadKind,
     PrepareResponseInput,
     TelegramUpdateSignal,
     UserWorkflowInput,
@@ -452,6 +453,7 @@ class TelegramUserWorkflow:
             await self._cleanup_keys(
                 (update_key, proposal_key, response_key),
                 update_key=update_key,
+                payload_kind=PayloadKind.CUSTOM_SCHEDULE,
             )
         return recipient_available
 
@@ -565,6 +567,7 @@ class TelegramUserWorkflow:
         *,
         update_key: str,
         response_key: str | None = None,
+        payload_kind: PayloadKind = PayloadKind.UPDATE,
     ) -> None:
         try:
             await workflow.execute_activity(
@@ -573,6 +576,7 @@ class TelegramUserWorkflow:
                     keys=keys,
                     update_key=update_key,
                     user_id=self._user_id,
+                    payload_kind=payload_kind,
                 ),
                 schedule_to_close_timeout=self._activity_timeout,
             )

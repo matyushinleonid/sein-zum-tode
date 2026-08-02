@@ -13,6 +13,20 @@ fullnameOverride: ""
 podAnnotations: {}
 podLabels: {}
 
+metrics:
+  enabled: true
+  host: 0.0.0.0
+  port: 8000
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    additionalLabels:
+      release: kube-prometheus-stack
+  prometheusRule:
+    enabled: true
+    additionalLabels:
+      release: kube-prometheus-stack
+
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 10001

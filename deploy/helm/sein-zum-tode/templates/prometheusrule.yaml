@@ -1,0 +1,65 @@
+{{- if and .Values.metrics.enabled .Values.metrics.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "sein-zum-tode.fullname" . }}
+  labels:
+    {{- include "sein-zum-tode.labels" . | nindent 4 }}
+    {{- with .Values.metrics.prometheusRule.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: sein-zum-tode.availability
+      rules:
+        - alert: SeinZumTodeIngressMetricsAbsent
+          expr: absent(sein_zum_tode_application_info{namespace={{ .Release.Namespace | quote }},component="ingress"})
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Sein zum Tode ingress is not being scraped
+        - alert: SeinZumTodeWorkerMetricsAbsent
+          expr: absent(sein_zum_tode_application_info{namespace={{ .Release.Namespace | quote }},component="worker"})
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Sein zum Tode worker is not being scraped
+        - alert: SeinZumTodeTelegramPollingStalled
+          expr: time() - max(sein_zum_tode_telegram_poll_last_success_timestamp_seconds{namespace={{ .Release.Namespace | quote }}}) > 120
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: Telegram polling has not succeeded for more than two minutes
+    - name: sein-zum-tode.processing
+      rules:
+        - alert: SeinZumTodeHandoffFailures
+          expr: increase(sein_zum_tode_telegram_updates_total{namespace={{ .Release.Namespace | quote }},stage="handoff",outcome="failed"}[10m]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Telegram updates repeatedly fail to reach Temporal
+        - alert: SeinZumTodePayloadCleanupFailure
+          expr: increase(sein_zum_tode_payload_cleanups_total{namespace={{ .Release.Namespace | quote }},outcome="failed"}[15m]) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: Sensitive ephemeral payload cleanup failed
+        - alert: SeinZumTodeTelegramDeliveryFailureRate
+          expr: sum(increase(sein_zum_tode_telegram_deliveries_total{namespace={{ .Release.Namespace | quote }},outcome="failed",error_kind!="recipient_unavailable"}[15m])) / clamp_min(sum(increase(sein_zum_tode_telegram_deliveries_total{namespace={{ .Release.Namespace | quote }}}[15m])), 1) > 0.1 and sum(increase(sein_zum_tode_telegram_deliveries_total{namespace={{ .Release.Namespace | quote }}}[15m])) > 5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Telegram delivery failure rate exceeds 10 percent
+        - alert: SeinZumTodeLlmFailureRate
+          expr: sum(increase(sein_zum_tode_llm_requests_total{namespace={{ .Release.Namespace | quote }},outcome="failed"}[30m])) / clamp_min(sum(increase(sein_zum_tode_llm_requests_total{namespace={{ .Release.Namespace | quote }}}[30m])), 1) > 0.25 and sum(increase(sein_zum_tode_llm_requests_total{namespace={{ .Release.Namespace | quote }}}[30m])) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: More than 25 percent of recent LLM requests failed
+{{- end }}

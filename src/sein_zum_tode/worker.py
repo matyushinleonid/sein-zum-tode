@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import timedelta
 
 from aiogram import Bot
@@ -27,6 +28,7 @@ from sein_zum_tode.broadcasts.activities import (
 from sein_zum_tode.broadcasts.workflow import TelegramScreamWorkflow
 from sein_zum_tode.config import WorkerSettings
 from sein_zum_tode.infrastructure.completion_config import CompletionProvider
+from sein_zum_tode.infrastructure.metrics import PrometheusHttpServer, PrometheusMetrics
 from sein_zum_tode.infrastructure.numbers import Num2WordsNumberSpeller
 from sein_zum_tode.infrastructure.openai import (
     AsyncOpenAISdkAdapter,
@@ -81,6 +83,7 @@ from sein_zum_tode.notifications.presentation import NotificationMessagePresente
 from sein_zum_tode.notifications.settings import ConfigureMortalNotificationsActivity
 from sein_zum_tode.notifications.temporal import TemporalMortalSchedule
 from sein_zum_tode.notifications.workflow import MortalNotificationWorkflow
+from sein_zum_tode.observability import LogContext
 from sein_zum_tode.prediction.activities import (
     ApplyDeathPredictionActivity,
     GenerateDeathPredictionActivity,
@@ -261,6 +264,7 @@ def create_notification_schedule_interpreter(
 async def run(settings: WorkerSettings) -> None:
     stop_event = asyncio.Event()
     install_signal_handlers(stop_event)
+    metrics, registry = PrometheusMetrics.create(component="worker")
     content = YamlBotContentLoader(settings.bot_content_path).load()
     prediction_config = YamlDeathPredictionConfigLoader(
         settings.death_prediction_config_path
@@ -348,12 +352,14 @@ async def run(settings: WorkerSettings) -> None:
     inspect = InspectTelegramUpdateActivity(
         update_reader=update_documents,
         admin_user_ids=settings.telegram_admin_user_ids,
+        metrics=metrics,
     )
     prepare = PrepareTelegramResponseActivities(
         response_store=response_documents,
         ttl_seconds=settings.telegram_update_ttl_seconds,
         content=content,
         mortals=mortals,
+        metrics=metrics,
     )
     prepare_unsupported = PrepareUnsupportedResponseActivity(
         sessions=unsupported_update_sessions,
@@ -373,6 +379,7 @@ async def run(settings: WorkerSettings) -> None:
         privacy_response_ttl_seconds=(
             settings.questionnaire_ttl_seconds + settings.temporal_activity_retry_timeout_seconds
         ),
+        metrics=metrics,
     )
     record_answer = RecordTelegramQuestionnaireAnswerActivity(
         updates=update_documents,
@@ -383,14 +390,16 @@ async def run(settings: WorkerSettings) -> None:
         privacy_response_ttl_seconds=(
             settings.questionnaire_ttl_seconds + settings.temporal_activity_retry_timeout_seconds
         ),
+        metrics=metrics,
     )
     deliver = DeliverTelegramResponseActivity(
         response_reader=response_documents,
         sender=sender,
+        metrics=metrics,
     )
-    cleanup = CleanupTelegramPayloadsActivity(cleaner=cleaner)
+    cleanup = CleanupTelegramPayloadsActivity(cleaner=cleaner, metrics=metrics)
     list_scream_recipients = ListScreamRecipientsActivity(mortals=mortals)
-    deliver_scream = DeliverScreamActivity(copier=sender)
+    deliver_scream = DeliverScreamActivity(copier=sender, metrics=metrics)
     prepare_scream_report = PrepareScreamReportActivity(
         responses=response_documents,
         ttl_seconds=settings.telegram_update_ttl_seconds,
@@ -398,6 +407,7 @@ async def run(settings: WorkerSettings) -> None:
     mortal_activities = MortalActivities(
         mortals=mortals,
         schedules=schedules,
+        metrics=metrics,
     )
     configure_notifications = ConfigureMortalNotificationsActivity(
         updates=update_documents,
@@ -407,6 +417,7 @@ async def run(settings: WorkerSettings) -> None:
         content=content,
         presets=notification_schedule_config.presets,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
+        metrics=metrics,
     )
     generate_notification_schedule = GenerateCustomNotificationScheduleActivity(
         interpreter=schedule_interpreter,
@@ -415,6 +426,7 @@ async def run(settings: WorkerSettings) -> None:
         mortals=mortals,
         default_locale=content.default_locale,
         ttl_seconds=settings.telegram_update_ttl_seconds,
+        metrics=metrics,
     )
     apply_notification_schedule = ApplyCustomNotificationScheduleActivity(
         proposals=notification_schedule_proposals,
@@ -426,6 +438,7 @@ async def run(settings: WorkerSettings) -> None:
         ),
         content=content,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
+        metrics=metrics,
     )
     prepare_notification_schedule_failure = PrepareCustomNotificationFailureActivity(
         mortals=mortals,
@@ -446,6 +459,7 @@ async def run(settings: WorkerSettings) -> None:
         questionnaires=questionnaires,
         mortals=mortals,
         ttl_seconds=settings.questionnaire_ttl_seconds,
+        metrics=metrics,
     )
     apply_prediction = ApplyDeathPredictionActivity(
         predictions=predictions,
@@ -453,6 +467,7 @@ async def run(settings: WorkerSettings) -> None:
         schedules=schedules,
         responses=response_documents,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
+        metrics=metrics,
     )
     prepare_prediction_failure = PreparePredictionFailureActivity(
         mortals=mortals,
@@ -468,6 +483,7 @@ async def run(settings: WorkerSettings) -> None:
             number_speller=Num2WordsNumberSpeller.create(),
         ),
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
+        metrics=metrics,
     )
     worker = Worker(
         temporal,
@@ -511,10 +527,24 @@ async def run(settings: WorkerSettings) -> None:
             prepare_prediction_failure.prepare,
         ],
     )
+    metrics_server = PrometheusHttpServer.start(
+        host=settings.metrics_host,
+        port=settings.metrics_port,
+        registry=registry,
+    )
+    logging.getLogger(__name__).info(
+        "Telegram worker started",
+        extra=LogContext(component="worker").event("application_started"),
+    )
     try:
         async with worker:
             await stop_event.wait()
     finally:
+        logging.getLogger(__name__).info(
+            "Telegram worker stopping",
+            extra=LogContext(component="worker").event("application_stopping"),
+        )
+        metrics_server.close()
         await predictor.close()
         await schedule_interpreter.close()
         await bot.session.close()

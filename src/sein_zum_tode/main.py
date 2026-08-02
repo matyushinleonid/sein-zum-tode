@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from aiogram import Bot
 from aiogram.types import Update
@@ -6,6 +7,7 @@ from redis.asyncio import Redis
 from temporalio.client import Client
 
 from sein_zum_tode.config import Settings
+from sein_zum_tode.infrastructure.metrics import PrometheusHttpServer, PrometheusMetrics
 from sein_zum_tode.infrastructure.redis import RedisClient
 from sein_zum_tode.infrastructure.redis_documents import (
     PydanticJsonCodec,
@@ -21,12 +23,14 @@ from sein_zum_tode.ingress.temporal import (
     TemporalUserWorkflowStarter,
 )
 from sein_zum_tode.log_config import configure_logging
+from sein_zum_tode.observability import LogContext
 from sein_zum_tode.runtime import install_signal_handlers
 
 
 async def run(settings: Settings) -> None:
     stop_event = asyncio.Event()
     install_signal_handlers(stop_event)
+    metrics, registry = PrometheusMetrics.create(component="ingress")
     bot = Bot(token=settings.telegram_bot_token.get_secret_value())
     redis_connection = Redis(
         host=settings.redis_host,
@@ -69,15 +73,30 @@ async def run(settings: Settings) -> None:
     poller = TelegramPoller(
         source=source,
         store=store,
-        handoff=TemporalUpdateHandoff(workflow_starter),
+        handoff=TemporalUpdateHandoff(workflow_starter, metrics=metrics),
         retry_waiter=ExponentialRetryWaiter(
             initial_delay_seconds=settings.retry_initial_delay_seconds,
             max_delay_seconds=settings.retry_max_delay_seconds,
         ),
+        metrics=metrics,
+    )
+    metrics_server = PrometheusHttpServer.start(
+        host=settings.metrics_host,
+        port=settings.metrics_port,
+        registry=registry,
+    )
+    logging.getLogger(__name__).info(
+        "Telegram ingress started",
+        extra=LogContext(component="ingress").event("application_started"),
     )
     try:
         await poller.run(stop_event)
     finally:
+        logging.getLogger(__name__).info(
+            "Telegram ingress stopping",
+            extra=LogContext(component="ingress").event("application_stopping"),
+        )
+        metrics_server.close()
         await bot.session.close()
         await redis_connection.aclose()
 

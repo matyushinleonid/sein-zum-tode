@@ -41,6 +41,21 @@ class InspectionKind(StrEnum):
     MORTAL_UNBLOCKED = "mortal_unblocked"
 
 
+class DeliveryKind(StrEnum):
+    RESPONSE = "response"
+    QUESTIONNAIRE = "questionnaire"
+    NOTIFICATION = "notification"
+    BROADCAST_REPORT = "broadcast_report"
+
+
+class PayloadKind(StrEnum):
+    UPDATE = "update"
+    QUESTIONNAIRE = "questionnaire"
+    NOTIFICATION = "notification"
+    BROADCAST = "broadcast"
+    CUSTOM_SCHEDULE = "custom_schedule"
+
+
 @dataclass(frozen=True, slots=True)
 class UserWorkflowInput:
     user_id: int
@@ -89,6 +104,7 @@ class DeliverResponseInput:
     response_key: str
     update_key: str | None = None
     user_id: int | None = None
+    delivery_kind: DeliveryKind = DeliveryKind.RESPONSE
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +112,7 @@ class CleanupPayloadsInput:
     keys: tuple[str, ...]
     update_key: str | None = None
     user_id: int | None = None
+    payload_kind: PayloadKind = PayloadKind.UPDATE
 
 
 class TelegramButton(BaseModel):
