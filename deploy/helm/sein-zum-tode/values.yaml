@@ -57,7 +57,7 @@ application:
     - 162573173
 
 botContent:
-  version: production-v4
+  version: production-v5
   default_locale: en
   unsupported_updates:
     initial_silence_count: 10
@@ -186,6 +186,7 @@ botContent:
     en:
       help: Mock help response. Use /localization to change language.
       about: 'About this bot: <a href="https://github.com/matyushinleonid/sein-zum-tode">github</a>'
+      text_unsupported: Use /help to learn how to use the bot.
       group_unsupported: Group chats are not supported. Please message me directly.
       scream_denied: You can't scream 🤷‍♂️
       notification:
@@ -238,6 +239,17 @@ botContent:
         custom_invalid: The proposed schedule could not be applied. Please describe it differently and try again.
         custom_too_frequent: Your desire to remain so close to your own death is commendable, but notifications cannot be sent more than once a day.
         custom_failed: Something went wrong while configuring notifications. Please try again later.
+        custom_interpretation: "The model interpreted your request as:"
+        custom_schedule: "Applied schedule:"
+        custom_cron: Cron
+        custom_description: Description
+        custom_timezone: Timezone
+        custom_next_notifications: "Next notifications:"
+        custom_disabled: Notifications are disabled.
+        custom_description_unavailable: Description unavailable.
+        custom_next_notifications_unavailable: Next notification times unavailable.
+        custom_unchanged: The schedule was not changed.
+        custom_change_hint: If this is not what you meant, use /notifications to configure it again.
         updated: "Notifications: {frequency}"
       llm:
         limit_exhausted: Your LLM request limit is exhausted.
@@ -245,17 +257,24 @@ botContent:
         failed: Something went wrong. Please try again later.
         mock: "Mock prediction: {answers}"
       questionnaire:
+        privacy_notice: |-
+          Before we begin, a note about privacy.
+
+          Your answers are kept temporarily only while the questionnaire is active. After processing, they are deleted immediately. If the questionnaire is abandoned, the data is deleted automatically when its retention period expires. The answers are not stored in the bot's primary database.
+
+          The bot is open source. Use /about to view the source code and learn more about the project.
         started: mock conversation started
         completed: thanks for your answers!
         deleted: your answers were deleted from our system
         questions:
           - id: q1
-            text: q1?
+            text: Your date of birth. A full date (DD.MM.YYYY) gives the model the most reliable basis for its estimate.
           - id: q2
             text: q2?
     ru:
       help: Тестовая справка. Используйте /localization, чтобы изменить язык.
       about: 'О боте: <a href="https://github.com/matyushinleonid/sein-zum-tode">github</a>'
+      text_unsupported: Нажмите /help, чтобы узнать, как пользоваться ботом.
       group_unsupported: Групповые чаты не поддерживаются. Напишите боту напрямую.
       scream_denied: Ты не можешь кричать 🤷‍♂️
       notification:
@@ -318,6 +337,17 @@ botContent:
         custom_invalid: Предложенное расписание не удалось применить. Опишите его иначе и попробуйте ещё раз.
         custom_too_frequent: Ваше желание находиться рядом с собственной смертью столь часто похвально, но мы не можем присылать уведомления чаще одного раза в сутки.
         custom_failed: При настройке уведомлений что-то пошло не так. Попробуйте ещё раз позднее.
+        custom_interpretation: "Модель интерпретировала ваш запрос так:"
+        custom_schedule: "Установленное расписание:"
+        custom_cron: Cron
+        custom_description: Описание
+        custom_timezone: Часовой пояс
+        custom_next_notifications: "Ближайшие уведомления:"
+        custom_disabled: Уведомления отключены.
+        custom_description_unavailable: Не удалось сформировать описание.
+        custom_next_notifications_unavailable: Не удалось вычислить ближайшие уведомления.
+        custom_unchanged: Расписание не изменено.
+        custom_change_hint: Если вы имели в виду другое, откройте /notifications и настройте расписание снова.
         updated: "Уведомления: {frequency}"
       llm:
         limit_exhausted: Лимит запросов к языковой модели исчерпан.
@@ -325,12 +355,18 @@ botContent:
         failed: Что-то пошло не так. Попробуйте ещё раз позднее.
         mock: "Тестовое предсказание: {answers}"
       questionnaire:
+        privacy_notice: |-
+          Перед началом — о приватности.
+
+          Ваши ответы временно хранятся только во время прохождения анкеты. После обработки они сразу удаляются. Если анкета не завершена, данные автоматически удалятся по истечении срока хранения. Ответы не сохраняются в основной базе данных бота.
+
+          Код бота открыт. Нажмите /about, чтобы посмотреть исходный код и узнать больше о проекте.
         started: Тестовая анкета начата.
         completed: Спасибо за ваши ответы!
         deleted: Ваши ответы удалены из нашей системы.
         questions:
           - id: q1
-            text: Ваш возраст и пол?
+            text: Ваша дата рождения. Полная дата (ДД.ММ.ГГГГ) даст модели наиболее надёжную основу для оценки.
           - id: q2
             text: Кем вы работаете, где живёте? Есть ли у вас спорт или увлечения?
 
@@ -360,6 +396,9 @@ deathPrediction:
 
       SUFFICIENCY DECISION
       First decide whether the answers contain enough coherent and relevant information for a meaningful estimate. Mark the prediction impossible when answers are predominantly random, nonsensical, unrelated to their questions, internally unusable, or almost entirely absent. A small number of missing, uncertain, or weak answers is not enough to reject an otherwise useful questionnaire.
+
+      BIRTH DATE AND AGE
+      Accept a full birth date, a birth month and year, a birth year alone, or an explicitly stated current age as valid age evidence. Use current_date as the time anchor. When the answer is partial, reason from the resulting age range and uncertainty without inventing a missing day, month, or year. Missing age information reduces precision but does not by itself make an otherwise coherent questionnaire insufficient.
 
       ESTIMATION RULES
       When an estimate is possible, use current_date as the time anchor. Consider the combined influence of demographic information, body measurements, location, diet, physical activity, tobacco, alcohol and other substances, diagnosed conditions, family history, sleep, stress, mental health, and occupational factors. Give more weight to concrete risk factors than vague impressions. Resolve uncertainty conservatively without exaggerating individual answers. Produce a plausible non-negative integer number of days, avoid unjustified optimism, and avoid conspicuously round values.

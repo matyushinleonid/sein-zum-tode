@@ -44,6 +44,10 @@ from sein_zum_tode.broadcasts.models import ScreamRequest
 from sein_zum_tode.localization.models import SupportedLocale
 from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.mortals.ports import MortalRepository
+from sein_zum_tode.notifications.custom_schedule.config import NotificationPresets
+from sein_zum_tode.notifications.custom_schedule.presentation import (
+    NotificationPresetPresenter,
+)
 from sein_zum_tode.notifications.models import (
     CUSTOM_NOTIFICATION_CALLBACK_DATA,
     NotificationFrequency,
@@ -262,6 +266,7 @@ class PrepareTelegramResponseActivities:
         ttl_seconds: int,
         content: BotContent,
         mortals: MortalRepository,
+        notification_presets: NotificationPresets,
         logger: logging.Logger | None = None,
         metrics: ApplicationMetrics | None = None,
     ) -> None:
@@ -269,6 +274,7 @@ class PrepareTelegramResponseActivities:
         self._ttl_seconds = ttl_seconds
         self._content = content
         self._mortals = mortals
+        self._notification_presets = NotificationPresetPresenter(notification_presets)
         self._logger = logger or logging.getLogger(__name__)
         self._metrics = metrics or NoopApplicationMetrics()
 
@@ -309,17 +315,26 @@ class PrepareTelegramResponseActivities:
         keyboard = (
             (
                 TelegramButton(
-                    text=settings.daily,
+                    text=self._notification_presets.label(
+                        NotificationFrequency.DAILY,
+                        settings.daily,
+                    ),
                     callback_data=NotificationFrequency.DAILY.callback_data(),
                 ),
                 TelegramButton(
-                    text=settings.weekly,
+                    text=self._notification_presets.label(
+                        NotificationFrequency.WEEKLY,
+                        settings.weekly,
+                    ),
                     callback_data=NotificationFrequency.WEEKLY.callback_data(),
                 ),
             ),
             (
                 TelegramButton(
-                    text=settings.monthly,
+                    text=self._notification_presets.label(
+                        NotificationFrequency.MONTHLY,
+                        settings.monthly,
+                    ),
                     callback_data=NotificationFrequency.MONTHLY.callback_data(),
                 ),
                 TelegramButton(

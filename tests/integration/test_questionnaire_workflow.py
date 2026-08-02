@@ -82,6 +82,7 @@ from tests.support import (
     TelegramUpdates,
     UnsupportedSessionMemory,
     mortal,
+    notification_presets,
 )
 
 pytestmark = [
@@ -385,6 +386,7 @@ class QuestionnaireWorkflowStory:
             ttl_seconds=211,
             content=content,
             mortals=mortals,
+            notification_presets=notification_presets(),
             logger=SilentLogger(),
         )
         prepare_unsupported = PrepareUnsupportedResponseActivity(
@@ -394,6 +396,8 @@ class QuestionnaireWorkflowStory:
                 initial_silence_count=0,
                 stanzas=(("Decay remembers nothing",),),
             ),
+            bot_content=content,
+            mortals=mortals,
             bot_id=241,
             session_ttl_seconds=inactivity_timeout_seconds,
             response_ttl_seconds=211,
@@ -548,23 +552,23 @@ async def test_runs_the_complete_private_questionnaire_without_persisting_answer
     ) as story:
         with story.environment.auto_time_skipping_disabled():
             handle = await story.start(begin_key)
-            await memory.wait_for_messages(2)
+            await memory.wait_for_messages(3)
             await handle.signal(
                 TELEGRAM_UPDATE_SIGNAL_NAME,
                 TelegramUpdateSignal(redis_key=first_answer_key),
             )
-            await memory.wait_for_messages(3)
+            await memory.wait_for_messages(4)
             await handle.signal(
                 TELEGRAM_UPDATE_SIGNAL_NAME,
                 TelegramUpdateSignal(redis_key=second_answer_key),
             )
-            await memory.wait_for_messages(6)
+            await memory.wait_for_messages(7)
             await memory.wait_until_absent(f"{begin_key}:questionnaire:privacy")
             await handle.signal(
                 TELEGRAM_UPDATE_SIGNAL_NAME,
                 TelegramUpdateSignal(redis_key=text_key),
             )
-            await memory.wait_for_messages(7)
+            await memory.wait_for_messages(8)
             await memory.wait_until_absent(f"{text_key}:response")
             child_id = f"{handle.id}:questionnaire:{begin_key}"
             parent_history = await handle.fetch_history()
@@ -579,6 +583,7 @@ async def test_runs_the_complete_private_questionnaire_without_persisting_answer
             ]
         )
         assert memory.messages == [
+            (241_109, "Private answers are temporary."),
             (241_109, "mock questionnaire started"),
             (241_109, "q1?"),
             (241_109, "q2?"),
@@ -625,9 +630,9 @@ async def test_deletes_an_inactive_questionnaire_and_notifies_the_user(
     ) as story:
         with story.environment.auto_time_skipping_disabled():
             await story.start(begin_key)
-            await memory.wait_for_messages(2)
-            await story.environment.sleep(timedelta(seconds=6))
             await memory.wait_for_messages(3)
+            await story.environment.sleep(timedelta(seconds=6))
+            await memory.wait_for_messages(4)
 
         assert (
             memory.messages,
@@ -635,6 +640,7 @@ async def test_deletes_an_inactive_questionnaire_and_notifies_the_user(
             memory.responses,
         ) == (
             [
+                (241_109, "Private answers are temporary."),
                 (241_109, "mock questionnaire started"),
                 (241_109, "q1?"),
                 (241_109, "your answers were deleted from our system"),
@@ -662,20 +668,22 @@ async def test_restarts_an_active_questionnaire_without_a_deletion_notice(
     ) as story:
         with story.environment.auto_time_skipping_disabled():
             handle = await story.start(first_begin_key)
-            await memory.wait_for_messages(2)
+            await memory.wait_for_messages(3)
             await handle.signal(
                 TELEGRAM_UPDATE_SIGNAL_NAME,
                 TelegramUpdateSignal(redis_key=second_begin_key),
             )
-            await memory.wait_for_messages(4)
+            await memory.wait_for_messages(6)
 
         assert (
             memory.messages,
             tuple(memory.questionnaires),
         ) == (
             [
+                (241_109, "Private answers are temporary."),
                 (241_109, "mock questionnaire started"),
                 (241_109, "q1?"),
+                (241_109, "Private answers are temporary."),
                 (241_109, "mock questionnaire started"),
                 (241_109, "q1?"),
             ],

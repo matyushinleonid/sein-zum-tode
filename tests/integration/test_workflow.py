@@ -90,6 +90,7 @@ from tests.support import (
     TelegramUpdates,
     UnsupportedSessionMemory,
     mortal,
+    notification_presets,
 )
 
 pytestmark = [
@@ -1485,6 +1486,7 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
         ttl_seconds=1801,
         content=BotContents.debug(),
         mortals=MortalMemory({173_357: mortal(id=173_357)}),
+        notification_presets=notification_presets(),
         logger=SilentLogger(),
     )
     unsupported_sessions = UnsupportedSessionMemory()
@@ -1495,6 +1497,8 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
             initial_silence_count=10,
             stanzas=(("Decay remembers nothing",),),
         ),
+        bot_content=BotContents.debug(),
+        mortals=MortalMemory({173_357: mortal(id=173_357)}),
         bot_id=1801,
         session_ttl_seconds=1807,
         response_ttl_seconds=1801,
@@ -1545,11 +1549,16 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
         await handle.result()
 
     assert (
-        all(event[0] != "send_text" for event in telegram.events),
+        [event for event in telegram.events if event[0] == "send_text"],
         unsupported_sessions.sessions["telegram:unsupported:1801:173357"].ignored_updates,
         all(secret not in str(event) for event in telegram.events),
         secret not in json.dumps(history.to_json_dict()),
-    ) == (True, 1, True, True), "plain text was returned or persisted in Temporal history"
+    ) == (
+        [("send_text", 179_297, "Use /help to learn how to use the bot.")],
+        1,
+        True,
+        True,
+    ), "plain text was echoed or persisted in Temporal history"
 
 
 async def test_skips_processing_when_mortal_registration_fails(

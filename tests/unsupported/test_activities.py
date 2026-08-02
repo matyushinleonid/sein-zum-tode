@@ -7,7 +7,14 @@ from sein_zum_tode.unsupported.models import (
     UnsupportedUpdateContent,
     UnsupportedUpdateSession,
 )
-from tests.support import SilentLogger, TelegramMemory, UnsupportedSessionMemory
+from tests.support import (
+    BotContents,
+    MortalMemory,
+    SilentLogger,
+    TelegramMemory,
+    UnsupportedSessionMemory,
+    mortal,
+)
 
 pytestmark = pytest.mark.fast
 
@@ -36,6 +43,8 @@ async def test_refreshes_the_session_ttl_without_preparing_an_initial_response()
         sessions=sessions,
         responses=responses.response_documents,
         content=content(initial_silence_count=10),
+        bot_content=BotContents.debug(),
+        mortals=MortalMemory(),
         bot_id=277,
         session_ttl_seconds=3600,
         response_ttl_seconds=281,
@@ -75,6 +84,8 @@ async def test_prepares_the_first_poem_line_after_the_silence_threshold() -> Non
         sessions=sessions,
         responses=responses.response_documents,
         content=content(initial_silence_count=10),
+        bot_content=BotContents.debug(),
+        mortals=MortalMemory(),
         bot_id=293,
         session_ttl_seconds=3600,
         response_ttl_seconds=311,
@@ -127,6 +138,8 @@ async def test_restarts_an_invalid_session_and_falls_back_to_the_chat_id() -> No
         sessions=sessions,
         responses=telegram_memory().response_documents,
         content=content(initial_silence_count=1),
+        bot_content=BotContents.debug(),
+        mortals=MortalMemory(),
         bot_id=331,
         session_ttl_seconds=3600,
         response_ttl_seconds=337,
@@ -145,3 +158,38 @@ async def test_restarts_an_invalid_session_and_falls_back_to_the_chat_id() -> No
         actual.response_prepared,
         sessions.sessions["telegram:unsupported:331:349"].ignored_updates,
     ) == (False, 1), "an invalid session prevented a fresh silent cycle"
+
+
+async def test_prepares_localized_help_for_initial_text_and_keeps_counting() -> None:
+    sessions = UnsupportedSessionMemory()
+    responses = telegram_memory()
+    subject = PrepareUnsupportedResponseActivity(
+        sessions=sessions,
+        responses=responses.response_documents,
+        content=content(initial_silence_count=10),
+        bot_content=BotContents.debug(),
+        mortals=MortalMemory({353: mortal(id=353, locale="ru")}),
+        bot_id=347,
+        session_ttl_seconds=3600,
+        response_ttl_seconds=359,
+        logger=SilentLogger(),
+    )
+    input = PrepareResponseInput(
+        update_key="telegram:update:353",
+        response_key="telegram:update:353:response",
+        chat_id=353,
+        user_id=353,
+        is_text_message=True,
+    )
+
+    actual = await subject.prepare_unsupported(input)
+
+    assert (
+        actual.response_prepared,
+        sessions.sessions["telegram:unsupported:347:353"].ignored_updates,
+        responses.responses[input.response_key].text,
+    ) == (
+        True,
+        1,
+        "Нажмите /help, чтобы узнать, как пользоваться ботом.",
+    ), "unsupported text stayed silent or stopped advancing the Verfall counter"

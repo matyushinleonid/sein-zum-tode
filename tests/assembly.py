@@ -651,6 +651,7 @@ class WorkerAssembly:
                 options["ttl_seconds"],
                 options["content"] is self.content,
                 options["mortals"] is self.mortals,
+                options["notification_presets"] is self.notification_schedule_config.presets,
             )
         )
         return ActivityDefinitions(
@@ -673,6 +674,8 @@ class WorkerAssembly:
                 options["sessions"] is self.unsupported_update_sessions,
                 options["responses"] is self.response_documents,
                 options["content"] is self.content.unsupported_updates,
+                options["bot_content"] is self.content,
+                options["mortals"] is self.mortals,
                 options["bot_id"],
                 options["session_ttl_seconds"],
                 options["response_ttl_seconds"],

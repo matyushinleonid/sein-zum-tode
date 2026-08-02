@@ -44,6 +44,7 @@ def localized_content(
     return LocalizedBotContent(
         help="Navigate",
         about="About",
+        text_unsupported="Use /help",
         group_unsupported="Groups unsupported",
         scream_denied="Scream denied",
         notification=notification
@@ -68,6 +69,17 @@ def localized_content(
             custom_invalid="Invalid schedule",
             custom_too_frequent="Schedule too frequent",
             custom_failed="Schedule failed",
+            custom_interpretation="Interpreted:",
+            custom_schedule="Schedule:",
+            custom_cron="Cron",
+            custom_description="Description",
+            custom_timezone="Timezone",
+            custom_next_notifications="Next:",
+            custom_disabled="Disabled",
+            custom_description_unavailable="Description unavailable",
+            custom_next_notifications_unavailable="Next unavailable",
+            custom_unchanged="Unchanged",
+            custom_change_hint="Change it",
             updated="Notifications: {frequency}",
         ),
         llm=LLMContent(limit_exhausted="Limit exhausted"),
@@ -76,6 +88,7 @@ def localized_content(
             mock="Mock: {answers}",
         ),
         questionnaire=QuestionnaireContent(
+            privacy_notice="Private",
             started="Started",
             completed="Completed",
             deleted="Deleted",
@@ -105,6 +118,7 @@ locales:
   en:
     help: Navigate by the constellations
     about: About the constellations
+    text_unsupported: Use /help
     group_unsupported: Groups unsupported
     scream_denied: Scream denied
     notification:
@@ -127,6 +141,17 @@ locales:
       custom_invalid: Invalid schedule
       custom_too_frequent: Schedule too frequent
       custom_failed: Schedule failed
+      custom_interpretation: "Interpreted:"
+      custom_schedule: "Schedule:"
+      custom_cron: Cron
+      custom_description: Description
+      custom_timezone: Timezone
+      custom_next_notifications: "Next:"
+      custom_disabled: Disabled
+      custom_description_unavailable: Description unavailable
+      custom_next_notifications_unavailable: Next unavailable
+      custom_unchanged: Unchanged
+      custom_change_hint: Change it
       updated: "Notifications: {frequency}"
     llm:
       limit_exhausted: Limit exhausted
@@ -134,6 +159,7 @@ locales:
       failed: Failed
       mock: "Mock: {answers}"
     questionnaire:
+      privacy_notice: Private answers
       started: The survey has started
       completed: Survey complete
       deleted: Private answers deleted
@@ -200,6 +226,7 @@ def test_rejects_a_default_locale_without_content() -> None:
 def test_rejects_duplicate_question_ids() -> None:
     with pytest.raises(ValidationError):
         QuestionnaireContent(
+            privacy_notice="Private",
             started="Started",
             completed="Completed",
             deleted="Deleted",
@@ -291,6 +318,17 @@ def test_rejects_invalid_notification_settings_and_mock_templates() -> None:
             custom_invalid="Invalid schedule",
             custom_too_frequent="Schedule too frequent",
             custom_failed="Schedule failed",
+            custom_interpretation="Interpreted",
+            custom_schedule="Schedule",
+            custom_cron="Cron",
+            custom_description="Description",
+            custom_timezone="Timezone",
+            custom_next_notifications="Next",
+            custom_disabled="Disabled",
+            custom_description_unavailable="Description unavailable",
+            custom_next_notifications_unavailable="Next unavailable",
+            custom_unchanged="Unchanged",
+            custom_change_hint="Change",
             updated="Notifications: {frequency}",
         )
     with pytest.raises(ValidationError):
@@ -306,6 +344,17 @@ def test_rejects_invalid_notification_settings_and_mock_templates() -> None:
             custom_invalid="Invalid schedule",
             custom_too_frequent="Schedule too frequent",
             custom_failed="Schedule failed",
+            custom_interpretation="Interpreted",
+            custom_schedule="Schedule",
+            custom_cron="Cron",
+            custom_description="Description",
+            custom_timezone="Timezone",
+            custom_next_notifications="Next",
+            custom_disabled="Disabled",
+            custom_description_unavailable="Description unavailable",
+            custom_next_notifications_unavailable="Next unavailable",
+            custom_unchanged="Unchanged",
+            custom_change_hint="Change",
             updated="No placeholder",
         )
     with pytest.raises(ValidationError):

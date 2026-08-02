@@ -24,6 +24,9 @@ from sein_zum_tode.notifications.custom_schedule.models import (
 from sein_zum_tode.notifications.custom_schedule.ports import (
     NotificationScheduleInterpreter,
 )
+from sein_zum_tode.notifications.custom_schedule.presentation import (
+    NotificationSchedulePresenter,
+)
 from sein_zum_tode.notifications.custom_schedule.validation import (
     InvalidNotificationScheduleError,
     NotificationScheduleTooFrequentError,
@@ -130,6 +133,7 @@ class ApplyCustomNotificationScheduleActivity:
         mortals: MortalRepository,
         schedules: MortalSchedule,
         validator: NotificationScheduleValidator,
+        presenter: NotificationSchedulePresenter,
         content: BotContent,
         response_ttl_seconds: int,
         clock: Clock | None = None,
@@ -141,6 +145,7 @@ class ApplyCustomNotificationScheduleActivity:
         self._mortals = mortals
         self._schedules = schedules
         self._validator = validator
+        self._presenter = presenter
         self._content = content
         self._response_ttl_seconds = response_ttl_seconds
         self._clock = clock or SystemClock()
@@ -159,18 +164,28 @@ class ApplyCustomNotificationScheduleActivity:
             )
         localized = self._content.localized(mortal.locale)
         proposal = stored.proposal
-        text = proposal.explanation
+        text = self._presenter.unchanged(
+            proposal.explanation,
+            localized.notification_settings,
+        )
         applied = False
         outcome = "not_understood"
         if proposal.understood:
             settings = proposal.settings()
+            now = self._clock.now()
             try:
-                self._validator.validate(settings, now=self._clock.now())
+                self._validator.validate(settings, now=now)
             except NotificationScheduleTooFrequentError:
-                text = localized.notification_settings.custom_too_frequent
+                text = self._presenter.unchanged(
+                    localized.notification_settings.custom_too_frequent,
+                    localized.notification_settings,
+                )
                 outcome = "too_frequent"
             except InvalidNotificationScheduleError:
-                text = localized.notification_settings.custom_invalid
+                text = self._presenter.unchanged(
+                    localized.notification_settings.custom_invalid,
+                    localized.notification_settings,
+                )
                 outcome = "invalid"
             else:
                 mortal = await self._mortals.set_notification_settings(
@@ -179,6 +194,13 @@ class ApplyCustomNotificationScheduleActivity:
                     timezone=settings.timezone,
                 )
                 await self._schedules.ensure(mortal)
+                text = self._presenter.applied(
+                    explanation=proposal.explanation,
+                    settings=settings,
+                    locale=mortal.locale or self._content.default_locale,
+                    now=now,
+                    content=localized.notification_settings,
+                )
                 applied = True
                 outcome = "applied"
         await self._responses.store(

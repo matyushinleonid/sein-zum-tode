@@ -36,7 +36,7 @@ def test_snapshots_the_configured_questionnaire_for_one_user() -> None:
         "en",
         201_107,
         201_113,
-        ("mock questionnaire started", "q1?"),
+        ("Private answers are temporary.", "mock questionnaire started", "q1?"),
         (("q1", "q1?"), ("q2", "q2?")),
     ), "questionnaire snapshot lost configured content or Telegram ownership"
 

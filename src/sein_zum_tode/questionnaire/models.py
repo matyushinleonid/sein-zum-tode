@@ -33,11 +33,12 @@ class QuestionnaireQuestion(BaseModel):
 class QuestionnaireState(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    schema_version: int = 1
+    schema_version: int = 2
     content_version: str
     locale: str
     user_id: int
     chat_id: int
+    privacy_notice_message: str
     started_message: str
     completed_message: str
     deleted_message: str
@@ -60,6 +61,7 @@ class QuestionnaireState(BaseModel):
             locale=locale,
             user_id=user_id,
             chat_id=chat_id,
+            privacy_notice_message=questionnaire.privacy_notice,
             started_message=questionnaire.started,
             completed_message=questionnaire.completed,
             deleted_message=questionnaire.deleted,
@@ -69,8 +71,8 @@ class QuestionnaireState(BaseModel):
             ),
         )
 
-    def initial_messages(self) -> tuple[str, str]:
-        return self.started_message, self.questions[0].text
+    def initial_messages(self) -> tuple[str, ...]:
+        return self.privacy_notice_message, self.started_message, self.questions[0].text
 
     def apply_answer(self, *, update_key: str, text: str) -> AppliedQuestionnaireAnswer:
         existing_index = self._answer_index(update_key)

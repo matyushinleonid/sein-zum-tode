@@ -97,6 +97,7 @@ class PrepareResponseInput:
     chat_id: int
     user_id: int | None = None
     callback_query_id: str | None = None
+    is_text_message: bool = False
 
 
 @dataclass(frozen=True, slots=True)
