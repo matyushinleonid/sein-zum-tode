@@ -443,6 +443,11 @@ class WorkerAssembly:
         )
         monkeypatch.setattr(
             module,
+            "PrepareNotificationSampleActivity",
+            self.create_prepare_notification_sample,
+        )
+        monkeypatch.setattr(
+            module,
             "ConfigureMortalNotificationsActivity",
             self.create_configure_notifications,
         )
@@ -761,6 +766,19 @@ class WorkerAssembly:
                 options["mortals"] is self.mortals,
                 options["responses"] is self.response_documents,
                 options["presenter"] is self.notification_presenter,
+                options["response_ttl_seconds"],
+            )
+        )
+        return ActivityDefinitions(("prepare",))
+
+    def create_prepare_notification_sample(self, **options: object) -> ActivityDefinitions:
+        self.events.append(
+            (
+                "prepare_notification_sample",
+                options["mortals"] is self.mortals,
+                options["responses"] is self.response_documents,
+                options["presenter"] is self.notification_presenter,
+                options["content"] is self.content,
                 options["response_ttl_seconds"],
             )
         )

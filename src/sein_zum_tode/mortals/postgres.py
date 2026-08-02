@@ -14,7 +14,6 @@ from sqlalchemy import (
     func,
     literal,
     select,
-    text,
     update,
 )
 from sqlalchemy.dialects.postgresql import insert
@@ -66,7 +65,6 @@ mortal_llm_requests_remaining_column: Column[int] = Column(
     "llm_requests_remaining",
     Integer,
     nullable=False,
-    server_default=text("50"),
 )
 
 mortals = Table(

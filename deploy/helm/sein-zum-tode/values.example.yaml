@@ -44,7 +44,7 @@ application:
     - 162573173
 
 botContent:
-  version: production-v4
+  version: production-v6
   default_locale: en
   locales:
     en:
@@ -55,36 +55,35 @@ botContent:
       notification:
         default:
           other: "Days left: {days_left}"
-        variants:
-          - id: natural
-            probability: 0.5
-            text:
-              one: "{days_left} day remains"
-              other: "{days_left} days remain"
+        natural:
+          one: "{days_left} day remains"
+          other: "{days_left} days remain"
+        epic:
           - id: haunting
-            probability: 0.01
             text:
               one: "There is {days_left} day left. It gets harder to ignore with each passing day"
               other: "There are {days_left} days left. It gets harder to ignore with each passing day"
           - id: witch_house
-            probability: 0.01
             style: witch_house
             text:
               one: "{days_left} day remains"
               other: "{days_left} days remain"
           - id: words
-            probability: 0.01
             number_style: words
             text:
               one: "{days_left} day remains"
               other: "{days_left} days remain"
           - id: witch_house_words
-            probability: 0.01
             style: witch_house
             number_style: words
             text:
               one: "{days_left} day remains"
               other: "{days_left} days remain"
+        mythic:
+          - id: stupa
+            media:
+              kind: audio
+              url: https://storage.yandexcloud.net/leonid.sh/sein-zum-tode/stupa.mp3
       localization:
         prompt: Choose your language / Выберите язык
         russian: "🇷🇺 RU"
@@ -119,23 +118,19 @@ botContent:
       notification:
         default:
           other: "Осталось дней: {days_left}"
-        variants:
-          - id: natural
-            probability: 0.5
-            text:
-              one: "Остался {days_left} день"
-              few: "Осталось {days_left} дня"
-              many: "Осталось {days_left} дней"
-              other: "Осталось {days_left} дня"
+        natural:
+          one: "Остался {days_left} день"
+          few: "Осталось {days_left} дня"
+          many: "Осталось {days_left} дней"
+          other: "Осталось {days_left} дня"
+        epic:
           - id: haunting
-            probability: 0.01
             text:
               one: "Остался {days_left} день. Игнорировать с каждым днём всё сложнее"
               few: "Осталось {days_left} дня. Игнорировать с каждым днём всё сложнее"
               many: "Осталось {days_left} дней. Игнорировать с каждым днём всё сложнее"
               other: "Осталось {days_left} дня. Игнорировать с каждым днём всё сложнее"
           - id: witch_house
-            probability: 0.01
             style: witch_house
             text:
               one: "Остался {days_left} день"
@@ -143,7 +138,6 @@ botContent:
               many: "Осталось {days_left} дней"
               other: "Осталось {days_left} дня"
           - id: words
-            probability: 0.01
             number_style: words
             text:
               one: "Остался {days_left} день"
@@ -151,7 +145,6 @@ botContent:
               many: "Осталось {days_left} дней"
               other: "Осталось {days_left} дня"
           - id: witch_house_words
-            probability: 0.01
             style: witch_house
             number_style: words
             text:
@@ -159,6 +152,11 @@ botContent:
               few: "Осталось {days_left} дня"
               many: "Осталось {days_left} дней"
               other: "Осталось {days_left} дня"
+        mythic:
+          - id: stupa
+            media:
+              kind: audio
+              url: https://storage.yandexcloud.net/leonid.sh/sein-zum-tode/stupa.mp3
       localization:
         prompt: Выберите язык.
         russian: "🇷🇺 RU"

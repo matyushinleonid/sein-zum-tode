@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from hashlib import sha256
 from html import escape
 from typing import Protocol
@@ -6,10 +7,15 @@ from babel import Locale
 
 from sein_zum_tode.bot.content import (
     BotContent,
+    NotificationContent,
+    NotificationEmojiPool,
+    NotificationMedia,
     NotificationNumberStyle,
+    NotificationTextForms,
     NotificationTextStyle,
-    NotificationTextVariant,
+    NotificationTier,
 )
+from sein_zum_tode.bot.models import TelegramAttachment, TelegramAttachmentKind
 from sein_zum_tode.notifications.models import RenderedNotification
 from sein_zum_tode.notifications.ports import NumberSpeller
 
@@ -60,6 +66,15 @@ class StableNotificationRandomizer:
         return int.from_bytes(digest[:8])
 
 
+@dataclass(frozen=True, slots=True)
+class _TextSelection:
+    forms: NotificationTextForms
+    style: NotificationTextStyle
+    number_style: NotificationNumberStyle
+    variant_id: str
+    media: NotificationMedia | None = None
+
+
 class NotificationMessagePresenter:
     def __init__(
         self,
@@ -78,105 +93,207 @@ class NotificationMessagePresenter:
         locale: str | None,
         days_left: int,
         seed: str,
+        sample: NotificationTier | None = None,
     ) -> RenderedNotification:
         locale_name = locale if locale in self._content.locales else self._content.default_locale
         notification = self._content.localized(locale).notification
-        variant = self._variant(notification.variants, seed)
+        tier = sample or self._tier(seed)
+        selected = self._text(notification, tier, seed)
         displayed_days: int | str = days_left
-        if variant is not None and variant.number_style == NotificationNumberStyle.WORDS:
+        if selected.number_style == NotificationNumberStyle.WORDS:
             displayed_days = self._number_speller.spell(days_left, locale_name)
-        text = (variant.text if variant is not None else notification.default).render(
+        text = selected.forms.render(
             displayed_days,
             str(Locale.parse(locale_name).plural_form(days_left)),
         )
-        if variant is not None and variant.style == NotificationTextStyle.WITCH_HOUSE:
+        if selected.style == NotificationTextStyle.WITCH_HOUSE:
             text = self._witch_house(text)
-        if not self._selected(
-            seed,
-            "decoration",
-            self._content.notification_decoration.probability,
-        ):
-            return RenderedNotification(
-                text=text,
-                parse_mode=None,
-                fallback_text=None,
-                variant_id=variant.id if variant is not None else None,
-                decorated=False,
-            )
-        rich_prefix, fallback_prefix = self._decoration(seed)
+        emoji_tier = self._emoji_tier(tier)
+        if emoji_tier is None:
+            rich_text = text
+            fallback_text = None
+            parse_mode = None
+        else:
+            rich_prefix, fallback_prefix = self._decoration(seed, emoji_tier)
+            rich_text = f"{rich_prefix}\n{escape(text)}"
+            fallback_text = f"{fallback_prefix}\n{text}"
+            parse_mode = "HTML"
         return RenderedNotification(
-            text=f"{rich_prefix}\n{escape(text)}",
-            parse_mode="HTML",
-            fallback_text=f"{fallback_prefix}\n{text}",
-            variant_id=variant.id if variant is not None else None,
-            decorated=True,
+            text=rich_text,
+            parse_mode=parse_mode,
+            fallback_text=fallback_text,
+            prelude_text=self._prelude(tier),
+            attachment=self._attachment(selected.media),
+            variant_id=selected.variant_id,
+            tier=tier,
         )
 
-    def _variant(
-        self,
-        variants: tuple[NotificationTextVariant, ...],
-        seed: str,
-    ) -> NotificationTextVariant | None:
-        value = self._randomizer.value(seed, "text_variant")
-        boundary = 0.0
-        for variant in variants:
-            boundary += variant.probability
-            if value < boundary:
-                return variant
+    def _tier(self, seed: str) -> NotificationTier | None:
+        rewards = self._content.notification_rewards
+        message = self._randomizer.value(seed, "message_tier")
+        if message < rewards.mythic.probability:
+            return NotificationTier.MYTHIC
+        if message < rewards.mythic.probability + rewards.epic.probability:
+            return NotificationTier.EPIC
+        emoji = self._randomizer.value(seed, "emoji_tier")
+        if emoji < rewards.rare.probability:
+            return NotificationTier.RARE
+        if emoji < rewards.rare.probability + rewards.lucky.probability:
+            return NotificationTier.LUCKY
         return None
 
-    def _decoration(self, seed: str) -> tuple[str, str]:
-        decoration = self._content.notification_decoration
-        if self._randomizer.value(seed, "direction") < 0.5:
+    def _text(
+        self,
+        notification: NotificationContent,
+        tier: NotificationTier | None,
+        seed: str,
+    ) -> _TextSelection:
+        if tier == NotificationTier.EPIC:
+            epic = notification.epic[
+                self._randomizer.index(seed, "epic_variant", len(notification.epic))
+            ]
+            return _TextSelection(
+                forms=epic.text,
+                style=epic.style,
+                number_style=epic.number_style,
+                variant_id=epic.id,
+            )
+        if tier == NotificationTier.MYTHIC:
+            mythic = notification.mythic[
+                self._randomizer.index(seed, "mythic_variant", len(notification.mythic))
+            ]
+            if mythic.text is None:
+                base = self._base_text(notification, seed)
+                return _TextSelection(
+                    forms=base.forms,
+                    style=base.style,
+                    number_style=base.number_style,
+                    variant_id=mythic.id,
+                    media=mythic.media,
+                )
+            return _TextSelection(
+                forms=mythic.text,
+                style=mythic.style,
+                number_style=mythic.number_style,
+                variant_id=mythic.id,
+                media=mythic.media,
+            )
+        return self._base_text(notification, seed)
+
+    def _base_text(self, notification: NotificationContent, seed: str) -> _TextSelection:
+        if self._randomizer.index(seed, "base_text", 2) == 0:
+            return _TextSelection(
+                forms=notification.default,
+                style=NotificationTextStyle.PLAIN,
+                number_style=NotificationNumberStyle.DIGITS,
+                variant_id="default",
+            )
+        return _TextSelection(
+            forms=notification.natural,
+            style=NotificationTextStyle.PLAIN,
+            number_style=NotificationNumberStyle.DIGITS,
+            variant_id="natural",
+        )
+
+    def _emoji_tier(self, tier: NotificationTier | None) -> NotificationTier | None:
+        if tier in {NotificationTier.EPIC, NotificationTier.MYTHIC}:
+            return NotificationTier.RARE
+        return tier
+
+    def _decoration(self, seed: str, tier: NotificationTier) -> tuple[str, str]:
+        pool = self._emoji_pool(tier)
+        prefix = tier.value
+        if self._randomizer.value(seed, f"{prefix}_direction") < 0.5:
             entries = (
-                (
-                    decoration.ltr_walk_ids[
-                        self._randomizer.index(seed, "ltr_walk", len(decoration.ltr_walk_ids))
-                    ],
+                self._emoji(
+                    seed,
+                    f"{prefix}_ltr_walk",
+                    pool.ltr_walk_ids,
+                    pool.ltr_walk_emoji,
                     "🚶",
                 ),
-                (
-                    decoration.ltr_arrow_ids[
-                        self._randomizer.index(seed, "ltr_arrow", len(decoration.ltr_arrow_ids))
-                    ],
+                self._emoji(
+                    seed,
+                    f"{prefix}_ltr_arrow",
+                    pool.ltr_arrow_ids,
+                    pool.ltr_arrow_emoji,
                     "➡️",
                 ),
-                (
-                    decoration.dead_ids[
-                        self._randomizer.index(seed, "ltr_dead", len(decoration.dead_ids))
-                    ],
+                self._emoji(
+                    seed,
+                    f"{prefix}_ltr_dead",
+                    pool.dead_ids,
+                    pool.dead_emoji,
                     "💀",
                 ),
             )
         else:
             entries = (
-                (
-                    decoration.dead_ids[
-                        self._randomizer.index(seed, "rtl_dead", len(decoration.dead_ids))
-                    ],
+                self._emoji(
+                    seed,
+                    f"{prefix}_rtl_dead",
+                    pool.dead_ids,
+                    pool.dead_emoji,
                     "💀",
                 ),
-                (
-                    decoration.rtl_arrow_ids[
-                        self._randomizer.index(seed, "rtl_arrow", len(decoration.rtl_arrow_ids))
-                    ],
+                self._emoji(
+                    seed,
+                    f"{prefix}_rtl_arrow",
+                    pool.rtl_arrow_ids,
+                    pool.rtl_arrow_emoji,
                     "⬅️",
                 ),
-                (
-                    decoration.rtl_walk_ids[
-                        self._randomizer.index(seed, "rtl_walk", len(decoration.rtl_walk_ids))
-                    ],
+                self._emoji(
+                    seed,
+                    f"{prefix}_rtl_walk",
+                    pool.rtl_walk_ids,
+                    pool.rtl_walk_emoji,
                     "🚶",
                 ),
             )
-        rich = "".join(
-            f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
-            for emoji_id, fallback in entries
-        )
-        return rich, "".join(fallback for _, fallback in entries)
+        return "".join(entry[0] for entry in entries), "".join(entry[1] for entry in entries)
 
-    def _selected(self, seed: str, decision: str, probability: float) -> bool:
-        return self._randomizer.value(seed, decision) < probability
+    def _emoji(
+        self,
+        seed: str,
+        decision: str,
+        custom_ids: tuple[str, ...],
+        regular: tuple[str, ...],
+        fallback: str,
+    ) -> tuple[str, str]:
+        selected = self._randomizer.index(seed, decision, len(custom_ids) + len(regular))
+        if selected < len(custom_ids):
+            return (
+                f'<tg-emoji emoji-id="{custom_ids[selected]}">{fallback}</tg-emoji>',
+                fallback,
+            )
+        emoji = regular[selected - len(custom_ids)]
+        return escape(emoji), emoji
+
+    def _emoji_pool(self, tier: NotificationTier) -> NotificationEmojiPool:
+        rewards = self._content.notification_rewards
+        return rewards.rare if tier == NotificationTier.RARE else rewards.lucky
+
+    def _prelude(self, tier: NotificationTier | None) -> str | None:
+        rewards = self._content.notification_rewards
+        if tier == NotificationTier.LUCKY:
+            return rewards.lucky.prelude
+        if tier == NotificationTier.RARE:
+            return rewards.rare.prelude
+        if tier == NotificationTier.EPIC:
+            return rewards.epic.prelude
+        if tier == NotificationTier.MYTHIC:
+            return rewards.mythic.prelude
+        return None
+
+    @staticmethod
+    def _attachment(media: NotificationMedia | None) -> TelegramAttachment | None:
+        if media is None:
+            return None
+        return TelegramAttachment(
+            kind=TelegramAttachmentKind(media.kind.value),
+            url=media.url,
+        )
 
     @staticmethod
     def _witch_house(value: str) -> str:

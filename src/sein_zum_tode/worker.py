@@ -53,7 +53,10 @@ from sein_zum_tode.log_config import configure_logging
 from sein_zum_tode.mortals.activities import MortalActivities
 from sein_zum_tode.mortals.models import MortalRegistrationDefaults
 from sein_zum_tode.mortals.postgres import PostgresMortalRepository
-from sein_zum_tode.notifications.activities import PrepareMortalNotificationActivity
+from sein_zum_tode.notifications.activities import (
+    PrepareMortalNotificationActivity,
+    PrepareNotificationSampleActivity,
+)
 from sein_zum_tode.notifications.custom_schedule.activities import (
     ApplyCustomNotificationScheduleActivity,
     GenerateCustomNotificationScheduleActivity,
@@ -483,13 +486,22 @@ async def run(settings: WorkerSettings) -> None:
         content=content,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
     )
+    notification_presenter = NotificationMessagePresenter(
+        content=content,
+        number_speller=Num2WordsNumberSpeller.create(),
+    )
     prepare_notification = PrepareMortalNotificationActivity(
         mortals=mortals,
         responses=response_documents,
-        presenter=NotificationMessagePresenter(
-            content=content,
-            number_speller=Num2WordsNumberSpeller.create(),
-        ),
+        presenter=notification_presenter,
+        response_ttl_seconds=settings.telegram_update_ttl_seconds,
+        metrics=metrics,
+    )
+    prepare_notification_sample = PrepareNotificationSampleActivity(
+        mortals=mortals,
+        responses=response_documents,
+        presenter=notification_presenter,
+        content=content,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
         metrics=metrics,
     )
@@ -525,6 +537,7 @@ async def run(settings: WorkerSettings) -> None:
             mortal_activities.mark_unreachable,
             mortal_activities.delete_schedule,
             prepare_notification.prepare,
+            prepare_notification_sample.prepare,
             configure_localization.configure,
             configure_notifications.configure,
             generate_notification_schedule.generate,

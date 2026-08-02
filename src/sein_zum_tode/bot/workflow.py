@@ -55,6 +55,7 @@ from sein_zum_tode.notifications.custom_schedule.models import (
 )
 from sein_zum_tode.notifications.models import (
     CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME,
+    PREPARE_NOTIFICATION_SAMPLE_ACTIVITY_NAME,
 )
 from sein_zum_tode.observability import LogContext
 from sein_zum_tode.payload_keys import UpdatePayloadKeys
@@ -84,6 +85,7 @@ PREPARE_ACTIVITY_NAMES = {
     InspectionKind.LIMIT_EXHAUSTED: PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
     InspectionKind.GROUP_UNSUPPORTED: PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
     InspectionKind.SCREAM_DENIED: PREPARE_SCREAM_DENIED_ACTIVITY_NAME,
+    InspectionKind.NOTIFICATION_SAMPLE: PREPARE_NOTIFICATION_SAMPLE_ACTIVITY_NAME,
 }
 UNSUPPORTED_INSPECTION_KINDS = {
     InspectionKind.TEXT,
@@ -286,6 +288,7 @@ class TelegramUserWorkflow:
                 user_id=self._user_id,
                 callback_query_id=inspected.callback_query_id,
                 is_text_message=inspected.kind == InspectionKind.TEXT,
+                notification_sample=inspected.notification_sample,
             )
             response_prepared = True
             if inspected.kind in UNSUPPORTED_INSPECTION_KINDS:

@@ -20,6 +20,7 @@ from sein_zum_tode.bot.activities import (
     InspectTelegramUpdateActivity,
     PrepareTelegramResponseActivities,
 )
+from sein_zum_tode.bot.content import NotificationTier
 from sein_zum_tode.bot.models import (
     CLEANUP_PAYLOADS_ACTIVITY_NAME,
     DELIVER_RESPONSE_ACTIVITY_NAME,
@@ -65,7 +66,10 @@ from sein_zum_tode.notifications.custom_schedule.models import (
     GenerateCustomNotificationScheduleInput,
     PrepareCustomNotificationFailureInput,
 )
-from sein_zum_tode.notifications.models import CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME
+from sein_zum_tode.notifications.models import (
+    CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME,
+    PREPARE_NOTIFICATION_SAMPLE_ACTIVITY_NAME,
+)
 from sein_zum_tode.questionnaire.models import (
     QUESTIONNAIRE_FINISHED_SIGNAL_NAME,
     QUESTIONNAIRE_UPDATE_SIGNAL_NAME,
@@ -187,6 +191,7 @@ class ActivityTranscript:
         scream_requests: dict[str, ScreamRequest] | None = None,
         failing_custom_schedule: bool = False,
         silent_unsupported_updates: set[str] | None = None,
+        sample_tiers: dict[str, NotificationTier] | None = None,
     ) -> None:
         self.inspections = inspections
         self.failing_inspection = failing_inspection
@@ -201,6 +206,8 @@ class ActivityTranscript:
         self.scream_requests = dict(scream_requests or {})
         self.failing_custom_schedule = failing_custom_schedule
         self.silent_unsupported_updates = silent_unsupported_updates or set()
+        self.sample_tiers = sample_tiers or {}
+        self.received_samples: list[NotificationTier | None] = []
         self.events: list[tuple[str, str, int | None]] = []
         self.changed = asyncio.Event()
         self.inspection_started = asyncio.Event()
@@ -227,6 +234,7 @@ class ActivityTranscript:
             update_key=input.update_key,
             chat_id=input.user_id + 17,
             scream_request=self.scream_requests.get(input.update_key),
+            notification_sample=self.sample_tiers.get(input.update_key),
         )
 
     @activity.defn(name=PREPARE_HELP_ACTIVITY_NAME)
@@ -289,6 +297,15 @@ class ActivityTranscript:
     async def prepare_custom_notification(self, input: PrepareResponseInput) -> None:
         self.record(
             operation="prepare_custom_notification",
+            update_key=input.update_key,
+            user_id=input.user_id,
+        )
+
+    @activity.defn(name=PREPARE_NOTIFICATION_SAMPLE_ACTIVITY_NAME)
+    async def prepare_notification_sample(self, input: PrepareResponseInput) -> None:
+        self.received_samples.append(input.notification_sample)
+        self.record(
+            operation="prepare_notification_sample",
             update_key=input.update_key,
             user_id=input.user_id,
         )
@@ -402,6 +419,7 @@ class ActivityTranscript:
             self.prepare_scream_denied,
             self.prepare_limit_exhausted,
             self.prepare_custom_notification,
+            self.prepare_notification_sample,
             self.generate_custom_notification_schedule,
             self.apply_custom_notification_schedule,
             self.prepare_custom_notification_failure,
@@ -480,6 +498,10 @@ class ActivityRouter:
     async def prepare_custom_notification(self, input: PrepareResponseInput) -> None:
         await self.selected("prepare_custom_notification")(input)
 
+    @activity.defn(name=PREPARE_NOTIFICATION_SAMPLE_ACTIVITY_NAME)
+    async def prepare_notification_sample(self, input: PrepareResponseInput) -> None:
+        await self.selected("prepare_notification_sample")(input)
+
     @activity.defn(name=GENERATE_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME)
     async def generate_custom_notification_schedule(
         self,
@@ -539,6 +561,7 @@ class ActivityRouter:
             self.prepare_scream_denied,
             self.prepare_limit_exhausted,
             self.prepare_custom_notification,
+            self.prepare_notification_sample,
             self.generate_custom_notification_schedule,
             self.apply_custom_notification_schedule,
             self.prepare_custom_notification_failure,
@@ -872,15 +895,18 @@ async def test_routes_commands_without_advancing_an_active_questionnaire(
     help_key = "redis:help-during-questionnaire:1757"
     unknown_key = "redis:unknown-command-during-questionnaire:1758"
     scream_key = "redis:scream-during-questionnaire:1759"
+    sample_key = "redis:sample-during-questionnaire:1760"
     transcript = ActivityTranscript(
         inspections={
             begin_key: InspectionKind.BEGIN,
             help_key: InspectionKind.HELP,
             unknown_key: InspectionKind.UNSUPPORTED,
             scream_key: InspectionKind.SCREAM_UNSUPPORTED,
+            sample_key: InspectionKind.NOTIFICATION_SAMPLE,
         },
         failing_inspection=None,
         failing_cleanup=False,
+        sample_tiers={sample_key: NotificationTier.LUCKY},
     )
     async with await WorkflowStory.open(
         pool=workflow_worker_pool,
@@ -904,7 +930,11 @@ async def test_routes_commands_without_advancing_an_active_questionnaire(
             TELEGRAM_UPDATE_SIGNAL_NAME,
             TelegramUpdateSignal(redis_key=scream_key),
         )
-        await transcript.wait_for("cleanup", 4)
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=sample_key),
+        )
+        await transcript.wait_for("cleanup", 5)
         actual = await child.query("received_update_keys")
 
     assert (
@@ -925,6 +955,10 @@ async def test_routes_commands_without_advancing_an_active_questionnaire(
             "cleanup",
             "inspect",
             "prepare_unsupported",
+            "deliver",
+            "cleanup",
+            "inspect",
+            "prepare_notification_sample",
             "deliver",
             "cleanup",
         ],
@@ -953,6 +987,34 @@ async def test_routes_notification_callback_without_entering_a_questionnaire(
         ("deliver", update_key, 173_357),
         ("cleanup", update_key, 173_357),
     ], "notification callback was signalled to a questionnaire or skipped delivery"
+
+
+async def test_routes_an_admin_notification_sample_through_normal_delivery(
+    workflow_worker_pool: WorkflowWorkerPool,
+) -> None:
+    update_key = "redis:notification-sample:1761"
+    transcript = ActivityTranscript(
+        inspections={update_key: InspectionKind.NOTIFICATION_SAMPLE},
+        failing_inspection=None,
+        failing_cleanup=False,
+        sample_tiers={update_key: NotificationTier.MYTHIC},
+    )
+    async with await WorkflowStory.open(
+        pool=workflow_worker_pool,
+        activities=transcript.definitions(),
+    ) as story:
+        await story.start(update_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+
+    assert (transcript.received_samples, transcript.events) == (
+        [NotificationTier.MYTHIC],
+        [
+            ("inspect", update_key, 173_357),
+            ("prepare_notification_sample", update_key, 173_357),
+            ("deliver", update_key, 173_357),
+            ("cleanup", update_key, 173_357),
+        ],
+    ), "admin notification sample lost its tier or bypassed normal delivery and cleanup"
 
 
 async def test_custom_schedule_takes_one_text_without_advancing_questionnaire(

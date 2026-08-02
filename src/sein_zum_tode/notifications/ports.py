@@ -1,5 +1,6 @@
 from typing import Protocol
 
+from sein_zum_tode.bot.content import NotificationTier
 from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.notifications.models import RenderedNotification
 
@@ -17,6 +18,7 @@ class NotificationPresenter(Protocol):
         locale: str | None,
         days_left: int,
         seed: str,
+        sample: NotificationTier | None = None,
     ) -> RenderedNotification: ...
 
 

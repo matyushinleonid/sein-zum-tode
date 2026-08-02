@@ -236,7 +236,7 @@ async def test_generates_once_with_locale_local_time_and_idempotent_global_quota
         "ru",
         "2026-08-01T15:07:00+03:00",
         "По будням вечером",
-        49,
+        14,
         "store",
         4117,
     ), "generation repeated completion or lost locale, timezone, input, TTL, or quota"

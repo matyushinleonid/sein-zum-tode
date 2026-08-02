@@ -1,15 +1,25 @@
 from datetime import UTC, date, datetime
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
+from sein_zum_tode.bot.content import NotificationTier
+from sein_zum_tode.bot.models import (
+    PrepareResponseInput,
+    TelegramAttachment,
+    TelegramAttachmentKind,
+    TelegramResponse,
+)
 from sein_zum_tode.infrastructure.clock import SystemClock
 from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.notifications.activities import (
     PrepareMortalNotificationActivity,
+    PrepareNotificationSampleActivity,
 )
 from sein_zum_tode.notifications.models import (
     PreparedMortalNotification,
     PrepareMortalNotificationInput,
+    RenderedNotification,
 )
 from sein_zum_tode.notifications.presentation import NotificationMessagePresenter
 from tests.support import BotContents, NumberSpellerMemory, SilentLogger, TelegramMemory, mortal
@@ -66,10 +76,27 @@ class MortalRepositoryDouble:
 
     async def consume_llm_request(self, mortal_id: int, request_id: str) -> Mortal:
         self.events.append(("consume_llm_request", mortal_id, request_id))
-        return mortal(id=mortal_id, llm_requests_remaining=49)
+        return mortal(id=mortal_id, llm_requests_remaining=14)
 
     async def mark_unreachable(self, mortal_id: int) -> None:
         self.events.append(("mark_unreachable", mortal_id))
+
+
+class NotificationPresenterMemory:
+    def __init__(self, rendered: RenderedNotification) -> None:
+        self.rendered = rendered
+        self.events: list[tuple[object, ...]] = []
+
+    def render(
+        self,
+        *,
+        locale: str | None,
+        days_left: int,
+        seed: str,
+        sample: NotificationTier | None = None,
+    ) -> RenderedNotification:
+        self.events.append((locale, days_left, seed, sample))
+        return self.rendered
 
 
 def responses() -> TelegramMemory:
@@ -174,6 +201,140 @@ async def test_prepares_a_localized_countdown_in_redis() -> None:
         "mock notification: 2",
         3413,
     ), "notification preparation used the wrong local day, recipient, text, or Redis TTL"
+
+
+async def test_prepares_an_admin_notification_sample_with_its_reward_payload() -> None:
+    repository = MortalRepositoryDouble(
+        mortal(
+            id=162573173,
+            locale="ru",
+            death_date=date(2100, 1, 1),
+        )
+    )
+    payloads = responses()
+    rendered = RenderedNotification(
+        text="rare emoji\nОсталось 2 дня",
+        parse_mode="HTML",
+        fallback_text="💀⬅️🚶\nОсталось 2 дня",
+        prelude_text="👑 Mythic!",
+        attachment=TelegramAttachment(
+            kind=TelegramAttachmentKind.AUDIO,
+            url="https://example.com/stupa.mp3",
+        ),
+        variant_id="stupa",
+        tier=NotificationTier.MYTHIC,
+    )
+    presenter = NotificationPresenterMemory(rendered)
+    subject = PrepareNotificationSampleActivity(
+        mortals=repository,
+        responses=payloads.response_documents,
+        presenter=presenter,
+        content=BotContents.debug(),
+        response_ttl_seconds=3421,
+        clock=ClockDouble(datetime(2099, 12, 30, 20, 59, tzinfo=UTC)),
+        logger=SilentLogger(),
+    )
+    input = PrepareResponseInput(
+        update_key="telegram:sample:3421",
+        response_key="telegram:sample:3421:response",
+        chat_id=162573173,
+        user_id=162573173,
+        notification_sample=NotificationTier.MYTHIC,
+    )
+
+    await subject.prepare(input)
+
+    assert (
+        presenter.events,
+        payloads.responses[input.response_key],
+        payloads.events[0][-1],
+    ) == (
+        [("ru", 2, input.response_key, NotificationTier.MYTHIC)],
+        TelegramResponse(
+            chat_id=162573173,
+            text=rendered.text,
+            parse_mode=rendered.parse_mode,
+            fallback_text=rendered.fallback_text,
+            prelude_text=rendered.prelude_text,
+            attachment=rendered.attachment,
+        ),
+        3421,
+    ), "admin sample lost its forced tier, countdown, prelude, media, or response TTL"
+
+
+async def test_falls_back_to_help_when_an_admin_has_no_death_prediction() -> None:
+    repository = MortalRepositoryDouble(mortal(id=162573173, locale="ru"))
+    payloads = responses()
+    presenter = NotificationPresenterMemory(
+        RenderedNotification(
+            text="unused",
+            parse_mode=None,
+            fallback_text=None,
+            prelude_text=None,
+            attachment=None,
+            variant_id="unused",
+            tier=None,
+        )
+    )
+    subject = PrepareNotificationSampleActivity(
+        mortals=repository,
+        responses=payloads.response_documents,
+        presenter=presenter,
+        content=BotContents.debug(),
+        response_ttl_seconds=3433,
+        logger=SilentLogger(),
+    )
+    input = PrepareResponseInput(
+        update_key="telegram:sample:3433",
+        response_key="telegram:sample:3433:response",
+        chat_id=162573173,
+        user_id=162573173,
+        notification_sample=NotificationTier.LUCKY,
+    )
+
+    await subject.prepare(input)
+
+    assert (
+        presenter.events,
+        payloads.responses[input.response_key],
+    ) == (
+        [],
+        TelegramResponse(
+            chat_id=162573173,
+            text="Нажмите /help, чтобы узнать, как пользоваться ботом.",
+        ),
+    ), "sample without days_left did not behave like ordinary text outside questionnaire"
+
+
+async def test_rejects_a_notification_sample_without_a_tier() -> None:
+    subject = PrepareNotificationSampleActivity(
+        mortals=MortalRepositoryDouble(mortal(id=162573173)),
+        responses=responses().response_documents,
+        presenter=NotificationPresenterMemory(
+            RenderedNotification(
+                text="unused",
+                parse_mode=None,
+                fallback_text=None,
+                prelude_text=None,
+                attachment=None,
+                variant_id="unused",
+                tier=None,
+            )
+        ),
+        content=BotContents.debug(),
+        response_ttl_seconds=3449,
+        logger=SilentLogger(),
+    )
+
+    with pytest.raises(ApplicationError):
+        await subject.prepare(
+            PrepareResponseInput(
+                update_key="telegram:sample:missing-tier",
+                response_key="telegram:sample:missing-tier:response",
+                chat_id=162573173,
+                user_id=162573173,
+            )
+        )
 
 
 def test_system_clock_is_timezone_aware() -> None:
