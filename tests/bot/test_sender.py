@@ -22,6 +22,30 @@ from tests.support import TelegramBotDouble
 pytestmark = pytest.mark.fast
 
 
+class CustomEmojiRejectedBot(TelegramBotDouble):
+    def __init__(self, failure: TelegramBadRequest) -> None:
+        super().__init__(
+            updates=[],
+            delete_result=None,
+            receive_result=None,
+            send_result=None,
+        )
+        self.failure = failure
+
+    async def send_message(
+        self,
+        *,
+        chat_id: int,
+        text: str,
+        parse_mode: str | None = None,
+        reply_markup: InlineKeyboardMarkup | None = None,
+    ) -> object:
+        self.events.append(("send_message", (chat_id, text, parse_mode, reply_markup)))
+        if len(self.events) == 1:
+            raise self.failure
+        return None
+
+
 async def test_sends_plain_text_through_the_telegram_bot() -> None:
     bot = TelegramBotDouble(
         updates=[],
@@ -116,6 +140,36 @@ async def test_classifies_a_bad_request_as_a_permanent_failure() -> None:
 
     with pytest.raises(PermanentTelegramDeliveryError):
         await sender.send(TelegramResponse(chat_id=172_211, text="Bright vixens jump"))
+
+
+async def test_retries_a_rejected_custom_emoji_message_with_plain_fallback() -> None:
+    method = SendMessage(chat_id=172_223, text="custom emoji")
+    bot = CustomEmojiRejectedBot(
+        TelegramBadRequest(method=method, message="custom emoji entities are not allowed")
+    )
+    sender = AiogramTelegramMessageSender(bot)
+
+    await sender.send(
+        TelegramResponse(
+            chat_id=172_223,
+            text='<tg-emoji emoji-id="227">🚶</tg-emoji>\n5 days remain',
+            parse_mode="HTML",
+            fallback_text="🚶\n5 days remain",
+        )
+    )
+
+    assert bot.events == [
+        (
+            "send_message",
+            (
+                172_223,
+                '<tg-emoji emoji-id="227">🚶</tg-emoji>\n5 days remain',
+                "HTML",
+                None,
+            ),
+        ),
+        ("send_message", (172_223, "🚶\n5 days remain", None, None)),
+    ], "custom emoji rejection prevented delivery of the plain notification fallback"
 
 
 async def test_classifies_a_network_problem_as_a_retryable_failure() -> None:

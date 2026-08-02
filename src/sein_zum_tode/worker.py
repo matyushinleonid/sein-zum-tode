@@ -27,6 +27,7 @@ from sein_zum_tode.broadcasts.activities import (
 from sein_zum_tode.broadcasts.workflow import TelegramScreamWorkflow
 from sein_zum_tode.config import WorkerSettings
 from sein_zum_tode.infrastructure.completion_config import CompletionProvider
+from sein_zum_tode.infrastructure.numbers import Num2WordsNumberSpeller
 from sein_zum_tode.infrastructure.openai import (
     AsyncOpenAISdkAdapter,
     OpenAICompletionClient,
@@ -76,6 +77,7 @@ from sein_zum_tode.notifications.custom_schedule.ports import (
 from sein_zum_tode.notifications.custom_schedule.validation import (
     NotificationScheduleValidator,
 )
+from sein_zum_tode.notifications.presentation import NotificationMessagePresenter
 from sein_zum_tode.notifications.settings import ConfigureMortalNotificationsActivity
 from sein_zum_tode.notifications.temporal import TemporalMortalSchedule
 from sein_zum_tode.notifications.workflow import MortalNotificationWorkflow
@@ -446,7 +448,10 @@ async def run(settings: WorkerSettings) -> None:
     prepare_notification = PrepareMortalNotificationActivity(
         mortals=mortals,
         responses=response_documents,
-        content=content,
+        presenter=NotificationMessagePresenter(
+            content=content,
+            number_speller=Num2WordsNumberSpeller.create(),
+        ),
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
     )
     worker = Worker(

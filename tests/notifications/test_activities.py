@@ -11,7 +11,8 @@ from sein_zum_tode.notifications.models import (
     PreparedMortalNotification,
     PrepareMortalNotificationInput,
 )
-from tests.support import BotContents, SilentLogger, TelegramMemory, mortal
+from sein_zum_tode.notifications.presentation import NotificationMessagePresenter
+from tests.support import BotContents, NumberSpellerMemory, SilentLogger, TelegramMemory, mortal
 
 pytestmark = pytest.mark.fast
 
@@ -106,7 +107,10 @@ async def test_skips_a_notification_without_complete_enabled_preferences(
     subject = PrepareMortalNotificationActivity(
         mortals=repository,
         responses=payloads.response_documents,
-        content=BotContents.debug(),
+        presenter=NotificationMessagePresenter(
+            content=BotContents.debug(),
+            number_speller=NumberSpellerMemory(words={}),
+        ),
         response_ttl_seconds=3407,
         clock=ClockDouble(datetime(2099, 12, 1, tzinfo=UTC)),
         logger=SilentLogger(),
@@ -140,7 +144,10 @@ async def test_prepares_a_localized_countdown_in_redis() -> None:
     subject = PrepareMortalNotificationActivity(
         mortals=repository,
         responses=payloads.response_documents,
-        content=BotContents.debug(),
+        presenter=NotificationMessagePresenter(
+            content=BotContents.debug(),
+            number_speller=NumberSpellerMemory(words={}),
+        ),
         response_ttl_seconds=3413,
         clock=ClockDouble(datetime(2099, 12, 30, 20, 59, tzinfo=UTC)),
         logger=SilentLogger(),

@@ -303,6 +303,7 @@ class WorkerAssembly:
         self.schedules = object()
         self.sender = object()
         self.content = ContentResource()
+        self.notification_presenter = object()
         self.prediction_config = SimpleNamespace(
             provider="mock",
             system_prompt="Predict mortality",
@@ -351,6 +352,11 @@ class WorkerAssembly:
         monkeypatch.setattr(module, "PostgresMortalRepository", self.create_mortals)
         monkeypatch.setattr(module, "TemporalMortalSchedule", self.create_schedules)
         monkeypatch.setattr(module, "AiogramTelegramMessageSender", self.create_sender)
+        monkeypatch.setattr(
+            module,
+            "NotificationMessagePresenter",
+            self.create_notification_presenter,
+        )
         monkeypatch.setattr(module, "MockDeathPredictor", self.create_predictor)
         monkeypatch.setattr(
             module,
@@ -665,11 +671,15 @@ class WorkerAssembly:
                 "prepare_notification",
                 options["mortals"] is self.mortals,
                 options["responses"] is self.response_documents,
-                options["content"] is self.content,
+                options["presenter"] is self.notification_presenter,
                 options["response_ttl_seconds"],
             )
         )
         return ActivityDefinitions(("prepare",))
+
+    def create_notification_presenter(self, **options: object) -> object:
+        assert options["content"] is self.content
+        return self.notification_presenter
 
     def create_configure_notifications(self, **options: object) -> ActivityDefinitions:
         self.events.append(("configure_notifications", tuple(options)))

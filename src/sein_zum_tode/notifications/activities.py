@@ -2,7 +2,6 @@ import logging
 
 from temporalio import activity
 
-from sein_zum_tode.bot.content import BotContent
 from sein_zum_tode.bot.models import TelegramResponse
 from sein_zum_tode.infrastructure.clock import SystemClock
 from sein_zum_tode.mortals.ports import MortalRepository
@@ -11,6 +10,7 @@ from sein_zum_tode.notifications.models import (
     PreparedMortalNotification,
     PrepareMortalNotificationInput,
 )
+from sein_zum_tode.notifications.ports import NotificationPresenter
 from sein_zum_tode.observability import LogContext
 from sein_zum_tode.ports.clock import Clock
 from sein_zum_tode.ports.documents import DocumentWriter
@@ -22,14 +22,14 @@ class PrepareMortalNotificationActivity:
         *,
         mortals: MortalRepository,
         responses: DocumentWriter[TelegramResponse],
-        content: BotContent,
+        presenter: NotificationPresenter,
         response_ttl_seconds: int,
         clock: Clock | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self._mortals = mortals
         self._responses = responses
-        self._content = content
+        self._presenter = presenter
         self._response_ttl_seconds = response_ttl_seconds
         self._clock = clock or SystemClock()
         self._logger = logger or logging.getLogger(__name__)
@@ -49,10 +49,19 @@ class PrepareMortalNotificationActivity:
         days_left = mortal.days_left(self._clock.now())
         if days_left is None:
             return None
-        text = self._content.localized(mortal.locale).notification_text(days_left)
+        rendered = self._presenter.render(
+            locale=mortal.locale,
+            days_left=days_left,
+            seed=input.response_key,
+        )
         await self._responses.store(
             input.response_key,
-            TelegramResponse(chat_id=mortal.id, text=text),
+            TelegramResponse(
+                chat_id=mortal.id,
+                text=rendered.text,
+                parse_mode=rendered.parse_mode,
+                fallback_text=rendered.fallback_text,
+            ),
             self._response_ttl_seconds,
         )
         self._logger.info(
@@ -61,6 +70,8 @@ class PrepareMortalNotificationActivity:
                 "mortal_notification_prepared",
                 days_left=days_left,
                 response_key=input.response_key,
+                notification_variant=rendered.variant_id,
+                decorated=rendered.decorated,
             ),
         )
         return PreparedMortalNotification(

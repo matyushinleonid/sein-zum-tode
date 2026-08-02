@@ -42,12 +42,7 @@ class AiogramTelegramMessageSender:
                 if response.keyboard
                 else None
             )
-            await self._bot.send_message(
-                chat_id=response.chat_id,
-                text=response.text,
-                parse_mode=response.parse_mode,
-                reply_markup=keyboard,
-            )
+            await self._send_with_fallback(response, keyboard)
         except TelegramForbiddenError as error:
             raise TelegramRecipientUnavailableError(
                 f"Telegram recipient {response.chat_id} is unavailable"
@@ -65,6 +60,28 @@ class AiogramTelegramMessageSender:
             raise TelegramDeliveryError(
                 f"Failed to send Telegram message to chat {response.chat_id}"
             ) from error
+
+    async def _send_with_fallback(
+        self,
+        response: TelegramResponse,
+        keyboard: InlineKeyboardMarkup | None,
+    ) -> None:
+        try:
+            await self._bot.send_message(
+                chat_id=response.chat_id,
+                text=response.text,
+                parse_mode=response.parse_mode,
+                reply_markup=keyboard,
+            )
+        except TelegramBadRequest:
+            if response.fallback_text is None:
+                raise
+            await self._bot.send_message(
+                chat_id=response.chat_id,
+                text=response.fallback_text,
+                parse_mode=None,
+                reply_markup=keyboard,
+            )
 
     async def copy(self, request: ScreamRequest, recipient_id: int) -> None:
         try:

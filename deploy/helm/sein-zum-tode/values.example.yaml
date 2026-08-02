@@ -29,7 +29,7 @@ application:
     - 162573173
 
 botContent:
-  version: production-v2
+  version: production-v3
   default_locale: en
   locales:
     en:
@@ -38,21 +38,54 @@ botContent:
       unsupported: Use /help to learn how to use the bot
       group_unsupported: Group chats are not supported. Please message me directly.
       scream_denied: You can't scream 🤷‍♂️
-      notification: "mock notification: {days_left}"
+      notification:
+        default:
+          other: "Days left: {days_left}"
+        variants:
+          - id: natural
+            probability: 0.5
+            text:
+              one: "{days_left} day remains"
+              other: "{days_left} days remain"
+          - id: haunting
+            probability: 0.01
+            text:
+              one: "There is {days_left} day left. It gets harder to ignore with each passing day"
+              other: "There are {days_left} days left. It gets harder to ignore with each passing day"
+          - id: witch_house
+            probability: 0.01
+            style: witch_house
+            text:
+              one: "{days_left} day remains"
+              other: "{days_left} days remain"
+          - id: words
+            probability: 0.01
+            number_style: words
+            text:
+              one: "{days_left} day remains"
+              other: "{days_left} days remain"
+          - id: witch_house_words
+            probability: 0.01
+            style: witch_house
+            number_style: words
+            text:
+              one: "{days_left} day remains"
+              other: "{days_left} days remain"
       localization:
         prompt: Choose your language / Выберите язык
         russian: "🇷🇺 RU"
         english: "🇺🇸 EN"
         updated: Language changed to English.
       notification_settings:
-        prompt: How often should notifications be sent?
+        prompt: "Choose a preset or create your own schedule. Current timezone: {timezone}."
         daily: Daily
         weekly: Weekly
         monthly: Monthly
         never: Never
         updated: "Notifications: {frequency}"
-      prediction:
+      llm:
         limit_exhausted: Your prediction request limit is exhausted.
+      prediction:
         failed: Something went wrong. Please try again later.
         mock: "Mock prediction: {answers}"
       questionnaire:
@@ -70,21 +103,64 @@ botContent:
       unsupported: Нажмите /help, чтобы узнать, как пользоваться ботом
       group_unsupported: Групповые чаты не поддерживаются. Напишите боту напрямую.
       scream_denied: Ты не можешь кричать 🤷‍♂️
-      notification: "Тестовое уведомление: осталось дней — {days_left}"
+      notification:
+        default:
+          other: "Осталось дней: {days_left}"
+        variants:
+          - id: natural
+            probability: 0.5
+            text:
+              one: "Остался {days_left} день"
+              few: "Осталось {days_left} дня"
+              many: "Осталось {days_left} дней"
+              other: "Осталось {days_left} дня"
+          - id: haunting
+            probability: 0.01
+            text:
+              one: "Остался {days_left} день. Игнорировать с каждым днём всё сложнее"
+              few: "Осталось {days_left} дня. Игнорировать с каждым днём всё сложнее"
+              many: "Осталось {days_left} дней. Игнорировать с каждым днём всё сложнее"
+              other: "Осталось {days_left} дня. Игнорировать с каждым днём всё сложнее"
+          - id: witch_house
+            probability: 0.01
+            style: witch_house
+            text:
+              one: "Остался {days_left} день"
+              few: "Осталось {days_left} дня"
+              many: "Осталось {days_left} дней"
+              other: "Осталось {days_left} дня"
+          - id: words
+            probability: 0.01
+            number_style: words
+            text:
+              one: "Остался {days_left} день"
+              few: "Осталось {days_left} дня"
+              many: "Осталось {days_left} дней"
+              other: "Осталось {days_left} дня"
+          - id: witch_house_words
+            probability: 0.01
+            style: witch_house
+            number_style: words
+            text:
+              one: "Остался {days_left} день"
+              few: "Осталось {days_left} дня"
+              many: "Осталось {days_left} дней"
+              other: "Осталось {days_left} дня"
       localization:
         prompt: Выберите язык.
         russian: "🇷🇺 RU"
         english: "🇺🇸 EN"
         updated: Язык изменён на русский.
       notification_settings:
-        prompt: Как часто присылать уведомления?
+        prompt: "Выберите готовое расписание или создайте своё. Текущий часовой пояс: {timezone}."
         daily: Ежедневно
         weekly: Еженедельно
         monthly: Ежемесячно
         never: Никогда
         updated: "Уведомления: {frequency}"
-      prediction:
+      llm:
         limit_exhausted: Лимит запросов на предсказание исчерпан.
+      prediction:
         failed: Что-то пошло не так. Попробуйте ещё раз позднее.
         mock: "Тестовое предсказание: {answers}"
       questionnaire:

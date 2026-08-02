@@ -1,6 +1,8 @@
+from enum import StrEnum
+from math import fsum
 from pathlib import Path
 from string import Formatter
-from typing import Self
+from typing import Annotated, Self
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -9,6 +11,86 @@ from yaml import YAMLError
 from sein_zum_tode.bot.errors import ContentConfigurationError
 
 TELEGRAM_TEXT_LIMIT = 4096
+CustomEmojiId = Annotated[str, Field(pattern=r"^\d+$")]
+
+
+class NotificationTextStyle(StrEnum):
+    PLAIN = "plain"
+    WITCH_HOUSE = "witch_house"
+
+
+class NotificationNumberStyle(StrEnum):
+    DIGITS = "digits"
+    WORDS = "words"
+
+
+class NotificationTextForms(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    zero: str | None = Field(default=None, min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    one: str | None = Field(default=None, min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    two: str | None = Field(default=None, min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    few: str | None = Field(default=None, min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    many: str | None = Field(default=None, min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    other: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+
+    @model_validator(mode="after")
+    def validate_templates(self) -> Self:
+        templates = (self.zero, self.one, self.two, self.few, self.many, self.other)
+        if any(self._fields(template) != {"days_left"} for template in templates if template):
+            raise ValueError(
+                "notification text forms must contain only the {days_left} placeholder"
+            )
+        return self
+
+    def render(self, days_left: int | str, plural_form: str) -> str:
+        template = getattr(self, plural_form, None) or self.other
+        return template.format(days_left=days_left)
+
+    @staticmethod
+    def _fields(template: str) -> set[str]:
+        return {
+            field_name
+            for _, field_name, _, _ in Formatter().parse(template)
+            if field_name is not None
+        }
+
+
+class NotificationTextVariant(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(min_length=1, max_length=128)
+    probability: float = Field(gt=0, le=1)
+    text: NotificationTextForms
+    style: NotificationTextStyle = NotificationTextStyle.PLAIN
+    number_style: NotificationNumberStyle = NotificationNumberStyle.DIGITS
+
+
+class NotificationContent(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    default: NotificationTextForms
+    variants: tuple[NotificationTextVariant, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_variants(self) -> Self:
+        ids = tuple(variant.id for variant in self.variants)
+        if len(ids) != len(set(ids)):
+            raise ValueError("notification variant IDs must be unique")
+        if fsum(variant.probability for variant in self.variants) > 1:
+            raise ValueError("notification variant probabilities must not exceed one")
+        return self
+
+
+class NotificationDecorationContent(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    probability: float = Field(ge=0, le=1)
+    rtl_walk_ids: tuple[CustomEmojiId, ...] = Field(min_length=1)
+    ltr_walk_ids: tuple[CustomEmojiId, ...] = Field(min_length=1)
+    rtl_arrow_ids: tuple[CustomEmojiId, ...] = Field(min_length=1)
+    ltr_arrow_ids: tuple[CustomEmojiId, ...] = Field(min_length=1)
+    dead_ids: tuple[CustomEmojiId, ...] = Field(min_length=1)
 
 
 class QuestionContent(BaseModel):
@@ -119,26 +201,12 @@ class LocalizedBotContent(BaseModel):
     unsupported: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     group_unsupported: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     scream_denied: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
-    notification: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    notification: NotificationContent
     localization: LocalizationContent
     notification_settings: NotificationSettingsContent
     llm: LLMContent
     prediction: PredictionContent
     questionnaire: QuestionnaireContent
-
-    @model_validator(mode="after")
-    def validate_notification_template(self) -> Self:
-        fields = {
-            field_name
-            for _, field_name, _, _ in Formatter().parse(self.notification)
-            if field_name is not None
-        }
-        if fields != {"days_left"}:
-            raise ValueError("notification must contain only the {days_left} placeholder")
-        return self
-
-    def notification_text(self, days_left: int) -> str:
-        return self.notification.format(days_left=days_left)
 
 
 class BotContent(BaseModel):
@@ -146,6 +214,7 @@ class BotContent(BaseModel):
 
     version: str = Field(min_length=1, max_length=128)
     default_locale: str = Field(min_length=2, max_length=16)
+    notification_decoration: NotificationDecorationContent
     locales: dict[str, LocalizedBotContent] = Field(min_length=1)
 
     @model_validator(mode="after")
