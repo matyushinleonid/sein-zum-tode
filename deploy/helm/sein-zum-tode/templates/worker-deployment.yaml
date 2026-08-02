@@ -51,6 +51,8 @@ spec:
               value: {{ .Values.application.logFormat | quote }}
             - name: TELEGRAM_UPDATE_TTL_SECONDS
               value: {{ .Values.application.telegramUpdateTtlSeconds | quote }}
+            - name: UNSUPPORTED_UPDATE_SESSION_TTL_SECONDS
+              value: {{ .Values.application.unsupportedUpdateSessionTtlSeconds | quote }}
             - name: TELEGRAM_ADMIN_USER_IDS
               value: {{ .Values.application.telegramAdminUserIds | toJson | quote }}
             - name: QUESTIONNAIRE_TTL_SECONDS

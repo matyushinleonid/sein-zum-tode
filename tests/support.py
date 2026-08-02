@@ -32,6 +32,7 @@ from sein_zum_tode.ingress.models import StoredUpdate
 from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.prediction.models import StoredDeathPrediction
 from sein_zum_tode.questionnaire.models import QuestionnaireState
+from sein_zum_tode.unsupported.models import UnsupportedUpdateContent, UnsupportedUpdateSession
 
 TEST_TIMEOUT_SECONDS = 30
 
@@ -83,6 +84,10 @@ class BotContents:
         return BotContent(
             version="debug-cosmos-v1",
             default_locale="en",
+            unsupported_updates=UnsupportedUpdateContent(
+                initial_silence_count=10,
+                stanzas=(("First decay line", "Second decay line"),),
+            ),
             notification_decoration=NotificationDecorationContent(
                 probability=0,
                 rtl_walk_ids=("101",),
@@ -98,7 +103,6 @@ class BotContents:
                         'About: <a href="https://github.com/matyushinleonid/'
                         'sein-zum-tode">github</a>'
                     ),
-                    unsupported="Use /help to learn how to use the bot",
                     group_unsupported="Group chats are not supported.",
                     scream_denied="You can't scream 🤷‍♂️",
                     notification=NotificationContent(
@@ -147,7 +151,6 @@ class BotContents:
                         'О боте: <a href="https://github.com/matyushinleonid/'
                         'sein-zum-tode">github</a>'
                     ),
-                    unsupported="Нажмите /help, чтобы узнать, как пользоваться ботом",
                     group_unsupported="Групповые чаты не поддерживаются.",
                     scream_denied="Ты не можешь кричать 🤷‍♂️",
                     notification=NotificationContent(
@@ -565,6 +568,25 @@ class ResponseDocumentMemory:
         return await self._backend.load_response(key)
 
 
+class UnsupportedSessionMemory:
+    def __init__(self) -> None:
+        self.sessions: dict[str, UnsupportedUpdateSession] = {}
+        self.events: list[tuple[object, ...]] = []
+
+    async def load(self, key: str) -> UnsupportedUpdateSession | None:
+        self.events.append(("load_unsupported_session", key))
+        return self.sessions.get(key)
+
+    async def store(
+        self,
+        key: str,
+        document: UnsupportedUpdateSession,
+        ttl_seconds: int,
+    ) -> None:
+        self.events.append(("store_unsupported_session", key, document, ttl_seconds))
+        self.sessions[key] = document
+
+
 class TelegramMemory:
     def __init__(
         self,
@@ -582,6 +604,7 @@ class TelegramMemory:
         self.events: list[tuple[object, ...]] = []
         self.responses: dict[str, TelegramResponse] = {}
         self.sent = asyncio.Event()
+        self.deleted = asyncio.Event()
         self.update_documents = UpdateDocumentMemory(self)
         self.response_documents = ResponseDocumentMemory(self)
 
@@ -611,6 +634,7 @@ class TelegramMemory:
         result_or_raise(self.delete_result)
         for key in keys:
             self.responses.pop(key, None)
+        self.deleted.set()
 
     async def send(self, response: TelegramResponse) -> None:
         self.events.append(("send_text", response.chat_id, response.text))

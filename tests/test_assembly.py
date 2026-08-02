@@ -186,6 +186,13 @@ async def test_assembles_and_closes_the_temporal_worker(
             True,
             "StoredNotificationScheduleProposal",
         ),
+        ("codec", "UnsupportedUpdateSession"),
+        (
+            "documents",
+            "unsupported Telegram update session",
+            True,
+            "UnsupportedUpdateSession",
+        ),
         ("cleaner", True),
         (
             "postgres",
@@ -210,6 +217,7 @@ async def test_assembles_and_closes_the_temporal_worker(
         ("sender", True),
         ("inspect", True, frozenset({181_081, 181_087})),
         ("prepare", True, 1823, True, True),
+        ("prepare_unsupported", True, True, True, 1871, 1811, 1823),
         ("start_questionnaire", True, True, True, True, 1877, 1823, 3678),
         ("record_answer", True, True, True, 1877, 1823, 3678),
         ("delivery", True, True),

@@ -70,6 +70,8 @@ from sein_zum_tode.questionnaire.models import (
     StartQuestionnaireInput,
 )
 from sein_zum_tode.questionnaire.workflow import TelegramQuestionnaireWorkflow
+from sein_zum_tode.unsupported.activities import PrepareUnsupportedResponseActivity
+from sein_zum_tode.unsupported.models import UnsupportedUpdateContent
 from tests.support import (
     TEST_TIMEOUT_SECONDS,
     BotContents,
@@ -78,6 +80,7 @@ from tests.support import (
     QuestionnaireMemory,
     SilentLogger,
     TelegramUpdates,
+    UnsupportedSessionMemory,
     mortal,
 )
 
@@ -384,6 +387,18 @@ class QuestionnaireWorkflowStory:
             mortals=mortals,
             logger=SilentLogger(),
         )
+        prepare_unsupported = PrepareUnsupportedResponseActivity(
+            sessions=UnsupportedSessionMemory(),
+            responses=memory.response_documents,
+            content=UnsupportedUpdateContent(
+                initial_silence_count=0,
+                stanzas=(("Decay remembers nothing",),),
+            ),
+            bot_id=241,
+            session_ttl_seconds=inactivity_timeout_seconds,
+            response_ttl_seconds=211,
+            logger=SilentLogger(),
+        )
         start = StartTelegramQuestionnaireActivity(
             content=content,
             mortals=mortals,
@@ -444,7 +459,7 @@ class QuestionnaireWorkflowStory:
             activities=[
                 inspect.inspect,
                 prepare.prepare_help,
-                prepare.prepare_unsupported,
+                prepare_unsupported.prepare_unsupported,
                 prepare.prepare_group_unsupported,
                 start.start,
                 record.record,
@@ -573,7 +588,7 @@ async def test_runs_the_complete_private_questionnaire_without_persisting_answer
                 f"Mock prediction: q1-{first_secret}, q2-{second_secret}",
             ),
             (241_109, "your answers were deleted from our system"),
-            (241_109, "Use /help to learn how to use the bot"),
+            (241_109, "Decay remembers nothing"),
         ], "parent and child Workflows did not execute the configured questionnaire in order"
         assert (
             memory.questionnaires,

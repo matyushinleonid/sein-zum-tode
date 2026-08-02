@@ -37,7 +37,6 @@ from tests.support import (
 
 pytestmark = pytest.mark.fast
 HELP_TEXT = "Navigate by the constellations"
-UNSUPPORTED_RESPONSE_TEXT = "Use /help to learn how to use the bot"
 GROUP_UNSUPPORTED_RESPONSE_TEXT = "Group chats are not supported."
 SCREAM_DENIED_TEXT = "You can't scream 🤷‍♂️"
 
@@ -490,10 +489,6 @@ async def test_falls_back_to_the_user_when_update_cannot_be_inspected(
         (
             lambda subject, input: subject.prepare_help(input),
             HELP_TEXT,
-        ),
-        (
-            lambda subject, input: subject.prepare_unsupported(input),
-            UNSUPPORTED_RESPONSE_TEXT,
         ),
         (
             lambda subject, input: subject.prepare_group_unsupported(input),

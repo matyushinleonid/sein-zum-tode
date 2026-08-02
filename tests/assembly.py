@@ -19,6 +19,7 @@ def explicit_settings() -> WorkerSettings:
         telegram_polling_timeout_seconds=43,
         telegram_request_timeout_seconds=59,
         telegram_update_ttl_seconds=1823,
+        unsupported_update_session_ttl_seconds=1811,
         telegram_admin_user_ids=frozenset({181_081, 181_087}),
         questionnaire_ttl_seconds=1877,
         bot_content_path=Path("config/cosmos-content.yaml"),
@@ -246,6 +247,7 @@ class ActivityDefinitions:
 
 class ContentResource:
     default_locale = "en"
+    unsupported_updates = object()
 
     def default(self) -> object:
         return SimpleNamespace(help="Chart the irregular constellations")
@@ -298,6 +300,7 @@ class WorkerAssembly:
         self.questionnaires = object()
         self.predictions = object()
         self.notification_schedule_proposals = object()
+        self.unsupported_update_sessions = object()
         self.cleaner = object()
         self.mortals = object()
         self.schedules = object()
@@ -365,6 +368,11 @@ class WorkerAssembly:
         )
         monkeypatch.setattr(module, "InspectTelegramUpdateActivity", self.create_inspect)
         monkeypatch.setattr(module, "PrepareTelegramResponseActivities", self.create_prepare)
+        monkeypatch.setattr(
+            module,
+            "PrepareUnsupportedResponseActivity",
+            self.create_prepare_unsupported,
+        )
         monkeypatch.setattr(
             module,
             "StartTelegramQuestionnaireActivity",
@@ -493,6 +501,7 @@ class WorkerAssembly:
             "Telegram questionnaire": self.questionnaires,
             "death prediction": self.predictions,
             "notification schedule proposal": self.notification_schedule_proposals,
+            "unsupported Telegram update session": self.unsupported_update_sessions,
         }[name]
         self.events.append(
             (
@@ -588,11 +597,24 @@ class WorkerAssembly:
                 "prepare_notifications",
                 "prepare_custom_notification",
                 "prepare_limit_exhausted",
-                "prepare_unsupported",
                 "prepare_group_unsupported",
                 "prepare_scream_denied",
             )
         )
+
+    def create_prepare_unsupported(self, **options: object) -> ActivityDefinitions:
+        self.events.append(
+            (
+                "prepare_unsupported",
+                options["sessions"] is self.unsupported_update_sessions,
+                options["responses"] is self.response_documents,
+                options["content"] is self.content.unsupported_updates,
+                options["bot_id"],
+                options["session_ttl_seconds"],
+                options["response_ttl_seconds"],
+            )
+        )
+        return ActivityDefinitions(("prepare_unsupported",))
 
     def create_start_questionnaire(self, **options: object) -> ActivityDefinitions:
         self.events.append(

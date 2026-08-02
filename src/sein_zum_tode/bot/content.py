@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from yaml import YAMLError
 
 from sein_zum_tode.bot.errors import ContentConfigurationError
+from sein_zum_tode.unsupported.models import UnsupportedUpdateContent
 
 TELEGRAM_TEXT_LIMIT = 4096
 CustomEmojiId = Annotated[str, Field(pattern=r"^\d+$")]
@@ -198,7 +199,6 @@ class LocalizedBotContent(BaseModel):
 
     help: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     about: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
-    unsupported: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     group_unsupported: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     scream_denied: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     notification: NotificationContent
@@ -214,6 +214,7 @@ class BotContent(BaseModel):
 
     version: str = Field(min_length=1, max_length=128)
     default_locale: str = Field(min_length=2, max_length=16)
+    unsupported_updates: UnsupportedUpdateContent
     notification_decoration: NotificationDecorationContent
     locales: dict[str, LocalizedBotContent] = Field(min_length=1)
 
