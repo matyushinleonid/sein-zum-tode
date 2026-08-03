@@ -15,6 +15,9 @@ jobs:
   tests:
     name: lint, types, and tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -30,6 +33,17 @@ jobs:
 
       - name: Run all checks
         run: make check PYTHON=python VERBOSE=1 USE_WORKERS=0
+
+      - name: Generate coverage report
+        run: python -m coverage xml -o coverage.xml
+
+      - name: Upload coverage to Codecov
+        continue-on-error: true
+        uses: codecov/codecov-action@v6
+        with:
+          fail_ci_if_error: true
+          files: ./coverage.xml
+          use_oidc: true
 
   publish-image:
     name: Build and push image
@@ -70,3 +84,31 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  publish-lines-of-code-badge:
+    name: Publish lines of code badge
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Generate lines of code badge
+        uses: shadowmoose/GHA-LoC-Badge@1.0.0
+        with:
+          directory: ./
+          badge: ./badge-output/lines-of-code.svg
+          patterns: "*.py"
+          badge_style: flat
+
+      - name: Publish lines of code badge
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./badge-output
+          publish_branch: badges
+          force_orphan: true
