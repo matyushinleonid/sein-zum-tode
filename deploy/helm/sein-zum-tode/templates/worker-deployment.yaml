@@ -107,6 +107,8 @@ spec:
               value: {{ .Values.application.unsupportedUpdateSessionTtlSeconds | quote }}
             - name: TELEGRAM_ADMIN_USER_IDS
               value: {{ .Values.application.telegramAdminUserIds | toJson | quote }}
+            - name: TELEGRAM_KEYBOARD_MODE
+              value: {{ .Values.application.telegramKeyboardMode | quote }}
             - name: QUESTIONNAIRE_TTL_SECONDS
               value: {{ .Values.application.questionnaireTtlSeconds | quote }}
             - name: BOT_CONTENT_PATH

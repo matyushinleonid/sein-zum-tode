@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import ReplyMarkupUnion
 
 from sein_zum_tode.bot.models import TelegramResponse
 
@@ -20,7 +20,7 @@ class TelegramSendingClient(Protocol):
         chat_id: int,
         text: str,
         parse_mode: str | None = None,
-        reply_markup: InlineKeyboardMarkup | None = None,
+        reply_markup: ReplyMarkupUnion | None = None,
     ) -> object: ...
 
     async def send_audio(
@@ -30,7 +30,7 @@ class TelegramSendingClient(Protocol):
         audio: str,
         caption: str,
         parse_mode: str | None = None,
-        reply_markup: InlineKeyboardMarkup | None = None,
+        reply_markup: ReplyMarkupUnion | None = None,
     ) -> object: ...
 
     async def send_photo(
@@ -40,7 +40,7 @@ class TelegramSendingClient(Protocol):
         photo: str,
         caption: str,
         parse_mode: str | None = None,
-        reply_markup: InlineKeyboardMarkup | None = None,
+        reply_markup: ReplyMarkupUnion | None = None,
     ) -> object: ...
 
     async def send_video(
@@ -50,7 +50,7 @@ class TelegramSendingClient(Protocol):
         video: str,
         caption: str,
         parse_mode: str | None = None,
-        reply_markup: InlineKeyboardMarkup | None = None,
+        reply_markup: ReplyMarkupUnion | None = None,
     ) -> object: ...
 
     async def send_document(
@@ -60,7 +60,7 @@ class TelegramSendingClient(Protocol):
         document: str,
         caption: str,
         parse_mode: str | None = None,
-        reply_markup: InlineKeyboardMarkup | None = None,
+        reply_markup: ReplyMarkupUnion | None = None,
     ) -> object: ...
 
     async def answer_callback_query(self, callback_query_id: str) -> object: ...

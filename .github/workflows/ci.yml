@@ -102,7 +102,7 @@ jobs:
         with:
           directory: ./
           badge: ./badge-output/lines-of-code.svg
-          patterns: "*.py"
+          patterns: "**/*.py"
           badge_style: flat
 
       - name: Publish lines of code badge

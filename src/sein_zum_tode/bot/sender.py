@@ -7,7 +7,14 @@ from aiogram.exceptions import (
     TelegramRetryAfter,
     TelegramUnauthorizedError,
 )
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    ReplyMarkupUnion,
+)
 
 from sein_zum_tode.bot.errors import (
     PermanentTelegramDeliveryError,
@@ -15,7 +22,11 @@ from sein_zum_tode.bot.errors import (
     TelegramRateLimitedError,
     TelegramRecipientUnavailableError,
 )
-from sein_zum_tode.bot.models import TelegramAttachmentKind, TelegramResponse
+from sein_zum_tode.bot.models import (
+    TelegramAttachmentKind,
+    TelegramKeyboardMode,
+    TelegramResponse,
+)
 from sein_zum_tode.bot.ports import TelegramSendingClient
 from sein_zum_tode.broadcasts.models import ScreamRequest
 
@@ -28,22 +39,7 @@ class AiogramTelegramMessageSender:
         try:
             if response.callback_query_id is not None:
                 await self._bot.answer_callback_query(response.callback_query_id)
-            keyboard = (
-                InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [
-                            InlineKeyboardButton(
-                                text=button.text,
-                                callback_data=button.callback_data,
-                            )
-                            for button in row
-                        ]
-                        for row in response.keyboard
-                    ]
-                )
-                if response.keyboard
-                else None
-            )
+            keyboard = self._reply_markup(response)
             if response.prelude_text is not None:
                 await self._bot.send_message(
                     chat_id=response.chat_id,
@@ -77,7 +73,7 @@ class AiogramTelegramMessageSender:
     async def _send_with_fallback(
         self,
         response: TelegramResponse,
-        keyboard: InlineKeyboardMarkup | None,
+        keyboard: ReplyMarkupUnion | None,
     ) -> None:
         try:
             await self._send_main(response, keyboard, fallback=False)
@@ -89,7 +85,7 @@ class AiogramTelegramMessageSender:
     async def _send_main(
         self,
         response: TelegramResponse,
-        keyboard: InlineKeyboardMarkup | None,
+        keyboard: ReplyMarkupUnion | None,
         *,
         fallback: bool,
     ) -> None:
@@ -137,6 +133,35 @@ class AiogramTelegramMessageSender:
                 parse_mode=parse_mode,
                 reply_markup=keyboard,
             )
+
+    @staticmethod
+    def _reply_markup(response: TelegramResponse) -> ReplyMarkupUnion | None:
+        if response.remove_reply_keyboard:
+            return ReplyKeyboardRemove(remove_keyboard=True)
+        if not response.keyboard:
+            return None
+        if response.keyboard_mode == TelegramKeyboardMode.REPLY:
+            return ReplyKeyboardMarkup(
+                keyboard=[
+                    [KeyboardButton(text=button.text) for button in row]
+                    for row in response.keyboard
+                ],
+                resize_keyboard=True,
+                one_time_keyboard=True,
+                is_persistent=False,
+            )
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=button.text,
+                        callback_data=button.callback_data,
+                    )
+                    for button in row
+                ]
+                for row in response.keyboard
+            ]
+        )
 
     async def copy(self, request: ScreamRequest, recipient_id: int) -> None:
         try:

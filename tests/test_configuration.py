@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
+from sein_zum_tode.bot.models import TelegramKeyboardMode
 from sein_zum_tode.config import Settings, WorkerSettings
 
 pytestmark = pytest.mark.fast
@@ -71,6 +72,35 @@ def test_defaults_to_no_privileged_telegram_accounts() -> None:
 
     assert actual.telegram_admin_user_ids == frozenset(), (
         "worker granted administrative commands without explicit configuration"
+    )
+
+
+def test_defaults_to_the_reply_keyboard_below_the_input() -> None:
+    actual = WorkerSettings.model_validate(
+        {
+            "telegram_bot_token": "227:keyboard-token",
+            "redis_password": "redis-keyboard-1957",
+            "postgres_password": "postgres-keyboard-1961",
+        }
+    )
+
+    assert actual.telegram_keyboard_mode == TelegramKeyboardMode.REPLY, (
+        "worker stopped using reply keyboards as the default presentation"
+    )
+
+
+def test_accepts_the_legacy_inline_keyboard_mode() -> None:
+    actual = WorkerSettings.model_validate(
+        {
+            "telegram_bot_token": "229:inline-token",
+            "redis_password": "redis-inline-1963",
+            "postgres_password": "postgres-inline-1967",
+            "telegram_keyboard_mode": "inline",
+        }
+    )
+
+    assert actual.telegram_keyboard_mode == TelegramKeyboardMode.INLINE, (
+        "worker no longer accepts the legacy inline keyboard configuration"
     )
 
 

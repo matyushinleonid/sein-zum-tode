@@ -4,6 +4,8 @@ from typing import Literal, Self
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from sein_zum_tode.bot.models import TelegramKeyboardMode
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -111,6 +113,7 @@ class Settings(BaseSettings):
 
 class WorkerSettings(Settings):
     telegram_admin_user_ids: frozenset[int] = frozenset()
+    telegram_keyboard_mode: TelegramKeyboardMode = TelegramKeyboardMode.REPLY
     unsupported_update_session_ttl_seconds: int = Field(default=3600, ge=1)
     postgres_host: str = "localhost"
     postgres_port: int = Field(default=5432, ge=1, le=65535)

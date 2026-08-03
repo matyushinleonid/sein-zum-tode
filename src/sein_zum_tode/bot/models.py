@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from sein_zum_tode.bot.content import NotificationTier
 from sein_zum_tode.broadcasts.models import ScreamRequest
@@ -60,6 +60,11 @@ class PayloadKind(StrEnum):
     CUSTOM_SCHEDULE = "custom_schedule"
 
 
+class TelegramKeyboardMode(StrEnum):
+    INLINE = "inline"
+    REPLY = "reply"
+
+
 @dataclass(frozen=True, slots=True)
 class UserWorkflowInput:
     user_id: int
@@ -91,6 +96,7 @@ class InspectedUpdate:
     callback_query_id: str | None = None
     scream_request: ScreamRequest | None = None
     notification_sample: NotificationTier | None = None
+    reply_keyboard_selection: bool = False
 
     def response_key(self) -> str:
         return UpdatePayloadKeys(self.update_key).response()
@@ -105,6 +111,7 @@ class PrepareResponseInput:
     callback_query_id: str | None = None
     is_text_message: bool = False
     notification_sample: NotificationTier | None = None
+    remove_reply_keyboard: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,4 +161,12 @@ class TelegramResponse(BaseModel):
     prelude_text: str | None = None
     attachment: TelegramAttachment | None = None
     keyboard: tuple[tuple[TelegramButton, ...], ...] = ()
+    keyboard_mode: TelegramKeyboardMode = TelegramKeyboardMode.INLINE
+    remove_reply_keyboard: bool = False
     callback_query_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_keyboard(self) -> TelegramResponse:
+        if self.keyboard and self.remove_reply_keyboard:
+            raise ValueError("Telegram response cannot show and remove a keyboard together")
+        return self

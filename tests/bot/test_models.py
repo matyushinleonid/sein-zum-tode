@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 from temporalio.converter import DataConverter
 
 from sein_zum_tode.bot.models import (
@@ -7,6 +8,8 @@ from sein_zum_tode.bot.models import (
     InspectedUpdate,
     InspectionKind,
     PrepareResponseInput,
+    TelegramButton,
+    TelegramResponse,
 )
 
 pytestmark = pytest.mark.fast
@@ -63,3 +66,20 @@ async def test_decodes_historical_activity_payloads_without_observability_fields
             user_id=None,
         ),
     ], "new optional Activity fields broke Temporal history deserialization"
+
+
+def test_rejects_showing_and_removing_a_keyboard_in_one_response() -> None:
+    with pytest.raises(ValidationError):
+        TelegramResponse(
+            chat_id=154_951,
+            text="Contradictory keyboard",
+            keyboard=(
+                (
+                    TelegramButton(
+                        text="Daily",
+                        callback_data="notifications:daily",
+                    ),
+                ),
+            ),
+            remove_reply_keyboard=True,
+        )

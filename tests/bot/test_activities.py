@@ -25,6 +25,7 @@ from sein_zum_tode.bot.models import (
     InspectionKind,
     InspectUpdateInput,
     PrepareResponseInput,
+    TelegramKeyboardMode,
     TelegramResponse,
 )
 from sein_zum_tode.broadcasts.models import ScreamRequest
@@ -37,7 +38,7 @@ from tests.support import (
     TelegramMemory,
     TelegramUpdates,
     mortal,
-    notification_presets,
+    telegram_keyboards,
 )
 
 pytestmark = pytest.mark.fast
@@ -272,6 +273,42 @@ def memory(update: object, response: object = None) -> TelegramMemory:
             expected_callback_query_id="callback-Sphinx-915",
         ),
         ActivityCase(
+            update=TelegramUpdates.message(
+                update_id=1323,
+                user_id=132_331,
+                chat_id=132_331,
+                text="🇷🇺 RU",
+                chat_type="private",
+            ),
+            expected_kind=InspectionKind.LOCALIZATION_SELECTION,
+            expected_chat_id=132_331,
+            expected_reply_keyboard_selection=True,
+        ),
+        ActivityCase(
+            update=TelegramUpdates.message(
+                update_id=1324,
+                user_id=132_433,
+                chat_id=132_433,
+                text="Daily · 09:00",
+                chat_type="private",
+            ),
+            expected_kind=InspectionKind.NOTIFICATION_SELECTION,
+            expected_chat_id=132_433,
+            expected_reply_keyboard_selection=True,
+        ),
+        ActivityCase(
+            update=TelegramUpdates.message(
+                update_id=1325,
+                user_id=132_533,
+                chat_id=132_533,
+                text="✨ Своё расписание",
+                chat_type="private",
+            ),
+            expected_kind=InspectionKind.CUSTOM_NOTIFICATION_SELECTION,
+            expected_chat_id=132_533,
+            expected_reply_keyboard_selection=True,
+        ),
+        ActivityCase(
             update=TelegramUpdates.callback(
                 update_id=1320,
                 user_id=132_021,
@@ -305,6 +342,18 @@ def memory(update: object, response: object = None) -> TelegramMemory:
             ),
             expected_kind=InspectionKind.LOCALIZATION_SELECTION,
             expected_chat_id=132_223,
+            expected_callback_query_id="callback-Sphinx-915",
+        ),
+        ActivityCase(
+            update=TelegramUpdates.callback(
+                update_id=1326,
+                user_id=132_629,
+                chat_id=132_629,
+                chat_type="private",
+                data="unknown:selection",
+            ),
+            expected_kind=InspectionKind.UNSUPPORTED,
+            expected_chat_id=132_629,
             expected_callback_query_id="callback-Sphinx-915",
         ),
         ActivityCase(
@@ -357,6 +406,7 @@ async def test_classifies_each_supported_update_story(case: ActivityCase) -> Non
     subject = InspectTelegramUpdateActivity(
         memory(case.update).update_documents,
         SilentLogger(),
+        keyboards=telegram_keyboards(),
     )
 
     actual = await subject.inspect(InspectUpdateInput("telegram:cosmos:1321", 132_127))
@@ -366,6 +416,7 @@ async def test_classifies_each_supported_update_story(case: ActivityCase) -> Non
         update_key="telegram:cosmos:1321",
         chat_id=case.expected_chat_id,
         callback_query_id=case.expected_callback_query_id,
+        reply_keyboard_selection=case.expected_reply_keyboard_selection,
     ), "inspection selected the wrong response strategy or Telegram chat"
 
 
@@ -379,6 +430,7 @@ async def test_accepts_each_copyable_scream_message(replied_content: dict[str, o
     )
     subject = InspectTelegramUpdateActivity(
         update_reader=memory(update).update_documents,
+        keyboards=telegram_keyboards(),
         admin_user_ids=frozenset({162573173}),
         logger=SilentLogger(),
     )
@@ -438,6 +490,7 @@ async def test_accepts_each_copyable_scream_message(replied_content: dict[str, o
 async def test_rejects_a_malformed_or_unsupported_admin_scream(update: Update) -> None:
     subject = InspectTelegramUpdateActivity(
         update_reader=memory(update).update_documents,
+        keyboards=telegram_keyboards(),
         admin_user_ids=frozenset({162573173}),
         logger=SilentLogger(),
     )
@@ -460,6 +513,7 @@ async def test_denies_a_non_admin_before_validating_the_scream_shape() -> None:
     )
     subject = InspectTelegramUpdateActivity(
         update_reader=memory(update).update_documents,
+        keyboards=telegram_keyboards(),
         admin_user_ids=frozenset({162573173}),
         logger=SilentLogger(),
     )
@@ -486,6 +540,7 @@ async def test_accepts_each_notification_sample_for_an_admin(
     )
     subject = InspectTelegramUpdateActivity(
         update_reader=memory(update).update_documents,
+        keyboards=telegram_keyboards(),
         admin_user_ids=frozenset({162573173}),
         logger=SilentLogger(),
     )
@@ -523,6 +578,7 @@ async def test_hides_invalid_or_non_admin_notification_samples(
     )
     subject = InspectTelegramUpdateActivity(
         update_reader=memory(update).update_documents,
+        keyboards=telegram_keyboards(),
         admin_user_ids=frozenset({162573173}),
         logger=SilentLogger(),
     )
@@ -550,6 +606,7 @@ async def test_falls_back_to_the_user_when_update_cannot_be_inspected(
     subject = InspectTelegramUpdateActivity(
         memory(update_outcome).update_documents,
         SilentLogger(),
+        keyboards=telegram_keyboards(),
     )
 
     actual = await subject.inspect(InspectUpdateInput("telegram:cosmos:1367", 136_777))
@@ -565,6 +622,7 @@ async def test_reports_an_expired_update_without_treating_it_as_user_input() -> 
     metrics = InspectionMetrics()
     subject = InspectTelegramUpdateActivity(
         update_reader=memory(None).update_documents,
+        keyboards=telegram_keyboards(),
         logger=SilentLogger(),
         metrics=metrics,
     )
@@ -621,7 +679,7 @@ async def test_prepares_each_static_response(
         ttl_seconds=1433,
         content=BotContents.debug(),
         mortals=MortalMemory(),
-        notification_presets=notification_presets(),
+        keyboards=telegram_keyboards(),
         logger=SilentLogger(),
     )
     input = PrepareResponseInput(
@@ -650,7 +708,7 @@ async def test_localizes_scream_denial_for_a_russian_mortal() -> None:
         ttl_seconds=1441,
         content=BotContents.debug(),
         mortals=MortalMemory({144_149: mortal(id=144_149, locale="ru")}),
-        notification_presets=notification_presets(),
+        keyboards=telegram_keyboards(),
         logger=SilentLogger(),
     )
     input = PrepareResponseInput(
@@ -674,7 +732,7 @@ async def test_prepares_html_about_and_callback_keyboards() -> None:
         ttl_seconds=1451,
         content=BotContents.debug(),
         mortals=MortalMemory({145_459: mortal(id=145_459)}),
-        notification_presets=notification_presets(),
+        keyboards=telegram_keyboards(),
         logger=SilentLogger(),
     )
     about = PrepareResponseInput(
@@ -748,13 +806,62 @@ async def test_prepares_html_about_and_callback_keyboards() -> None:
     ), "about formatting or callback keyboard changed"
 
 
+async def test_prepares_reply_keyboards_and_removes_them_before_custom_input() -> None:
+    payloads = memory(None)
+    content = BotContents.debug()
+    subject = PrepareTelegramResponseActivities(
+        response_store=payloads.response_documents,
+        ttl_seconds=1463,
+        content=content,
+        mortals=MortalMemory({146_369: mortal(id=146_369)}),
+        keyboards=telegram_keyboards(
+            content=content,
+            mode=TelegramKeyboardMode.REPLY,
+        ),
+        logger=SilentLogger(),
+    )
+    localization = PrepareResponseInput(
+        update_key="telegram:localization:1463",
+        response_key="telegram:localization:1463:response",
+        chat_id=146_369,
+        user_id=146_369,
+    )
+    notifications = PrepareResponseInput(
+        update_key="telegram:notifications:1463",
+        response_key="telegram:notifications:1463:response",
+        chat_id=146_369,
+        user_id=146_369,
+    )
+    custom = PrepareResponseInput(
+        update_key="telegram:custom:1463",
+        response_key="telegram:custom:1463:response",
+        chat_id=146_369,
+        user_id=146_369,
+        remove_reply_keyboard=True,
+    )
+
+    await subject.prepare_localization(localization)
+    await subject.prepare_notifications(notifications)
+    await subject.prepare_custom_notification(custom)
+
+    assert (
+        payloads.responses[localization.response_key].keyboard_mode,
+        payloads.responses[notifications.response_key].keyboard_mode,
+        payloads.responses[custom.response_key].remove_reply_keyboard,
+    ) == (
+        TelegramKeyboardMode.REPLY,
+        TelegramKeyboardMode.REPLY,
+        True,
+    ), "reply keyboard mode or explicit removal was lost during response preparation"
+
+
 async def test_rejects_notification_keyboard_for_a_missing_mortal() -> None:
     subject = PrepareTelegramResponseActivities(
         response_store=memory(None).response_documents,
         ttl_seconds=1469,
         content=BotContents.debug(),
         mortals=MortalMemory(),
-        notification_presets=notification_presets(),
+        keyboards=telegram_keyboards(),
         logger=SilentLogger(),
     )
 

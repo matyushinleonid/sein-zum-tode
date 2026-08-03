@@ -5,6 +5,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from sein_zum_tode.bot.content import BotContent
+from sein_zum_tode.bot.keyboards import TelegramKeyboardCatalog
 from sein_zum_tode.bot.models import PrepareResponseInput, TelegramResponse
 from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.notifications.custom_schedule.config import NotificationPresets
@@ -28,6 +29,7 @@ class ConfigureMortalNotificationsActivity:
         schedules: MortalSchedule,
         content: BotContent,
         presets: NotificationPresets,
+        keyboards: TelegramKeyboardCatalog,
         response_ttl_seconds: int,
         logger: logging.Logger | None = None,
         metrics: ApplicationMetrics | None = None,
@@ -38,6 +40,7 @@ class ConfigureMortalNotificationsActivity:
         self._schedules = schedules
         self._content = content
         self._presets = presets
+        self._keyboards = keyboards
         self._response_ttl_seconds = response_ttl_seconds
         self._logger = logger or logging.getLogger(__name__)
         self._metrics = metrics or NoopApplicationMetrics()
@@ -45,9 +48,9 @@ class ConfigureMortalNotificationsActivity:
     @activity.defn(name=CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME)
     async def configure(self, input: PrepareResponseInput) -> None:
         update = await self._updates.load(input.update_key)
-        callback = update.callback_query if update is not None else None
+        selection = self._keyboards.selection(update) if update is not None else None
         frequency = NotificationFrequency.from_callback_data(
-            callback.data if callback is not None else None
+            selection.data if selection is not None else None
         )
         if frequency is None or input.user_id is None:
             raise ApplicationError(
@@ -73,6 +76,7 @@ class ConfigureMortalNotificationsActivity:
                 chat_id=input.chat_id,
                 text=localized.notification_settings.updated_text(label),
                 callback_query_id=input.callback_query_id,
+                remove_reply_keyboard=input.remove_reply_keyboard,
             ),
             self._response_ttl_seconds,
         )

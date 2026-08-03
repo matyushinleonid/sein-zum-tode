@@ -14,6 +14,7 @@ from sein_zum_tode.bot.errors import (
     TelegramRateLimitedError,
     TelegramRecipientUnavailableError,
 )
+from sein_zum_tode.bot.keyboards import TelegramKeyboardCatalog
 from sein_zum_tode.bot.models import (
     CLEANUP_PAYLOADS_ACTIVITY_NAME,
     DELIVER_RESPONSE_ACTIVITY_NAME,
@@ -47,12 +48,7 @@ from sein_zum_tode.broadcasts.models import ScreamRequest
 from sein_zum_tode.localization.models import SupportedLocale
 from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.mortals.ports import MortalRepository
-from sein_zum_tode.notifications.custom_schedule.config import NotificationPresets
-from sein_zum_tode.notifications.custom_schedule.presentation import (
-    NotificationPresetPresenter,
-)
 from sein_zum_tode.notifications.models import (
-    CUSTOM_NOTIFICATION_CALLBACK_DATA,
     NotificationFrequency,
     is_custom_notification_callback,
 )
@@ -67,10 +63,12 @@ class InspectTelegramUpdateActivity:
         update_reader: DocumentReader[Update],
         logger: logging.Logger | None = None,
         *,
+        keyboards: TelegramKeyboardCatalog,
         admin_user_ids: frozenset[int] = frozenset(),
         metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._update_reader = update_reader
+        self._keyboards = keyboards
         self._admin_user_ids = admin_user_ids
         self._logger = logger or logging.getLogger(__name__)
         self._metrics = metrics or NoopApplicationMetrics()
@@ -132,22 +130,9 @@ class InspectTelegramUpdateActivity:
 
         callback = update.callback_query
         if callback is not None:
-            locale = SupportedLocale.from_callback_data(callback.data)
-            frequency = NotificationFrequency.from_callback_data(callback.data)
+            selection = self._keyboards.selection(update)
             return InspectedUpdate(
-                kind=(
-                    InspectionKind.LOCALIZATION_SELECTION
-                    if locale is not None
-                    else (
-                        InspectionKind.CUSTOM_NOTIFICATION_SELECTION
-                        if is_custom_notification_callback(callback.data)
-                        else (
-                            InspectionKind.NOTIFICATION_SELECTION
-                            if frequency is not None
-                            else InspectionKind.UNSUPPORTED
-                        )
-                    )
-                ),
+                kind=self._selection_kind(selection.data if selection is not None else None),
                 update_key=input.update_key,
                 chat_id=chat.id if chat is not None else input.user_id,
                 callback_query_id=callback.id,
@@ -164,6 +149,7 @@ class InspectTelegramUpdateActivity:
             return self._scream(input, message)
         if self._is_sample_command(message.text):
             return self._sample(input, message)
+        selection = self._keyboards.selection(update)
         if message.text == "/begin":
             kind = InspectionKind.BEGIN
         elif message.text == "/help":
@@ -176,15 +162,32 @@ class InspectTelegramUpdateActivity:
             kind = InspectionKind.NOTIFICATIONS
         elif message.text is not None and message.text.startswith("/"):
             kind = InspectionKind.UNSUPPORTED
-        elif message.text is not None:
-            kind = InspectionKind.TEXT
         else:
-            kind = InspectionKind.UNSUPPORTED
+            kind = (
+                self._selection_kind(selection.data)
+                if selection is not None
+                else (
+                    InspectionKind.TEXT if message.text is not None else InspectionKind.UNSUPPORTED
+                )
+            )
         return InspectedUpdate(
             kind=kind,
             update_key=input.update_key,
             chat_id=message.chat.id,
+            reply_keyboard_selection=(
+                selection.from_reply_keyboard if selection is not None else False
+            ),
         )
+
+    @staticmethod
+    def _selection_kind(data: str | None) -> InspectionKind:
+        if SupportedLocale.from_callback_data(data) is not None:
+            return InspectionKind.LOCALIZATION_SELECTION
+        if is_custom_notification_callback(data):
+            return InspectionKind.CUSTOM_NOTIFICATION_SELECTION
+        if NotificationFrequency.from_callback_data(data) is not None:
+            return InspectionKind.NOTIFICATION_SELECTION
+        return InspectionKind.UNSUPPORTED
 
     def _scream(self, input: InspectUpdateInput, message: Message) -> InspectedUpdate:
         author = message.from_user
@@ -310,7 +313,7 @@ class PrepareTelegramResponseActivities:
         ttl_seconds: int,
         content: BotContent,
         mortals: MortalRepository,
-        notification_presets: NotificationPresets,
+        keyboards: TelegramKeyboardCatalog,
         logger: logging.Logger | None = None,
         metrics: ApplicationMetrics | None = None,
     ) -> None:
@@ -318,7 +321,7 @@ class PrepareTelegramResponseActivities:
         self._ttl_seconds = ttl_seconds
         self._content = content
         self._mortals = mortals
-        self._notification_presets = NotificationPresetPresenter(notification_presets)
+        self._keyboards = keyboards
         self._logger = logger or logging.getLogger(__name__)
         self._metrics = metrics or NoopApplicationMetrics()
 
@@ -336,18 +339,7 @@ class PrepareTelegramResponseActivities:
     async def prepare_localization(self, input: PrepareResponseInput) -> None:
         localized = await self._localized(input.user_id)
         settings = localized.localization
-        keyboard = (
-            (
-                TelegramButton(
-                    text=settings.russian,
-                    callback_data=SupportedLocale.RUSSIAN.callback_data(),
-                ),
-                TelegramButton(
-                    text=settings.english,
-                    callback_data=SupportedLocale.ENGLISH.callback_data(),
-                ),
-            ),
-        )
+        keyboard = self._keyboards.localization(localized)
         await self._store(input, settings.prompt, keyboard=keyboard)
         self._log_prepared(input, InspectionKind.LOCALIZATION)
 
@@ -356,43 +348,7 @@ class PrepareTelegramResponseActivities:
         mortal = await self._mortal(input.user_id)
         localized = self._content.localized(mortal.locale)
         settings = localized.notification_settings
-        keyboard = (
-            (
-                TelegramButton(
-                    text=self._notification_presets.label(
-                        NotificationFrequency.DAILY,
-                        settings.daily,
-                    ),
-                    callback_data=NotificationFrequency.DAILY.callback_data(),
-                ),
-                TelegramButton(
-                    text=self._notification_presets.label(
-                        NotificationFrequency.WEEKLY,
-                        settings.weekly,
-                    ),
-                    callback_data=NotificationFrequency.WEEKLY.callback_data(),
-                ),
-            ),
-            (
-                TelegramButton(
-                    text=self._notification_presets.label(
-                        NotificationFrequency.MONTHLY,
-                        settings.monthly,
-                    ),
-                    callback_data=NotificationFrequency.MONTHLY.callback_data(),
-                ),
-                TelegramButton(
-                    text=settings.never,
-                    callback_data=NotificationFrequency.NEVER.callback_data(),
-                ),
-            ),
-            (
-                TelegramButton(
-                    text=settings.custom,
-                    callback_data=CUSTOM_NOTIFICATION_CALLBACK_DATA,
-                ),
-            ),
-        )
+        keyboard = self._keyboards.notifications(localized)
         await self._store(
             input,
             settings.prompt_text(mortal.timezone),
@@ -475,6 +431,8 @@ class PrepareTelegramResponseActivities:
                 text=text,
                 parse_mode=parse_mode,
                 keyboard=keyboard,
+                keyboard_mode=self._keyboards.mode,
+                remove_reply_keyboard=input.remove_reply_keyboard,
                 callback_query_id=input.callback_query_id,
             ),
             self._ttl_seconds,
