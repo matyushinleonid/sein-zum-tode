@@ -60,6 +60,49 @@ def test_defaults_the_unsupported_update_session_to_one_hour() -> None:
     )
 
 
+def test_defaults_to_no_privileged_telegram_accounts() -> None:
+    actual = WorkerSettings.model_validate(
+        {
+            "telegram_bot_token": "223:closed-token",
+            "redis_password": "redis-closed-1949",
+            "postgres_password": "postgres-closed-1951",
+        }
+    )
+
+    assert actual.telegram_admin_user_ids == frozenset(), (
+        "worker granted administrative commands without explicit configuration"
+    )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {
+            "metrics_host": "127.0.0.1",
+            "metrics_port": 8000,
+            "health_host": "127.0.0.2",
+            "health_port": 8000,
+        },
+        {
+            "health_check_interval_seconds": 10,
+            "health_check_timeout_seconds": 3,
+            "health_liveness_timeout_seconds": 13,
+        },
+    ],
+)
+def test_rejects_health_configuration_that_cannot_detect_process_state(
+    overrides: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        Settings.model_validate(
+            {
+                "telegram_bot_token": "227:health-token",
+                "redis_password": "redis-health-1957",
+                **overrides,
+            }
+        )
+
+
 def test_rejects_an_activity_retry_window_that_can_outlive_unsupported_session() -> None:
     values = {
         "telegram_bot_token": "199:asterism-token",

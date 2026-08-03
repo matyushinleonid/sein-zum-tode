@@ -8,6 +8,8 @@ class ApplicationMetrics(Protocol):
 
     def inspected(self, *, kind: str) -> None: ...
 
+    def payload_expired(self, *, kind: str) -> None: ...
+
     def response_prepared(self, *, kind: str) -> None: ...
 
     def delivery(
@@ -48,6 +50,8 @@ class ApplicationMetrics(Protocol):
 
     def broadcast(self, *, outcome: str, locale: str, count: int = 1) -> None: ...
 
+    def health_dependency(self, *, name: str, healthy: bool) -> None: ...
+
 
 class NoopApplicationMetrics:
     def poll(self, *, stage: str, outcome: str) -> None:
@@ -57,6 +61,9 @@ class NoopApplicationMetrics:
         return None
 
     def inspected(self, *, kind: str) -> None:
+        return None
+
+    def payload_expired(self, *, kind: str) -> None:
         return None
 
     def response_prepared(self, *, kind: str) -> None:
@@ -107,4 +114,7 @@ class NoopApplicationMetrics:
         return None
 
     def broadcast(self, *, outcome: str, locale: str, count: int = 1) -> None:
+        return None
+
+    def health_dependency(self, *, name: str, healthy: bool) -> None:
         return None

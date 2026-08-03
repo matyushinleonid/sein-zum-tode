@@ -5,6 +5,8 @@ from redis.exceptions import RedisError
 
 
 class RedisTransport(Protocol):
+    def ping(self) -> Awaitable[bool]: ...
+
     def get(self, name: str) -> Awaitable[str | bytes | None]: ...
 
     def set(
@@ -25,6 +27,12 @@ class RedisClientError(Exception):
 class RedisClient:
     def __init__(self, transport: RedisTransport) -> None:
         self._transport = transport
+
+    async def ping(self) -> bool:
+        try:
+            return await self._transport.ping()
+        except RedisError as error:
+            raise RedisClientError("Redis health check failed") from error
 
     async def get(self, key: str) -> str | None:
         try:

@@ -9,6 +9,7 @@ metadata:
     component: ingress
     sein-zum-tode.io/metrics: "true"
 spec:
+  publishNotReadyAddresses: true
   selector:
     {{- include "sein-zum-tode.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: ingress
@@ -28,6 +29,7 @@ metadata:
     component: worker
     sein-zum-tode.io/metrics: "true"
 spec:
+  publishNotReadyAddresses: true
   selector:
     {{- include "sein-zum-tode.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: worker

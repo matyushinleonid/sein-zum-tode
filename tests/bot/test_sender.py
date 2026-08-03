@@ -5,6 +5,7 @@ from aiogram.exceptions import (
     TelegramBadRequest,
     TelegramForbiddenError,
     TelegramNetworkError,
+    TelegramRetryAfter,
 )
 from aiogram.methods import CopyMessage, SendAudio, SendMessage
 from aiogram.types import InlineKeyboardMarkup
@@ -12,6 +13,7 @@ from aiogram.types import InlineKeyboardMarkup
 from sein_zum_tode.bot.errors import (
     PermanentTelegramDeliveryError,
     TelegramDeliveryError,
+    TelegramRateLimitedError,
     TelegramRecipientUnavailableError,
 )
 from sein_zum_tode.bot.models import (
@@ -353,6 +355,29 @@ async def test_classifies_a_network_problem_as_a_retryable_failure() -> None:
         )
 
 
+async def test_preserves_telegram_retry_after_for_response_delivery() -> None:
+    method = SendMessage(chat_id=172_339, text="Wait for the orbit")
+    bot = TelegramBotDouble(
+        updates=[],
+        delete_result=None,
+        receive_result=None,
+        send_result=TelegramRetryAfter(
+            method=method,
+            message="too many requests",
+            retry_after=17,
+        ),
+    )
+
+    with pytest.raises(TelegramRateLimitedError) as captured:
+        await AiogramTelegramMessageSender(bot).send(
+            TelegramResponse(chat_id=172_339, text="Wait for the orbit")
+        )
+
+    assert captured.value.retry_after_seconds == 17, (
+        "response delivery discarded Telegram's requested retry delay"
+    )
+
+
 async def test_copies_a_replied_message_without_rebuilding_its_media() -> None:
     bot = TelegramBotDouble(
         updates=[],
@@ -372,6 +397,34 @@ async def test_copies_a_replied_message_without_rebuilding_its_media() -> None:
 
     assert bot.events == [("copy_message", (172_423, 172_411, 172_421))], (
         "scream delivery changed the source or destination message identifiers"
+    )
+
+
+async def test_preserves_telegram_retry_after_for_broadcast_copy() -> None:
+    method = CopyMessage(chat_id=172_425, from_chat_id=172_421, message_id=172_423)
+    bot = TelegramBotDouble(
+        updates=[],
+        delete_result=None,
+        receive_result=None,
+        send_result=TelegramRetryAfter(
+            method=method,
+            message="broadcast throttled",
+            retry_after=29,
+        ),
+    )
+
+    with pytest.raises(TelegramRateLimitedError) as captured:
+        await AiogramTelegramMessageSender(bot).copy(
+            ScreamRequest(
+                locale="en",
+                source_chat_id=172_421,
+                source_message_id=172_423,
+            ),
+            172_425,
+        )
+
+    assert captured.value.retry_after_seconds == 29, (
+        "broadcast copy discarded Telegram's requested retry delay"
     )
 
 

@@ -46,12 +46,14 @@ class TemporalUserWorkflowStarter:
         task_queue: str,
         activity_retry_timeout_seconds: int,
         questionnaire_ttl_seconds: int,
+        broadcast_recipient_page_size: int = 100,
     ) -> None:
         self._client = client
         self._bot_id = bot_id
         self._task_queue = task_queue
         self._activity_retry_timeout_seconds = activity_retry_timeout_seconds
         self._questionnaire_ttl_seconds = questionnaire_ttl_seconds
+        self._broadcast_recipient_page_size = broadcast_recipient_page_size
 
     async def signal_with_start(
         self,
@@ -65,6 +67,7 @@ class TemporalUserWorkflowStarter:
                 user_id=user_id,
                 activity_retry_timeout_seconds=self._activity_retry_timeout_seconds,
                 questionnaire_ttl_seconds=self._questionnaire_ttl_seconds,
+                broadcast_recipient_page_size=self._broadcast_recipient_page_size,
             ),
             id=f"telegram-user:{self._bot_id}:{user_id}",
             task_queue=self._task_queue,

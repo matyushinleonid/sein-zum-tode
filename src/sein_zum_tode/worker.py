@@ -29,6 +29,12 @@ from sein_zum_tode.broadcasts.workflow import TelegramScreamWorkflow
 from sein_zum_tode.config import WorkerSettings
 from sein_zum_tode.infrastructure.completion_config import CompletionProvider
 from sein_zum_tode.infrastructure.cron_descriptor import CronDescriptor
+from sein_zum_tode.infrastructure.health import (
+    CallableHealthCheck,
+    HealthHttpServer,
+    HealthMonitor,
+    HealthState,
+)
 from sein_zum_tode.infrastructure.metrics import PrometheusHttpServer, PrometheusMetrics
 from sein_zum_tode.infrastructure.numbers import Num2WordsNumberSpeller
 from sein_zum_tode.infrastructure.openai import (
@@ -272,6 +278,12 @@ async def run(settings: WorkerSettings) -> None:
     stop_event = asyncio.Event()
     install_signal_handlers(stop_event)
     metrics, registry = PrometheusMetrics.create(component="worker")
+    health = HealthState(
+        dependencies=("postgres", "redis", "temporal"),
+        liveness_timeout_seconds=settings.health_liveness_timeout_seconds,
+        success_threshold=settings.health_success_threshold,
+        failure_threshold=settings.health_failure_threshold,
+    )
     content = YamlBotContentLoader(settings.bot_content_path).load()
     prediction_config = YamlDeathPredictionConfigLoader(
         settings.death_prediction_config_path
@@ -522,6 +534,7 @@ async def run(settings: WorkerSettings) -> None:
             prepare.prepare_notifications,
             prepare.prepare_custom_notification,
             prepare.prepare_limit_exhausted,
+            prepare.prepare_payload_expired,
             prepare_unsupported.prepare_unsupported,
             prepare.prepare_group_unsupported,
             prepare.prepare_scream_denied,
@@ -553,18 +566,43 @@ async def run(settings: WorkerSettings) -> None:
         port=settings.metrics_port,
         registry=registry,
     )
+    health_server = HealthHttpServer.start(
+        host=settings.health_host,
+        port=settings.health_port,
+        state=health,
+    )
+    health_monitor = HealthMonitor(
+        state=health,
+        checks=(
+            CallableHealthCheck(name="postgres", probe=postgres.ping),
+            CallableHealthCheck(name="redis", probe=redis.ping),
+            CallableHealthCheck(
+                name="temporal",
+                probe=temporal.service_client.check_health,
+            ),
+        ),
+        interval_seconds=settings.health_check_interval_seconds,
+        timeout_seconds=settings.health_check_timeout_seconds,
+        metrics=metrics,
+    )
+    health_task = asyncio.create_task(health_monitor.run(stop_event))
     logging.getLogger(__name__).info(
         "Telegram worker started",
         extra=LogContext(component="worker").event("application_started"),
     )
     try:
         async with worker:
+            health.startup_completed()
             await stop_event.wait()
     finally:
+        health.stopping()
+        stop_event.set()
+        await health_task
         logging.getLogger(__name__).info(
             "Telegram worker stopping",
             extra=LogContext(component="worker").event("application_stopping"),
         )
+        health_server.close()
         metrics_server.close()
         await predictor.close()
         await schedule_interpreter.close()

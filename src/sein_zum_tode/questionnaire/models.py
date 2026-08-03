@@ -42,6 +42,7 @@ class QuestionnaireState(BaseModel):
     started_message: str
     completed_message: str
     deleted_message: str
+    cleanup_failed_message: str
     questions: tuple[QuestionnaireQuestion, ...]
     current_question_index: int = 0
 
@@ -65,6 +66,7 @@ class QuestionnaireState(BaseModel):
             started_message=questionnaire.started,
             completed_message=questionnaire.completed,
             deleted_message=questionnaire.deleted,
+            cleanup_failed_message=questionnaire.cleanup_failed,
             questions=tuple(
                 QuestionnaireQuestion(id=question.id, text=question.text)
                 for question in questionnaire.questions
@@ -167,6 +169,7 @@ class StartQuestionnaireInput:
 class QuestionnaireStarted:
     response_keys: tuple[str, ...]
     privacy_response_key: str
+    cleanup_failure_response_key: str
 
 
 @dataclass(frozen=True, slots=True)

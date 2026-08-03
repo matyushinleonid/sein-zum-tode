@@ -11,6 +11,7 @@ __all__ = [
     "PayloadRepositoryError",
     "PermanentTelegramDeliveryError",
     "TelegramDeliveryError",
+    "TelegramRateLimitedError",
     "TelegramRecipientUnavailableError",
 ]
 
@@ -21,6 +22,12 @@ class ContentConfigurationError(Exception):
 
 class TelegramDeliveryError(Exception):
     pass
+
+
+class TelegramRateLimitedError(TelegramDeliveryError):
+    def __init__(self, *, retry_after_seconds: int) -> None:
+        super().__init__(f"Telegram rate limit requires retry after {retry_after_seconds} seconds")
+        self.retry_after_seconds = retry_after_seconds
 
 
 class PermanentTelegramDeliveryError(TelegramDeliveryError):

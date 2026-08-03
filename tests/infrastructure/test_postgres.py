@@ -214,6 +214,17 @@ async def test_reads_all_query_mappings() -> None:
     assert actual == rows, "PostgresClient discarded or changed rows from a paged query"
 
 
+async def test_checks_postgres_connectivity_with_a_constant_query() -> None:
+    engine = EngineDouble(outcomes=[ResultDouble(None)])
+
+    actual = await engine.client().ping()
+
+    assert (actual, engine.events) == (
+        True,
+        [("connect",), ("execute", "SELECT 1")],
+    ), "PostgreSQL health check opened a transaction or queried application data"
+
+
 @pytest.mark.parametrize(
     ("operation", "expected_message"),
     [
@@ -221,6 +232,7 @@ async def test_reads_all_query_mappings() -> None:
         ("fetch_one", "PostgreSQL query failed"),
         ("fetch_all", "PostgreSQL query failed"),
         ("execute_returning_one", "PostgreSQL statement failed"),
+        ("ping", "PostgreSQL health check failed"),
     ],
 )
 async def test_translates_sqlalchemy_failures(
@@ -237,5 +249,7 @@ async def test_translates_sqlalchemy_failures(
             await client.fetch_one(text("SELECT id FROM mortals"))
         elif operation == "fetch_all":
             await client.fetch_all(text("SELECT id FROM mortals"))
-        else:
+        elif operation == "execute_returning_one":
             await client.execute_returning_one(text("UPDATE mortals RETURNING id"))
+        else:
+            await client.ping()

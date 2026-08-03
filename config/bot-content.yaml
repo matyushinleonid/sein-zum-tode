@@ -148,6 +148,7 @@ locales:
     help: Mock help response. Use /localization to change language.
     about: 'About this bot: <a href="https://github.com/matyushinleonid/sein-zum-tode">github</a>'
     text_unsupported: Use /help to learn how to use the bot.
+    payload_expired: This message expired before it could be processed. Please send it again.
     group_unsupported: Group chats are not supported. Please message me directly.
     scream_denied: You can't scream 🤷‍♂️
     notification:
@@ -226,6 +227,7 @@ locales:
       started: mock conversation started
       completed: thanks for your answers!
       deleted: your answers were deleted from our system
+      cleanup_failed: Immediate deletion could not be confirmed. Your temporary questionnaire data will be deleted automatically when its retention period expires.
       questions:
         - id: q1
           text: Your date of birth. A full date (DD.MM.YYYY) gives the model the most reliable basis for its estimate.
@@ -235,6 +237,7 @@ locales:
     help: Тестовая справка. Используйте /localization, чтобы изменить язык.
     about: 'О боте: <a href="https://github.com/matyushinleonid/sein-zum-tode">github</a>'
     text_unsupported: Нажмите /help, чтобы узнать, как пользоваться ботом.
+    payload_expired: Это сообщение не удалось обработать вовремя. Пожалуйста, отправьте его ещё раз.
     group_unsupported: Групповые чаты не поддерживаются. Напишите боту напрямую.
     scream_denied: Ты не можешь кричать 🤷‍♂️
     notification:
@@ -323,6 +326,7 @@ locales:
       started: Тестовая анкета начата.
       completed: Спасибо за ваши ответы!
       deleted: Ваши ответы удалены из нашей системы.
+      cleanup_failed: Не удалось подтвердить немедленное удаление. Временные данные анкеты будут автоматически удалены после истечения срока хранения.
       questions:
         - id: q1
           text: Ваша дата рождения. Полная дата (ДД.ММ.ГГГГ) даст модели наиболее надёжную основу для оценки.

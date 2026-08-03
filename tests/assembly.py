@@ -17,6 +17,14 @@ def explicit_settings() -> WorkerSettings:
         log_format="json",
         metrics_host="127.0.0.19",
         metrics_port=8191,
+        health_host="127.0.0.23",
+        health_port=8192,
+        health_check_interval_seconds=7,
+        health_check_timeout_seconds=2,
+        health_liveness_timeout_seconds=23,
+        health_success_threshold=1,
+        health_failure_threshold=2,
+        broadcast_recipient_page_size=73,
         telegram_bot_token=SecretStr("181:irregular-token"),
         telegram_polling_timeout_seconds=43,
         telegram_request_timeout_seconds=59,
@@ -77,6 +85,21 @@ class PostgresResource:
     async def close(self) -> None:
         self.events.append(("postgres.close",))
 
+    async def ping(self) -> bool:
+        return True
+
+
+class HealthProbeResource:
+    @property
+    def service_client(self) -> HealthProbeResource:
+        return self
+
+    async def ping(self) -> bool:
+        return True
+
+    async def check_health(self) -> bool:
+        return True
+
 
 class PredictorResource:
     def __init__(self, events: list[tuple[object, ...]]) -> None:
@@ -120,11 +143,12 @@ class WorkerResource:
 
 
 class MetricsServerResource:
-    def __init__(self, events: list[tuple[object, ...]]) -> None:
+    def __init__(self, events: list[tuple[object, ...]], name: str = "metrics") -> None:
         self._events = events
+        self._name = name
 
     def close(self) -> None:
-        self._events.append(("metrics.close",))
+        self._events.append((f"{self._name}.close",))
 
 
 class IngressAssembly:
@@ -132,7 +156,8 @@ class IngressAssembly:
         self.events: list[tuple[object, ...]] = []
         self.bot = BotResource(self.events)
         self.redis = RedisResource(self.events)
-        self.temporal = object()
+        self.redis_client = HealthProbeResource()
+        self.temporal = HealthProbeResource()
         self.temporal_adapter = object()
         self.update_documents = object()
         self.metrics = object()
@@ -163,6 +188,11 @@ class IngressAssembly:
             "PrometheusHttpServer",
             SimpleNamespace(start=self.start_metrics),
         )
+        monkeypatch.setattr(
+            module,
+            "HealthHttpServer",
+            SimpleNamespace(start=self.start_health),
+        )
         monkeypatch.setattr(module, "install_signal_handlers", self.install_signals)
 
     def create_bot(self, *, token: str) -> BotResource:
@@ -184,6 +214,10 @@ class IngressAssembly:
         )
         return MetricsServerResource(self.events)
 
+    def start_health(self, **options: object) -> MetricsServerResource:
+        self.events.append(("health.start", options["host"], options["port"]))
+        return MetricsServerResource(self.events, "health")
+
     def create_redis(self, **options: object) -> RedisResource:
         self.events.append(("redis", options))
         return self.redis
@@ -204,7 +238,7 @@ class IngressAssembly:
 
     def create_redis_client(self, redis: object) -> object:
         self.events.append(("redis_client", redis is self.redis))
-        return object()
+        return self.redis_client
 
     def create_codec(self, **options: object) -> object:
         model = cast(type[object], options["model"])
@@ -250,6 +284,7 @@ class IngressAssembly:
                 options["task_queue"],
                 options["activity_retry_timeout_seconds"],
                 options["questionnaire_ttl_seconds"],
+                options["broadcast_recipient_page_size"],
             )
         )
         return object()
@@ -329,9 +364,9 @@ class WorkerAssembly:
         self.events: list[tuple[object, ...]] = []
         self.bot = BotResource(self.events)
         self.redis = RedisResource(self.events)
-        self.redis_client = object()
+        self.redis_client = HealthProbeResource()
         self.postgres = PostgresResource(self.events)
-        self.temporal = object()
+        self.temporal = HealthProbeResource()
         self.update_documents = object()
         self.response_documents = object()
         self.questionnaires = object()
@@ -497,6 +532,11 @@ class WorkerAssembly:
             "PrometheusHttpServer",
             SimpleNamespace(start=self.start_metrics),
         )
+        monkeypatch.setattr(
+            module,
+            "HealthHttpServer",
+            SimpleNamespace(start=self.start_health),
+        )
         monkeypatch.setattr(module, "install_signal_handlers", self.install_signals)
 
     def create_bot(self, *, token: str) -> BotResource:
@@ -517,6 +557,10 @@ class WorkerAssembly:
             )
         )
         return MetricsServerResource(self.events)
+
+    def start_health(self, **options: object) -> MetricsServerResource:
+        self.events.append(("health.start", options["host"], options["port"]))
+        return MetricsServerResource(self.events, "health")
 
     def create_redis(self, **options: object) -> RedisResource:
         self.events.append(("redis", options))
@@ -667,6 +711,7 @@ class WorkerAssembly:
                 "prepare_notifications",
                 "prepare_custom_notification",
                 "prepare_limit_exhausted",
+                "prepare_payload_expired",
                 "prepare_group_unsupported",
                 "prepare_scream_denied",
             )

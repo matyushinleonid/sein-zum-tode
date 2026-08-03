@@ -33,6 +33,13 @@ spec:
             severity: critical
           annotations:
             summary: Telegram polling has not succeeded for more than two minutes
+        - alert: SeinZumTodeDependencyUnavailable
+          expr: sein_zum_tode_dependency_up{namespace={{ .Release.Namespace | quote }}} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: Sein zum Tode dependency is unavailable
     - name: sein-zum-tode.processing
       rules:
         - alert: SeinZumTodeHandoffFailures
@@ -48,6 +55,12 @@ spec:
             severity: critical
           annotations:
             summary: Sensitive ephemeral payload cleanup failed
+        - alert: SeinZumTodeTelegramPayloadExpired
+          expr: increase(sein_zum_tode_payload_expired_total{namespace={{ .Release.Namespace | quote }},kind="telegram_update"}[15m]) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: A Telegram update expired before it could be processed
         - alert: SeinZumTodeTelegramDeliveryFailureRate
           expr: sum(increase(sein_zum_tode_telegram_deliveries_total{namespace={{ .Release.Namespace | quote }},outcome="failed",error_kind!="recipient_unavailable"}[15m])) / clamp_min(sum(increase(sein_zum_tode_telegram_deliveries_total{namespace={{ .Release.Namespace | quote }}}[15m])), 1) > 0.1 and sum(increase(sein_zum_tode_telegram_deliveries_total{namespace={{ .Release.Namespace | quote }}}[15m])) > 5
           for: 5m

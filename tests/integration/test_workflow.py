@@ -30,6 +30,7 @@ from sein_zum_tode.bot.models import (
     PREPARE_HELP_ACTIVITY_NAME,
     PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
     PREPARE_LOCALIZATION_ACTIVITY_NAME,
+    PREPARE_PAYLOAD_EXPIRED_ACTIVITY_NAME,
     PREPARE_SCREAM_DENIED_ACTIVITY_NAME,
     TELEGRAM_UPDATE_SIGNAL_NAME,
     TELEGRAM_USER_WORKFLOW_NAME,
@@ -293,6 +294,14 @@ class ActivityTranscript:
             user_id=input.user_id,
         )
 
+    @activity.defn(name=PREPARE_PAYLOAD_EXPIRED_ACTIVITY_NAME)
+    async def prepare_payload_expired(self, input: PrepareResponseInput) -> None:
+        self.record(
+            operation="prepare_payload_expired",
+            update_key=input.update_key,
+            user_id=input.user_id,
+        )
+
     @activity.defn(name=PREPARE_CUSTOM_NOTIFICATION_ACTIVITY_NAME)
     async def prepare_custom_notification(self, input: PrepareResponseInput) -> None:
         self.record(
@@ -418,6 +427,7 @@ class ActivityTranscript:
             self.prepare_group_unsupported,
             self.prepare_scream_denied,
             self.prepare_limit_exhausted,
+            self.prepare_payload_expired,
             self.prepare_custom_notification,
             self.prepare_notification_sample,
             self.generate_custom_notification_schedule,
@@ -494,6 +504,10 @@ class ActivityRouter:
     async def prepare_limit_exhausted(self, input: PrepareResponseInput) -> None:
         await self.selected("prepare_limit_exhausted")(input)
 
+    @activity.defn(name=PREPARE_PAYLOAD_EXPIRED_ACTIVITY_NAME)
+    async def prepare_payload_expired(self, input: PrepareResponseInput) -> None:
+        await self.selected("prepare_payload_expired")(input)
+
     @activity.defn(name=PREPARE_CUSTOM_NOTIFICATION_ACTIVITY_NAME)
     async def prepare_custom_notification(self, input: PrepareResponseInput) -> None:
         await self.selected("prepare_custom_notification")(input)
@@ -560,6 +574,7 @@ class ActivityRouter:
             self.prepare_group_unsupported,
             self.prepare_scream_denied,
             self.prepare_limit_exhausted,
+            self.prepare_payload_expired,
             self.prepare_custom_notification,
             self.prepare_notification_sample,
             self.generate_custom_notification_schedule,
@@ -778,6 +793,31 @@ async def test_routes_unique_signals_through_the_complete_pipeline(
             ("deliver", "redis:group:1753", 173_357),
             ("cleanup", "redis:group:1753", 173_357),
         ], "workflow duplicated a signal or selected an incorrect Activity pipeline"
+
+
+async def test_responds_to_an_expired_payload_without_registering_a_mortal(
+    workflow_worker_pool: WorkflowWorkerPool,
+) -> None:
+    update_key = "redis:expired:17531"
+    transcript = ActivityTranscript(
+        inspections={update_key: InspectionKind.PAYLOAD_EXPIRED},
+        failing_inspection=None,
+        failing_cleanup=False,
+        failing_registration=True,
+    )
+    async with await WorkflowStory.open(
+        pool=workflow_worker_pool,
+        activities=transcript.definitions(),
+    ) as story:
+        await story.start(update_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+
+    assert transcript.events == [
+        ("inspect", update_key, 173_357),
+        ("prepare_payload_expired", update_key, 173_357),
+        ("deliver", update_key, 173_357),
+        ("cleanup", update_key, 173_357),
+    ], "an expired payload registered a Mortal or bypassed its resend response"
 
 
 async def test_cleans_a_silent_unsupported_update_without_delivering_it(
@@ -1071,6 +1111,94 @@ async def test_custom_schedule_takes_one_text_without_advancing_questionnaire(
         "cleanup",
         "inspect",
     ], "custom schedule text advanced the questionnaire or left custom mode active"
+
+
+async def test_begin_cancels_pending_custom_schedule_before_the_first_answer(
+    workflow_worker_pool: WorkflowWorkerPool,
+) -> None:
+    callback_key = "redis:custom-before-begin:175841"
+    begin_key = "redis:begin-after-custom:175843"
+    answer_key = "redis:first-answer-after-begin:175849"
+    help_key = "redis:help-after-answer:175853"
+    transcript = ActivityTranscript(
+        inspections={
+            callback_key: InspectionKind.CUSTOM_NOTIFICATION_SELECTION,
+            begin_key: InspectionKind.BEGIN,
+            answer_key: InspectionKind.TEXT,
+            help_key: InspectionKind.HELP,
+        },
+        failing_inspection=None,
+        failing_cleanup=False,
+    )
+    async with await WorkflowStory.open(
+        pool=workflow_worker_pool,
+        activities=transcript.definitions(),
+        questionnaire_workflow=RecordingTelegramQuestionnaireWorkflow,
+    ) as story:
+        handle = await story.start(callback_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+        for key in (begin_key, answer_key, help_key):
+            await handle.signal(
+                TELEGRAM_UPDATE_SIGNAL_NAME,
+                TelegramUpdateSignal(redis_key=key),
+            )
+        await transcript.wait_for("prepare_help", 1)
+        child = story.environment.client.get_workflow_handle(
+            f"{handle.id}:questionnaire:{begin_key}"
+        )
+        received = await child.query("received_update_keys")
+
+    assert (
+        received,
+        "generate_custom_notification_schedule" in [event[0] for event in transcript.events],
+    ) == (
+        [answer_key],
+        False,
+    ), "the pending custom schedule captured the first questionnaire answer after /begin"
+
+
+async def test_expired_payload_keeps_custom_schedule_waiting_for_a_resend(
+    workflow_worker_pool: WorkflowWorkerPool,
+) -> None:
+    callback_key = "redis:custom-before-expiry:175857"
+    expired_key = "redis:expired-custom-text:175859"
+    schedule_key = "redis:resent-custom-text:175861"
+    transcript = ActivityTranscript(
+        inspections={
+            callback_key: InspectionKind.CUSTOM_NOTIFICATION_SELECTION,
+            expired_key: InspectionKind.PAYLOAD_EXPIRED,
+            schedule_key: InspectionKind.TEXT,
+        },
+        failing_inspection=None,
+        failing_cleanup=False,
+    )
+    async with await WorkflowStory.open(
+        pool=workflow_worker_pool,
+        activities=transcript.definitions(),
+    ) as story:
+        handle = await story.start(callback_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+        for key in (expired_key, schedule_key):
+            await handle.signal(
+                TELEGRAM_UPDATE_SIGNAL_NAME,
+                TelegramUpdateSignal(redis_key=key),
+            )
+        await transcript.wait_for("apply_custom_notification_schedule", 1)
+
+    assert [
+        event[0]
+        for event in transcript.events
+        if event[0]
+        in {
+            "prepare_payload_expired",
+            "generate_custom_notification_schedule",
+            "apply_custom_notification_schedule",
+        }
+    ] == [
+        "prepare_payload_expired",
+        "generate_custom_notification_schedule",
+        "apply_custom_notification_schedule",
+    ], "an expired custom-schedule payload discarded the mode instead of allowing a resend"
 
 
 @pytest.mark.parametrize(

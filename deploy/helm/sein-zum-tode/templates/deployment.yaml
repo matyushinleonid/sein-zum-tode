@@ -37,26 +37,31 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          {{- if .Values.metrics.enabled }}
           ports:
+            - name: health
+              containerPort: {{ .Values.health.port }}
+              protocol: TCP
+          {{- if .Values.metrics.enabled }}
             - name: metrics
               containerPort: {{ .Values.metrics.port }}
               protocol: TCP
+          {{- end }}
           readinessProbe:
             httpGet:
-              path: /metrics
-              port: metrics
+              path: /health/ready
+              port: health
+            failureThreshold: {{ .Values.health.failureThreshold }}
           livenessProbe:
             httpGet:
-              path: /metrics
-              port: metrics
+              path: /health/live
+              port: health
+            failureThreshold: {{ .Values.health.failureThreshold }}
           startupProbe:
             httpGet:
-              path: /metrics
-              port: metrics
+              path: /health/startup
+              port: health
             failureThreshold: 30
             periodSeconds: 2
-          {{- end }}
           env:
             - name: APP_NAME
               value: {{ include "sein-zum-tode.name" . | quote }}
@@ -68,6 +73,20 @@ spec:
               value: {{ .Values.metrics.host | quote }}
             - name: METRICS_PORT
               value: {{ .Values.metrics.port | quote }}
+            - name: HEALTH_HOST
+              value: {{ .Values.health.host | quote }}
+            - name: HEALTH_PORT
+              value: {{ .Values.health.port | quote }}
+            - name: HEALTH_CHECK_INTERVAL_SECONDS
+              value: {{ .Values.health.checkIntervalSeconds | quote }}
+            - name: HEALTH_CHECK_TIMEOUT_SECONDS
+              value: {{ .Values.health.checkTimeoutSeconds | quote }}
+            - name: HEALTH_LIVENESS_TIMEOUT_SECONDS
+              value: {{ .Values.health.livenessTimeoutSeconds | quote }}
+            - name: HEALTH_SUCCESS_THRESHOLD
+              value: {{ .Values.health.successThreshold | quote }}
+            - name: HEALTH_FAILURE_THRESHOLD
+              value: {{ .Values.health.failureThreshold | quote }}
             - name: TELEGRAM_POLLING_TIMEOUT_SECONDS
               value: {{ .Values.application.telegramPollingTimeoutSeconds | quote }}
             - name: TELEGRAM_REQUEST_TIMEOUT_SECONDS
@@ -90,6 +109,8 @@ spec:
               value: {{ .Values.temporal.tls | quote }}
             - name: TEMPORAL_ACTIVITY_RETRY_TIMEOUT_SECONDS
               value: {{ .Values.application.temporalActivityRetryTimeoutSeconds | quote }}
+            - name: BROADCAST_RECIPIENT_PAGE_SIZE
+              value: {{ .Values.application.broadcastRecipientPageSize | quote }}
             - name: TELEGRAM_BOT_TOKEN
               valueFrom:
                 secretKeyRef:

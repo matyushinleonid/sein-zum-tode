@@ -10,7 +10,13 @@ from sein_zum_tode.ingress.errors import (
     UpdateStoreError,
 )
 from sein_zum_tode.ingress.models import StoredUpdate
-from sein_zum_tode.ingress.ports import RetryWaiter, UpdateHandoff, UpdateSource, UpdateStore
+from sein_zum_tode.ingress.ports import (
+    PollingHealth,
+    RetryWaiter,
+    UpdateHandoff,
+    UpdateSource,
+    UpdateStore,
+)
 from sein_zum_tode.observability import LogContext
 from sein_zum_tode.ports.metrics import ApplicationMetrics, NoopApplicationMetrics
 
@@ -37,6 +43,14 @@ class ExponentialRetryWaiter:
             return
 
 
+class NoopPollingHealth:
+    def polling_started(self) -> None:
+        return None
+
+    def polling_succeeded(self) -> None:
+        return None
+
+
 class TelegramPoller:
     def __init__(
         self,
@@ -46,6 +60,7 @@ class TelegramPoller:
         retry_waiter: RetryWaiter,
         logger: logging.Logger | None = None,
         metrics: ApplicationMetrics | None = None,
+        health: PollingHealth | None = None,
     ) -> None:
         self._source = source
         self._store = store
@@ -53,6 +68,7 @@ class TelegramPoller:
         self._retry_waiter = retry_waiter
         self._logger = logger or logging.getLogger(__name__)
         self._metrics = metrics or NoopApplicationMetrics()
+        self._health = health or NoopPollingHealth()
 
     async def run(self, stop_event: asyncio.Event) -> None:
         if not await self._prepare(stop_event):
@@ -65,6 +81,7 @@ class TelegramPoller:
                 updates = await self._source.receive(offset)
                 receive_failures = 0
                 self._metrics.poll(stage="receive", outcome="success")
+                self._health.polling_succeeded()
                 self._metrics.updates(
                     stage="received",
                     outcome="success",
@@ -109,6 +126,7 @@ class TelegramPoller:
                 await self._wait(failure_count, stop_event)
             else:
                 self._metrics.poll(stage="prepare", outcome="success")
+                self._health.polling_started()
                 return True
         return False
 

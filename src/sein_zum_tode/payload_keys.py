@@ -38,6 +38,9 @@ class QuestionnairePayloadKeys:
     def privacy_response(self) -> str:
         return f"{self.questionnaire}:privacy"
 
+    def cleanup_failure_response(self) -> str:
+        return f"{self.questionnaire}:cleanup-failure"
+
 
 @dataclass(frozen=True, slots=True)
 class MortalNotificationPayloadKeys:

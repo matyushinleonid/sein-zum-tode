@@ -1,8 +1,11 @@
+from datetime import timedelta
+
 import pytest
 from temporalio.exceptions import ApplicationError
 
 from sein_zum_tode.bot.errors import (
     PermanentTelegramDeliveryError,
+    TelegramRateLimitedError,
     TelegramRecipientUnavailableError,
 )
 from sein_zum_tode.bot.models import TelegramResponse
@@ -123,6 +126,33 @@ async def test_marks_permanent_copy_failures_as_non_retryable(
         expected_type,
         True,
     ), "permanent Telegram failure was retried or lost its recipient classification"
+
+
+async def test_retries_a_rate_limited_copy_after_telegram_delay() -> None:
+    subject = DeliverScreamActivity(
+        copier=ScreamCopierDouble(TelegramRateLimitedError(retry_after_seconds=37)),
+        logger=SilentLogger(),
+    )
+
+    with pytest.raises(ApplicationError) as captured:
+        await subject.deliver(
+            DeliverScreamInput(
+                request=request(),
+                recipient_id=181_131,
+                admin_user_id=162573173,
+                update_key="telegram:scream:rate-limit:1821",
+            )
+        )
+
+    assert (
+        captured.value.type,
+        captured.value.next_retry_delay,
+        captured.value.non_retryable,
+    ) == (
+        "TelegramRateLimited",
+        timedelta(seconds=37),
+        False,
+    ), "broadcast Activity ignored Telegram retry-after semantics"
 
 
 async def test_stores_the_admin_report_with_the_response_ttl() -> None:

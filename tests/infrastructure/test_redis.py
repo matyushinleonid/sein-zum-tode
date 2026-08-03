@@ -94,12 +94,28 @@ async def test_deletes_all_keys_in_one_redis_command() -> None:
     )
 
 
+async def test_checks_redis_connectivity_without_reading_application_data() -> None:
+    redis = RedisDouble(
+        get_result=None,
+        set_result=True,
+        delete_result=0,
+        ping_result=True,
+    )
+
+    actual = await redis.client().ping()
+
+    assert (actual, redis.events) == (True, [("ping",)]), (
+        "Redis health check accessed an application key or discarded PING"
+    )
+
+
 @pytest.mark.parametrize(
     ("operation", "label"),
     [
         ("get", "GET"),
         ("set", "SET"),
         ("delete", "DELETE"),
+        ("ping", "PING"),
     ],
 )
 async def test_translates_each_redis_transport_failure(
@@ -111,6 +127,7 @@ async def test_translates_each_redis_transport_failure(
         get_result=failure if operation == "get" else None,
         set_result=failure if operation == "set" else True,
         delete_result=failure if operation == "delete" else 0,
+        ping_result=failure if operation == "ping" else True,
     )
     client = redis.client()
 
@@ -119,8 +136,10 @@ async def test_translates_each_redis_transport_failure(
             await client.get("cipher:1013")
         elif operation == "set":
             await client.set("cipher:1013", "aurora-1019", 1021)
-        else:
+        elif operation == "delete":
             await client.delete(("cipher:1013",))
+        else:
+            await client.ping()
 
 
 @pytest.mark.parametrize("deleted", [True, "one"])

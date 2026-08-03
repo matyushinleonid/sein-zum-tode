@@ -200,6 +200,7 @@ class QuestionnaireContent(BaseModel):
     started: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     completed: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     deleted: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    cleanup_failed: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     questions: tuple[QuestionContent, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -307,6 +308,7 @@ class LocalizedBotContent(BaseModel):
     help: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     about: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     text_unsupported: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    payload_expired: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     group_unsupported: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     scream_denied: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
     notification: NotificationContent

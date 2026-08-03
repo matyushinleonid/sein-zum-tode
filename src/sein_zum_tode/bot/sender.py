@@ -4,6 +4,7 @@ from aiogram.exceptions import (
     TelegramEntityTooLarge,
     TelegramForbiddenError,
     TelegramNotFound,
+    TelegramRetryAfter,
     TelegramUnauthorizedError,
 )
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -11,6 +12,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sein_zum_tode.bot.errors import (
     PermanentTelegramDeliveryError,
     TelegramDeliveryError,
+    TelegramRateLimitedError,
     TelegramRecipientUnavailableError,
 )
 from sein_zum_tode.bot.models import TelegramAttachmentKind, TelegramResponse
@@ -50,6 +52,10 @@ class AiogramTelegramMessageSender:
                     reply_markup=None,
                 )
             await self._send_with_fallback(response, keyboard)
+        except TelegramRetryAfter as error:
+            raise TelegramRateLimitedError(
+                retry_after_seconds=error.retry_after,
+            ) from error
         except TelegramForbiddenError as error:
             raise TelegramRecipientUnavailableError(
                 f"Telegram recipient {response.chat_id} is unavailable"
@@ -139,6 +145,10 @@ class AiogramTelegramMessageSender:
                 from_chat_id=request.source_chat_id,
                 message_id=request.source_message_id,
             )
+        except TelegramRetryAfter as error:
+            raise TelegramRateLimitedError(
+                retry_after_seconds=error.retry_after,
+            ) from error
         except TelegramForbiddenError as error:
             raise TelegramRecipientUnavailableError(
                 f"Telegram recipient {recipient_id} is unavailable"

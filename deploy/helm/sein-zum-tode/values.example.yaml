@@ -17,6 +17,15 @@ metrics:
     additionalLabels:
       release: kube-prometheus-stack
 
+health:
+  host: 0.0.0.0
+  port: 8001
+  checkIntervalSeconds: 10
+  checkTimeoutSeconds: 3
+  livenessTimeoutSeconds: 30
+  successThreshold: 1
+  failureThreshold: 2
+
 image:
   repository: cr.yandex/crp00000000000000000/sein-zum-tode
   tag: latest
@@ -38,10 +47,10 @@ temporal:
 application:
   logFormat: json
   temporalActivityRetryTimeoutSeconds: 300
+  broadcastRecipientPageSize: 100
   questionnaireTtlSeconds: 3600
   unsupportedUpdateSessionTtlSeconds: 3600
-  telegramAdminUserIds:
-    - 162573173
+  telegramAdminUserIds: []
 
 botContent:
   version: production-v6
@@ -50,6 +59,7 @@ botContent:
     en:
       help: Show available commands. Use /localization to change language.
       about: 'About this bot: <a href="https://github.com/matyushinleonid/sein-zum-tode">github</a>'
+      payload_expired: This message expired before it could be processed. Please send it again.
       group_unsupported: Group chats are not supported. Please message me directly.
       scream_denied: You can't scream 🤷‍♂️
       notification:
@@ -105,6 +115,7 @@ botContent:
         started: Conversation started
         completed: Thanks for your answers!
         deleted: Your answers were deleted from our system
+        cleanup_failed: Immediate deletion could not be confirmed. Your temporary questionnaire data will be deleted automatically when its retention period expires.
         questions:
           - id: first_question
             text: First question?
@@ -113,6 +124,7 @@ botContent:
     ru:
       help: Показать доступные команды. Используйте /localization, чтобы изменить язык.
       about: 'О боте: <a href="https://github.com/matyushinleonid/sein-zum-tode">github</a>'
+      payload_expired: Это сообщение не удалось обработать вовремя. Пожалуйста, отправьте его ещё раз.
       group_unsupported: Групповые чаты не поддерживаются. Напишите боту напрямую.
       scream_denied: Ты не можешь кричать 🤷‍♂️
       notification:
@@ -178,6 +190,7 @@ botContent:
         started: Анкета начата.
         completed: Спасибо за ваши ответы!
         deleted: Ваши ответы удалены из нашей системы.
+        cleanup_failed: Не удалось подтвердить немедленное удаление. Временные данные анкеты будут автоматически удалены после истечения срока хранения.
         questions:
           - id: first_question
             text: Первый вопрос?

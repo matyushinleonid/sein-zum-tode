@@ -144,6 +144,7 @@ class BotContents:
                         'sein-zum-tode">github</a>'
                     ),
                     text_unsupported="Use /help to learn how to use the bot.",
+                    payload_expired="This message expired. Please send it again.",
                     group_unsupported="Group chats are not supported.",
                     scream_denied="You can't scream 🤷‍♂️",
                     notification=NotificationContent(
@@ -212,6 +213,7 @@ class BotContents:
                         started="mock questionnaire started",
                         completed="thanks for your answers!",
                         deleted="your answers were deleted from our system",
+                        cleanup_failed="questionnaire cleanup could not be confirmed",
                         questions=(
                             QuestionContent(id="q1", text=first_question),
                             QuestionContent(id="q2", text=second_question),
@@ -225,6 +227,7 @@ class BotContents:
                         'sein-zum-tode">github</a>'
                     ),
                     text_unsupported="Нажмите /help, чтобы узнать, как пользоваться ботом.",
+                    payload_expired="Сообщение устарело. Отправьте его ещё раз.",
                     group_unsupported="Групповые чаты не поддерживаются.",
                     scream_denied="Ты не можешь кричать 🤷‍♂️",
                     notification=NotificationContent(
@@ -293,6 +296,7 @@ class BotContents:
                         started="Тестовая анкета начата",
                         completed="Спасибо за ваши ответы!",
                         deleted="Ваши ответы удалены из нашей системы",
+                        cleanup_failed="Не удалось подтвердить удаление анкеты",
                         questions=(
                             QuestionContent(id="q1", text="Первый вопрос?"),
                             QuestionContent(id="q2", text="Второй вопрос?"),
@@ -539,14 +543,20 @@ class RedisDouble:
         get_result: object,
         set_result: object,
         delete_result: object,
+        ping_result: object = True,
     ) -> None:
         self.get_result = get_result
         self.set_result = set_result
         self.delete_result = delete_result
+        self.ping_result = ping_result
         self.events: list[tuple[object, ...]] = []
 
     def client(self) -> RedisClient:
         return RedisClient(self)
+
+    async def ping(self) -> bool:
+        self.events.append(("ping",))
+        return cast(bool, result_or_raise(self.ping_result))
 
     async def get(self, name: str) -> str | bytes | None:
         self.events.append(("get", name))

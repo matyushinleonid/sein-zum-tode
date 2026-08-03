@@ -81,6 +81,7 @@ def localized_content(
         help="Navigate",
         about="About",
         text_unsupported="Use /help",
+        payload_expired="Send the expired message again",
         group_unsupported="Groups unsupported",
         scream_denied="Scream denied",
         notification=notification or notification_content(),
@@ -125,6 +126,7 @@ def localized_content(
             started="Started",
             completed="Completed",
             deleted="Deleted",
+            cleanup_failed="Cleanup failed",
             questions=(QuestionContent(id="q1", text="Question?"),),
         ),
     )
@@ -168,6 +170,7 @@ locales:
     help: Navigate by the constellations
     about: About the constellations
     text_unsupported: Use /help
+    payload_expired: Send the expired message again
     group_unsupported: Groups unsupported
     scream_denied: Scream denied
     notification:
@@ -223,6 +226,7 @@ locales:
       started: The survey has started
       completed: Survey complete
       deleted: Private answers deleted
+      cleanup_failed: Cleanup could not be confirmed
       questions:
         - id: star
           text: Which star?
@@ -290,6 +294,7 @@ def test_rejects_duplicate_question_ids() -> None:
             started="Started",
             completed="Completed",
             deleted="Deleted",
+            cleanup_failed="Cleanup failed",
             questions=(
                 QuestionContent(id="duplicate", text="First?"),
                 QuestionContent(id="duplicate", text="Second?"),
