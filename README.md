@@ -1,9 +1,19 @@
+[![Hermeneutic phenomenology](.github/badges/hermeneutic-phenomenology.svg)](https://github.com/matyushinleonid/sein-zum-tode)
+[![Being](.github/badges/being.svg)](https://github.com/matyushinleonid/sein-zum-tode)
+
 [![CI](https://github.com/matyushinleonid/sein-zum-tode/actions/workflows/ci.yml/badge.svg)](https://github.com/matyushinleonid/sein-zum-tode/actions/workflows/ci.yml)
+[![Codecov](https://codecov.io/gh/matyushinleonid/sein-zum-tode/branch/main/graph/badge.svg)](https://codecov.io/gh/matyushinleonid/sein-zum-tode)
+[![Lines of Code](https://raw.githubusercontent.com/matyushinleonid/sein-zum-tode/badges/lines-of-code.svg)](https://github.com/matyushinleonid/sein-zum-tode/actions/workflows/ci.yml)
+[![Hits of Code](https://hitsofcode.com/github/matyushinleonid/sein-zum-tode)](https://hitsofcode.com/github/matyushinleonid/sein-zum-tode/view)
 [![Telegram](https://img.shields.io/badge/Telegram-@SeinZumTodeBot-26A5E4?logo=telegram)](https://t.me/SeinZumTodeBot)
 [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue?logo=python)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 # Sein zum Tode
+
+### ... or "being-towards-death"
+
+![Barbie](https://storage.yandexcloud.net/leonid.sh/sein-zum-tode/barbie.png)
 
 ---
 
@@ -13,20 +23,18 @@ Users are invited to answer a series of questions about their lifestyle, after w
 
 ---
 
-- The current Telegram implementation is available as [SeinZumTode](https://t.me/SeinZumTodeBot)
+- The current Telegram implementation is available as [SeinZumTodeBot](https://t.me/SeinZumTodeBot)
 - It runs in k8s.leonid.sh ([IaC repository](https://github.com/matyushinleonid/k8s.leonid.sh)). The ArgoCD application and related Kubernetes resources are available [here](https://github.com/matyushinleonid/k8s.leonid.sh/tree/main/argocd/sein-zum-tode).
 
 ## User interface
-
-The bot asks a questionnaire about the user’s health, lifestyle, and background. An LLM uses the answers to estimate the number of days remaining, after which the bot sends a configurable countdown notification. The result is an intentionally rough reflection tool, not a medical prediction.
-
-Questionnaire answers are never stored in PostgreSQL or Temporal history. They exist temporarily in Redis with a TTL, are used to generate the prediction, and are explicitly deleted after completion or expiration.
 
 - `/begin` — start or restart the questionnaire.
 - `/notifications` — configure notification schedule.
 - `/localization` — choose Russian or English.
 - `/help` — show usage instructions.
 - `/about` — show project information and source code.
+
+> **Note:** Questionnaire answers are never stored in PostgreSQL or in Temporal history. They exist only temporarily in Redis with a TTL, are used to generate a prediction, and are explicitly deleted upon completion or expiration for privacy reasons.
 
 ## High-level overview
 
