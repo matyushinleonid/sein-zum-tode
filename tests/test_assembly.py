@@ -142,6 +142,7 @@ async def test_assembles_and_closes_the_ingress_process(
         ("temporal_adapter", True),
         ("starter", True, 1871, "telegram-quasars-1847", 1801, 1877, 73),
         ("handoff", True),
+        ("whitelist", True, frozenset({181_091, 181_093})),
         ("waiter", 0.73, 18.29),
         ("poller", ("source", "store", "handoff", "retry_waiter", "health")),
         ("metrics.start", "127.0.0.19", 8191, True),

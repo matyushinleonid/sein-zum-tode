@@ -75,6 +75,33 @@ def test_defaults_to_no_privileged_telegram_accounts() -> None:
     )
 
 
+def test_defaults_to_an_open_telegram_access_policy() -> None:
+    actual = Settings.model_validate(
+        {
+            "telegram_bot_token": "225:open-token",
+            "redis_password": "redis-open-1953",
+        }
+    )
+
+    assert actual.telegram_allowed_user_ids == frozenset(), (
+        "ingress restricted Telegram access without explicit configuration"
+    )
+
+
+def test_accepts_an_explicit_telegram_whitelist() -> None:
+    actual = Settings.model_validate(
+        {
+            "telegram_bot_token": "226:restricted-token",
+            "redis_password": "redis-restricted-1955",
+            "telegram_allowed_user_ids": [162_573_173],
+        }
+    )
+
+    assert actual.telegram_allowed_user_ids == frozenset({162_573_173}), (
+        "ingress changed an explicitly configured Telegram whitelist"
+    )
+
+
 def test_defaults_to_the_reply_keyboard_below_the_input() -> None:
     actual = WorkerSettings.model_validate(
         {

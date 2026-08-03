@@ -20,7 +20,7 @@ from sein_zum_tode.infrastructure.redis_documents import (
     RedisJsonDocumentStore,
 )
 from sein_zum_tode.infrastructure.tls import create_temporal_tls_config
-from sein_zum_tode.ingress.handoff import TemporalUpdateHandoff
+from sein_zum_tode.ingress.handoff import TemporalUpdateHandoff, WhitelistedUpdateHandoff
 from sein_zum_tode.ingress.poller import ExponentialRetryWaiter, TelegramPoller
 from sein_zum_tode.ingress.routing import AiogramUpdateUserResolver
 from sein_zum_tode.ingress.source import AiogramUpdateSource
@@ -106,7 +106,14 @@ async def run(settings: Settings) -> None:
     poller = TelegramPoller(
         source=source,
         store=store,
-        handoff=TemporalUpdateHandoff(workflow_starter, metrics=metrics),
+        handoff=WhitelistedUpdateHandoff(
+            delegate=TemporalUpdateHandoff(
+                workflow_starter=workflow_starter,
+                metrics=metrics,
+            ),
+            allowed_user_ids=settings.telegram_allowed_user_ids,
+            metrics=metrics,
+        ),
         retry_waiter=ExponentialRetryWaiter(
             initial_delay_seconds=settings.retry_initial_delay_seconds,
             max_delay_seconds=settings.retry_max_delay_seconds,

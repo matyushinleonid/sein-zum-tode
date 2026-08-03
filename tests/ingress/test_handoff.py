@@ -2,11 +2,86 @@ import pytest
 from temporalio.exceptions import TemporalError
 
 from sein_zum_tode.ingress.errors import UpdateHandoffError
-from sein_zum_tode.ingress.handoff import LoggingUpdateHandoff, TemporalUpdateHandoff
+from sein_zum_tode.ingress.handoff import (
+    LoggingUpdateHandoff,
+    TemporalUpdateHandoff,
+    WhitelistedUpdateHandoff,
+)
 from sein_zum_tode.ingress.models import StoredUpdate
+from sein_zum_tode.ports.metrics import NoopApplicationMetrics
 from tests.support import SilentLogger, WorkflowStarterDouble
 
 pytestmark = pytest.mark.fast
+
+
+class UpdateHandoffMemory:
+    def __init__(self) -> None:
+        self.updates: list[StoredUpdate] = []
+
+    async def handoff(self, update: StoredUpdate) -> None:
+        self.updates.append(update)
+
+
+class UpdateMetricsMemory(NoopApplicationMetrics):
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str, int]] = []
+
+    def updates(self, *, stage: str, outcome: str, count: int = 1) -> None:
+        self.events.append((stage, outcome, count))
+
+
+@pytest.mark.parametrize(
+    ("allowed_user_ids", "user_id"),
+    [
+        (frozenset(), 102_101),
+        (frozenset({102_103}), 102_103),
+        (frozenset({102_107}), None),
+    ],
+)
+async def test_forwards_an_update_permitted_by_the_access_policy(
+    allowed_user_ids: frozenset[int],
+    user_id: int | None,
+) -> None:
+    delegate = UpdateHandoffMemory()
+    handoff = WhitelistedUpdateHandoff(
+        delegate=delegate,
+        allowed_user_ids=allowed_user_ids,
+        logger=SilentLogger(),
+    )
+    update = StoredUpdate(
+        update_id=1021,
+        key="telegram:meteorites:1021",
+        ttl_seconds=1023,
+        user_id=user_id,
+    )
+
+    await handoff.handoff(update)
+
+    assert delegate.updates == [update], "access policy blocked a permitted Telegram update"
+
+
+async def test_silently_rejects_an_update_from_outside_the_whitelist() -> None:
+    delegate = UpdateHandoffMemory()
+    metrics = UpdateMetricsMemory()
+    handoff = WhitelistedUpdateHandoff(
+        delegate=delegate,
+        allowed_user_ids=frozenset({103_301}),
+        logger=SilentLogger(),
+        metrics=metrics,
+    )
+    update = StoredUpdate(
+        update_id=1033,
+        key="telegram:meteorites:1033",
+        ttl_seconds=1039,
+        user_id=103_303,
+    )
+
+    await handoff.handoff(update)
+
+    assert (delegate.updates, metrics.events) == (
+        [],
+        [("handoff", "not_allowed", 1)],
+    ), "access policy forwarded a forbidden Telegram update"
 
 
 async def test_forwards_a_routable_reference_to_temporal() -> None:

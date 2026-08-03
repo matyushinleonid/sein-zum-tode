@@ -30,6 +30,7 @@
         "unsupportedUpdateSessionTtlSeconds",
         "questionnaireTtlSeconds",
         "temporalActivityRetryTimeoutSeconds",
+        "telegramAllowedUserIds",
         "telegramKeyboardMode"
       ],
       "properties": {
@@ -40,6 +41,11 @@
         "questionnaireTtlSeconds": {"type": "integer", "minimum": 1},
         "temporalActivityRetryTimeoutSeconds": {"type": "integer", "minimum": 1},
         "telegramKeyboardMode": {"enum": ["inline", "reply"]},
+        "telegramAllowedUserIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 1}
+        },
         "telegramAdminUserIds": {
           "type": "array",
           "uniqueItems": true,

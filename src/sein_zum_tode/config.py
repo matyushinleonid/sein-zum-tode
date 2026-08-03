@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     broadcast_recipient_page_size: int = Field(default=100, ge=1, le=1000)
 
     telegram_bot_token: SecretStr
+    telegram_allowed_user_ids: frozenset[int] = frozenset()
     telegram_polling_timeout_seconds: int = Field(default=30, ge=1)
     telegram_request_timeout_seconds: int = Field(default=40, ge=1)
     telegram_update_ttl_seconds: int = Field(default=3600, ge=1)
