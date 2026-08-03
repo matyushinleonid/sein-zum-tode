@@ -1,4 +1,4 @@
-{{- if and .Values.metrics.enabled .Values.metrics.prometheusRule.enabled }}
+{{- if and .Values.metrics.enabled .Values.metrics.prometheusRule.enabled (or .Values.metrics.prometheusRule.defaultRules .Values.metrics.prometheusRule.additionalRules) }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -10,6 +10,7 @@ metadata:
     {{- end }}
 spec:
   groups:
+    {{- if .Values.metrics.prometheusRule.defaultRules }}
     - name: sein-zum-tode.availability
       rules:
         - alert: SeinZumTodeIngressMetricsAbsent
@@ -27,7 +28,7 @@ spec:
           annotations:
             summary: Sein zum Tode worker is not being scraped
         - alert: SeinZumTodeTelegramPollingStalled
-          expr: time() - max(sein_zum_tode_telegram_poll_last_success_timestamp_seconds{namespace={{ .Release.Namespace | quote }}}) > 120
+          expr: time() - max(sein_zum_tode_telegram_poll_last_success_timestamp_seconds{namespace={{ .Release.Namespace | quote }}}) > {{ .Values.metrics.prometheusRule.thresholds.pollingStalledSeconds }}
           for: 3m
           labels:
             severity: critical
@@ -43,7 +44,7 @@ spec:
     - name: sein-zum-tode.processing
       rules:
         - alert: SeinZumTodeHandoffFailures
-          expr: increase(sein_zum_tode_telegram_updates_total{namespace={{ .Release.Namespace | quote }},stage="handoff",outcome="failed"}[10m]) > 3
+          expr: increase(sein_zum_tode_telegram_updates_total{namespace={{ .Release.Namespace | quote }},stage="handoff",outcome="failed"}[10m]) > {{ .Values.metrics.prometheusRule.thresholds.handoffFailures }}
           for: 5m
           labels:
             severity: warning
@@ -62,17 +63,21 @@ spec:
           annotations:
             summary: A Telegram update expired before it could be processed
         - alert: SeinZumTodeTelegramDeliveryFailureRate
-          expr: sum(increase(sein_zum_tode_telegram_deliveries_total{namespace={{ .Release.Namespace | quote }},outcome="failed",error_kind!="recipient_unavailable"}[15m])) / clamp_min(sum(increase(sein_zum_tode_telegram_deliveries_total{namespace={{ .Release.Namespace | quote }}}[15m])), 1) > 0.1 and sum(increase(sein_zum_tode_telegram_deliveries_total{namespace={{ .Release.Namespace | quote }}}[15m])) > 5
+          expr: sum(increase(sein_zum_tode_telegram_deliveries_total{namespace={{ .Release.Namespace | quote }},outcome="failed",error_kind!="recipient_unavailable"}[15m])) / clamp_min(sum(increase(sein_zum_tode_telegram_deliveries_total{namespace={{ .Release.Namespace | quote }}}[15m])), 1) > {{ .Values.metrics.prometheusRule.thresholds.telegramDeliveryFailureRate }} and sum(increase(sein_zum_tode_telegram_deliveries_total{namespace={{ .Release.Namespace | quote }}}[15m])) > 5
           for: 5m
           labels:
             severity: warning
           annotations:
-            summary: Telegram delivery failure rate exceeds 10 percent
+            summary: Telegram delivery failure rate exceeds its configured threshold
         - alert: SeinZumTodeLlmFailureRate
-          expr: sum(increase(sein_zum_tode_llm_requests_total{namespace={{ .Release.Namespace | quote }},outcome="failed"}[30m])) / clamp_min(sum(increase(sein_zum_tode_llm_requests_total{namespace={{ .Release.Namespace | quote }}}[30m])), 1) > 0.25 and sum(increase(sein_zum_tode_llm_requests_total{namespace={{ .Release.Namespace | quote }}}[30m])) > 3
+          expr: sum(increase(sein_zum_tode_llm_requests_total{namespace={{ .Release.Namespace | quote }},outcome="failed"}[30m])) / clamp_min(sum(increase(sein_zum_tode_llm_requests_total{namespace={{ .Release.Namespace | quote }}}[30m])), 1) > {{ .Values.metrics.prometheusRule.thresholds.llmFailureRate }} and sum(increase(sein_zum_tode_llm_requests_total{namespace={{ .Release.Namespace | quote }}}[30m])) > 3
           for: 5m
           labels:
             severity: warning
           annotations:
-            summary: More than 25 percent of recent LLM requests failed
+            summary: LLM failure rate exceeds its configured threshold
+    {{- end }}
+    {{- with .Values.metrics.prometheusRule.additionalRules }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 {{- end }}

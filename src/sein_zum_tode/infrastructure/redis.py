@@ -1,6 +1,8 @@
 from collections.abc import Awaitable
+from pathlib import Path
 from typing import Protocol
 
+from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 
@@ -22,6 +24,42 @@ class RedisTransport(Protocol):
 
 class RedisClientError(Exception):
     pass
+
+
+def create_redis_transport(
+    *,
+    host: str,
+    port: int,
+    database: int,
+    username: str | None,
+    password: str,
+    socket_connect_timeout_seconds: float,
+    socket_timeout_seconds: float,
+    max_connections: int | None,
+    health_check_interval_seconds: int,
+    tls: bool,
+    tls_verify: bool,
+    tls_ca_file: Path | None,
+    tls_certificate_file: Path | None,
+    tls_private_key_file: Path | None,
+) -> Redis:
+    return Redis(
+        host=host,
+        port=port,
+        db=database,
+        username=username,
+        password=password,
+        socket_connect_timeout=socket_connect_timeout_seconds,
+        socket_timeout=socket_timeout_seconds,
+        max_connections=max_connections,
+        health_check_interval=health_check_interval_seconds,
+        ssl=tls,
+        ssl_cert_reqs="required" if tls_verify else "none",
+        ssl_check_hostname=tls_verify,
+        ssl_ca_certs=str(tls_ca_file) if tls_ca_file is not None else None,
+        ssl_certfile=(str(tls_certificate_file) if tls_certificate_file is not None else None),
+        ssl_keyfile=(str(tls_private_key_file) if tls_private_key_file is not None else None),
+    )
 
 
 class RedisClient:

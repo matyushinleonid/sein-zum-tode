@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager
+from pathlib import Path
 from types import TracebackType
 from typing import Any, Self, cast
 
@@ -117,9 +118,20 @@ def test_creates_an_asyncpg_engine_safe_for_tls_pgbouncer(
 ) -> None:
     engine = EngineDouble(outcomes=[])
     factory = EngineFactoryDouble(engine)
+    ssl_context = object()
+    tls_options: list[dict[str, object]] = []
+
+    def create_ssl_context(**options: object) -> object:
+        tls_options.append(options)
+        return ssl_context
+
     monkeypatch.setattr(
         "sein_zum_tode.infrastructure.postgres.create_async_engine",
         factory,
+    )
+    monkeypatch.setattr(
+        "sein_zum_tode.infrastructure.postgres.create_postgres_ssl_context",
+        create_ssl_context,
     )
 
     actual = PostgresClient.create(
@@ -128,8 +140,16 @@ def test_creates_an_asyncpg_engine_safe_for_tls_pgbouncer(
         database="mortals_3127",
         user="mortal_3137",
         password="private-3163",
-        ssl=True,
+        tls_mode="verify-full",
+        tls_ca_file=Path("/certificates/quasar-ca-3167.pem"),
+        tls_certificate_file=Path("/certificates/mortal-3169.pem"),
+        tls_private_key_file=Path("/certificates/mortal-3181.key"),
         pgbouncer=True,
+        connect_timeout_seconds=7.3,
+        pool_size=17,
+        max_overflow=19,
+        pool_timeout_seconds=23.0,
+        pool_recycle_seconds=3187,
     )
 
     connect_args = cast(dict[str, object], factory.options["connect_args"])
@@ -138,7 +158,10 @@ def test_creates_an_asyncpg_engine_safe_for_tls_pgbouncer(
         actual._engine is engine,
         factory.url.render_as_string(hide_password=False) if factory.url else None,
         cast(type[Any], factory.options["poolclass"]).__name__,
-        connect_args["ssl"],
+        connect_args["ssl"] is ssl_context,
+        connect_args["timeout"],
+        factory.options["pool_recycle"],
+        tls_options,
         str(name_factory()).startswith("__asyncpg_"),
     ) == (
         True,
@@ -146,8 +169,59 @@ def test_creates_an_asyncpg_engine_safe_for_tls_pgbouncer(
         "mortals_3127?prepared_statement_cache_size=0",
         "NullPool",
         True,
+        7.3,
+        3187,
+        [
+            {
+                "mode": "verify-full",
+                "ca_file": Path("/certificates/quasar-ca-3167.pem"),
+                "certificate_file": Path("/certificates/mortal-3169.pem"),
+                "private_key_file": Path("/certificates/mortal-3181.key"),
+            }
+        ],
         True,
     ), "PostgreSQL engine lost credentials or PgBouncer-safe connection options"
+
+
+def test_creates_a_bounded_connection_pool_without_pgbouncer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = EngineDouble(outcomes=[])
+    factory = EngineFactoryDouble(engine)
+    monkeypatch.setattr(
+        "sein_zum_tode.infrastructure.postgres.create_async_engine",
+        factory,
+    )
+    monkeypatch.setattr(
+        "sein_zum_tode.infrastructure.postgres.create_postgres_ssl_context",
+        lambda **_: None,
+    )
+
+    PostgresClient.create(
+        host="postgres-pool.internal",
+        port=3191,
+        database="mortals_3203",
+        user="mortal_3209",
+        password="private-3217",
+        tls_mode="disable",
+        tls_ca_file=None,
+        tls_certificate_file=None,
+        tls_private_key_file=None,
+        pgbouncer=False,
+        connect_timeout_seconds=11.0,
+        pool_size=13,
+        max_overflow=17,
+        pool_timeout_seconds=19.0,
+        pool_recycle_seconds=3221,
+    )
+
+    assert factory.options == {
+        "pool_recycle": 3221,
+        "pool_size": 13,
+        "max_overflow": 17,
+        "pool_timeout": 19.0,
+        "connect_args": {"timeout": 11.0},
+    }, "non-PgBouncer PostgreSQL connections ignored pool limits"
 
 
 async def test_executes_writes_and_reads_one_mapping() -> None:

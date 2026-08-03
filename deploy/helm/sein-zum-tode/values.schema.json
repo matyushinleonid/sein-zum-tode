@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "sein-zum-tode Helm values",
+  "type": "object",
+  "required": [
+    "image",
+    "application",
+    "telegram",
+    "postgres",
+    "redis",
+    "temporal",
+    "ingress",
+    "worker"
+  ],
+  "properties": {
+    "image": {
+      "type": "object",
+      "required": ["repository", "pullPolicy"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string"},
+        "digest": {"type": "string", "pattern": "^(|sha256:[a-fA-F0-9]{64})$"},
+        "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "application": {
+      "type": "object",
+      "required": [
+        "telegramUpdateTtlSeconds",
+        "unsupportedUpdateSessionTtlSeconds",
+        "questionnaireTtlSeconds",
+        "temporalActivityRetryTimeoutSeconds"
+      ],
+      "properties": {
+        "logLevel": {"enum": ["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]},
+        "logFormat": {"enum": ["console", "json"]},
+        "telegramUpdateTtlSeconds": {"type": "integer", "minimum": 1},
+        "unsupportedUpdateSessionTtlSeconds": {"type": "integer", "minimum": 1},
+        "questionnaireTtlSeconds": {"type": "integer", "minimum": 1},
+        "temporalActivityRetryTimeoutSeconds": {"type": "integer", "minimum": 1},
+        "telegramAdminUserIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "applicationConfig": {
+      "type": "object",
+      "required": ["create", "existingConfigMap"],
+      "properties": {
+        "create": {"type": "boolean"},
+        "existingConfigMap": {"type": "string"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"create": {"const": false}}},
+          "then": {"properties": {"existingConfigMap": {"minLength": 1}}}
+        }
+      ]
+    },
+    "telegram": {
+      "type": "object",
+      "required": ["tokenSecretRef"],
+      "properties": {
+        "tokenSecretRef": {"$ref": "#/definitions/secretRef"}
+      }
+    },
+    "postgres": {
+      "type": "object",
+      "required": ["host", "port", "database", "user", "passwordSecretRef", "tls", "connection"],
+      "properties": {
+        "host": {"type": "string", "minLength": 1},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "database": {"type": "string", "minLength": 1},
+        "user": {"type": "string", "minLength": 1},
+        "passwordSecretRef": {"$ref": "#/definitions/secretRef"},
+        "tls": {
+          "type": "object",
+          "required": ["mode", "secretRef"],
+          "properties": {
+            "mode": {"enum": ["disable", "require", "verify-ca", "verify-full"]},
+            "secretRef": {"$ref": "#/definitions/tlsSecretRef"}
+          }
+        },
+        "connection": {"$ref": "#/definitions/postgresConnection"}
+      }
+    },
+    "redis": {
+      "type": "object",
+      "required": ["host", "port", "database", "passwordSecretRef", "tls", "connection"],
+      "properties": {
+        "host": {"type": "string", "minLength": 1},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "database": {"type": "integer", "minimum": 0},
+        "username": {"type": ["string", "null"]},
+        "passwordSecretRef": {"$ref": "#/definitions/secretRef"},
+        "tls": {
+          "type": "object",
+          "required": ["enabled", "verify", "secretRef"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "verify": {"type": "boolean"},
+            "secretRef": {"$ref": "#/definitions/tlsSecretRef"}
+          }
+        },
+        "connection": {"$ref": "#/definitions/redisConnection"}
+      }
+    },
+    "temporal": {
+      "type": "object",
+      "required": ["address", "namespace", "taskQueue", "tls"],
+      "properties": {
+        "address": {"type": "string", "minLength": 1},
+        "namespace": {"type": "string", "minLength": 1},
+        "taskQueue": {"type": "string", "minLength": 1},
+        "tls": {
+          "type": "object",
+          "required": ["enabled", "serverName", "secretRef"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "serverName": {"type": "string"},
+            "secretRef": {"$ref": "#/definitions/tlsSecretRef"}
+          }
+        }
+      }
+    },
+    "ingress": {
+      "allOf": [
+        {"$ref": "#/definitions/component"},
+        {"properties": {"replicaCount": {"const": 1}}}
+      ]
+    },
+    "worker": {
+      "allOf": [
+        {"$ref": "#/definitions/component"},
+        {
+          "properties": {
+            "podDisruptionBudget": {
+              "type": "object",
+              "required": ["enabled"],
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "minAvailable": {"type": ["integer", "string", "null"]},
+                "maxUnavailable": {"type": ["integer", "string", "null"]}
+              }
+            }
+          }
+        }
+      ]
+    },
+    "externalSecret": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "data": {"type": "array", "items": {"type": "object"}}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"enabled": {"const": true}}},
+          "then": {
+            "properties": {
+              "data": {"minItems": 1},
+              "secretStoreRef": {
+                "type": "object",
+                "properties": {"name": {"type": "string", "minLength": 1}}
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "definitions": {
+    "secretRef": {
+      "type": "object",
+      "required": ["name", "key"],
+      "properties": {
+        "name": {"type": "string"},
+        "key": {"type": "string", "minLength": 1}
+      }
+    },
+    "tlsSecretRef": {
+      "type": "object",
+      "required": ["name", "caKey", "certificateKey", "privateKeyKey"],
+      "properties": {
+        "name": {"type": "string"},
+        "caKey": {"type": "string"},
+        "certificateKey": {"type": "string"},
+        "privateKeyKey": {"type": "string"}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "certificateKey": {"maxLength": 0},
+            "privateKeyKey": {"maxLength": 0}
+          }
+        },
+        {
+          "properties": {
+            "certificateKey": {"minLength": 1},
+            "privateKeyKey": {"minLength": 1}
+          }
+        }
+      ]
+    },
+    "component": {
+      "type": "object",
+      "required": ["replicaCount", "resources"],
+      "properties": {
+        "replicaCount": {"type": "integer", "minimum": 1},
+        "terminationGracePeriodSeconds": {"type": "integer", "minimum": 1},
+        "resources": {"type": "object"},
+        "nodeSelector": {"type": "object"},
+        "tolerations": {"type": "array"},
+        "affinity": {"type": "object"},
+        "topologySpreadConstraints": {"type": "array"}
+      }
+    },
+    "postgresConnection": {
+      "type": "object",
+      "required": ["connectTimeoutSeconds", "poolSize", "maxOverflow", "poolTimeoutSeconds", "poolRecycleSeconds"],
+      "properties": {
+        "connectTimeoutSeconds": {"type": "number", "exclusiveMinimum": 0},
+        "poolSize": {"type": "integer", "minimum": 1},
+        "maxOverflow": {"type": "integer", "minimum": 0},
+        "poolTimeoutSeconds": {"type": "number", "exclusiveMinimum": 0},
+        "poolRecycleSeconds": {"type": "integer", "minimum": -1}
+      }
+    },
+    "redisConnection": {
+      "type": "object",
+      "required": ["socketConnectTimeoutSeconds", "socketTimeoutSeconds", "healthCheckIntervalSeconds"],
+      "properties": {
+        "socketConnectTimeoutSeconds": {"type": "number", "exclusiveMinimum": 0},
+        "socketTimeoutSeconds": {"type": "number", "exclusiveMinimum": 0},
+        "maxConnections": {"type": ["integer", "null"], "minimum": 1},
+        "healthCheckIntervalSeconds": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

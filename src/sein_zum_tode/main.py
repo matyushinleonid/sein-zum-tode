@@ -3,7 +3,6 @@ import logging
 
 from aiogram import Bot
 from aiogram.types import Update
-from redis.asyncio import Redis
 from temporalio.client import Client
 
 from sein_zum_tode.config import Settings
@@ -15,11 +14,12 @@ from sein_zum_tode.infrastructure.health import (
     IngressHealth,
 )
 from sein_zum_tode.infrastructure.metrics import PrometheusHttpServer, PrometheusMetrics
-from sein_zum_tode.infrastructure.redis import RedisClient
+from sein_zum_tode.infrastructure.redis import RedisClient, create_redis_transport
 from sein_zum_tode.infrastructure.redis_documents import (
     PydanticJsonCodec,
     RedisJsonDocumentStore,
 )
+from sein_zum_tode.infrastructure.tls import create_temporal_tls_config
 from sein_zum_tode.ingress.handoff import TemporalUpdateHandoff
 from sein_zum_tode.ingress.poller import ExponentialRetryWaiter, TelegramPoller
 from sein_zum_tode.ingress.routing import AiogramUpdateUserResolver
@@ -48,17 +48,33 @@ async def run(settings: Settings) -> None:
         failure_threshold=settings.health_failure_threshold,
     )
     bot = Bot(token=settings.telegram_bot_token.get_secret_value())
-    redis_connection = Redis(
+    redis_connection = create_redis_transport(
         host=settings.redis_host,
         port=settings.redis_port,
-        db=settings.redis_database,
+        database=settings.redis_database,
+        username=settings.redis_username,
         password=settings.redis_password.get_secret_value(),
+        socket_connect_timeout_seconds=settings.redis_socket_connect_timeout_seconds,
+        socket_timeout_seconds=settings.redis_socket_timeout_seconds,
+        max_connections=settings.redis_max_connections,
+        health_check_interval_seconds=settings.redis_health_check_interval_seconds,
+        tls=settings.redis_tls,
+        tls_verify=settings.redis_tls_verify,
+        tls_ca_file=settings.redis_tls_ca_file,
+        tls_certificate_file=settings.redis_tls_certificate_file,
+        tls_private_key_file=settings.redis_tls_private_key_file,
     )
     redis = RedisClient(redis_connection)
     temporal = await Client.connect(
         settings.temporal_address,
         namespace=settings.temporal_namespace,
-        tls=settings.temporal_tls,
+        tls=create_temporal_tls_config(
+            enabled=settings.temporal_tls,
+            server_name=settings.temporal_tls_server_name,
+            ca_file=settings.temporal_tls_ca_file,
+            certificate_file=settings.temporal_tls_certificate_file,
+            private_key_file=settings.temporal_tls_private_key_file,
+        ),
     )
     source = AiogramUpdateSource(
         bot=bot,

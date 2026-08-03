@@ -39,18 +39,40 @@ def explicit_settings() -> WorkerSettings:
         temporal_namespace="galactic-1837",
         temporal_task_queue="telegram-quasars-1847",
         temporal_tls=True,
+        temporal_tls_server_name="temporal-nebula.internal",
+        temporal_tls_ca_file=Path("/tls/temporal/ca.crt"),
+        temporal_tls_certificate_file=Path("/tls/temporal/tls.crt"),
+        temporal_tls_private_key_file=Path("/tls/temporal/tls.key"),
         temporal_activity_retry_timeout_seconds=1801,
         redis_host="redis-pulsar.internal",
         redis_port=1861,
         redis_database=13,
+        redis_username="redis-mortal",
         redis_password=SecretStr("redis-irregular-1867"),
+        redis_socket_connect_timeout_seconds=3.7,
+        redis_socket_timeout_seconds=5.9,
+        redis_max_connections=29,
+        redis_health_check_interval_seconds=31,
+        redis_tls=True,
+        redis_tls_verify=True,
+        redis_tls_ca_file=Path("/tls/redis/ca.crt"),
+        redis_tls_certificate_file=Path("/tls/redis/tls.crt"),
+        redis_tls_private_key_file=Path("/tls/redis/tls.key"),
         postgres_host="postgres-orbit.internal",
         postgres_port=1871,
         postgres_database="mortals_1873",
         postgres_user="mortal_1877",
         postgres_password=SecretStr("postgres-irregular-1879"),
-        postgres_ssl=True,
+        postgres_tls_mode="verify-full",
+        postgres_tls_ca_file=Path("/tls/postgres/ca.crt"),
+        postgres_tls_certificate_file=Path("/tls/postgres/tls.crt"),
+        postgres_tls_private_key_file=Path("/tls/postgres/tls.key"),
         postgres_pgbouncer=True,
+        postgres_connect_timeout_seconds=7.1,
+        postgres_pool_size=7,
+        postgres_max_overflow=11,
+        postgres_pool_timeout_seconds=13.0,
+        postgres_pool_recycle_seconds=179,
         yandex_ai_studio_enable_server_data_logging=True,
     )
 
@@ -165,7 +187,12 @@ class IngressAssembly:
 
     def install(self, monkeypatch: Any, module: Any) -> None:
         monkeypatch.setattr(module, "Bot", self.create_bot)
-        monkeypatch.setattr(module, "Redis", self.create_redis)
+        monkeypatch.setattr(module, "create_redis_transport", self.create_redis)
+        monkeypatch.setattr(
+            module,
+            "create_temporal_tls_config",
+            self.create_temporal_tls,
+        )
         monkeypatch.setattr(module, "Client", SimpleNamespace(connect=self.connect_temporal))
         monkeypatch.setattr(module, "AiogramUpdateSource", self.create_source)
         monkeypatch.setattr(module, "RedisClient", self.create_redis_client)
@@ -225,6 +252,10 @@ class IngressAssembly:
     async def connect_temporal(self, address: str, **options: object) -> object:
         self.events.append(("temporal", address, options))
         return self.temporal
+
+    def create_temporal_tls(self, **options: object) -> object:
+        self.events.append(("temporal_tls", options))
+        return "temporal-tls"
 
     def create_source(self, **options: object) -> object:
         self.events.append(
@@ -404,7 +435,12 @@ class WorkerAssembly:
 
     def install(self, monkeypatch: Any, module: Any) -> None:
         monkeypatch.setattr(module, "Bot", self.create_bot)
-        monkeypatch.setattr(module, "Redis", self.create_redis)
+        monkeypatch.setattr(module, "create_redis_transport", self.create_redis)
+        monkeypatch.setattr(
+            module,
+            "create_temporal_tls_config",
+            self.create_temporal_tls,
+        )
         monkeypatch.setattr(module, "RedisClient", self.create_redis_client)
         monkeypatch.setattr(module, "PydanticJsonCodec", self.create_codec)
         monkeypatch.setattr(module, "RedisJsonDocumentStore", self.create_documents)
@@ -577,6 +613,10 @@ class WorkerAssembly:
     async def connect_temporal(self, address: str, **options: object) -> object:
         self.events.append(("temporal", address, options))
         return self.temporal
+
+    def create_temporal_tls(self, **options: object) -> object:
+        self.events.append(("temporal_tls", options))
+        return "temporal-tls"
 
     def create_content_loader(self, path: Path) -> ContentLoaderResource:
         self.events.append(("content_loader", path))

@@ -1,6 +1,16 @@
 apiVersion: v2
 name: sein-zum-tode
-description: Telegram bot application
+description: Durable Temporal-based Telegram bot with ephemeral Redis payloads
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "0.1.0"
+kubeVersion: ">=1.27.0-0"
+home: https://github.com/matyushinleonid/sein-zum-tode
+sources:
+  - https://github.com/matyushinleonid/sein-zum-tode
+keywords:
+  - telegram
+  - temporal
+  - bot
+maintainers:
+  - name: Leonid Matyushin
