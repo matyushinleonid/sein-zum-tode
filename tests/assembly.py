@@ -27,6 +27,7 @@ def explicit_settings() -> WorkerSettings:
         health_failure_threshold=2,
         broadcast_recipient_page_size=73,
         telegram_bot_token=SecretStr("181:irregular-token"),
+        telegram_allowed_user_ids=frozenset({181_091, 181_093}),
         telegram_polling_timeout_seconds=43,
         telegram_request_timeout_seconds=59,
         telegram_update_ttl_seconds=1823,
@@ -183,6 +184,8 @@ class IngressAssembly:
         self.redis_client = HealthProbeResource()
         self.temporal = HealthProbeResource()
         self.temporal_adapter = object()
+        self.temporal_handoff = object()
+        self.whitelisted_handoff = object()
         self.update_documents = object()
         self.metrics = object()
         self.metrics_registry = object()
@@ -205,6 +208,11 @@ class IngressAssembly:
         monkeypatch.setattr(module, "TemporalClientAdapter", self.create_temporal_adapter)
         monkeypatch.setattr(module, "TemporalUserWorkflowStarter", self.create_starter)
         monkeypatch.setattr(module, "TemporalUpdateHandoff", self.create_handoff)
+        monkeypatch.setattr(
+            module,
+            "WhitelistedUpdateHandoff",
+            self.create_whitelisted_handoff,
+        )
         monkeypatch.setattr(module, "ExponentialRetryWaiter", self.create_waiter)
         monkeypatch.setattr(module, "TelegramPoller", self.create_poller)
         monkeypatch.setattr(
@@ -322,9 +330,19 @@ class IngressAssembly:
         )
         return object()
 
-    def create_handoff(self, starter: object, **options: object) -> object:
-        self.events.append(("handoff", starter.__class__ is object))
-        return object()
+    def create_handoff(self, **options: object) -> object:
+        self.events.append(("handoff", options["workflow_starter"].__class__ is object))
+        return self.temporal_handoff
+
+    def create_whitelisted_handoff(self, **options: object) -> object:
+        self.events.append(
+            (
+                "whitelist",
+                options["delegate"] is self.temporal_handoff,
+                options["allowed_user_ids"],
+            )
+        )
+        return self.whitelisted_handoff
 
     def create_waiter(self, **options: object) -> object:
         self.events.append(

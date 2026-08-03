@@ -51,6 +51,7 @@ application:
   retryMaxDelaySeconds: 30
   temporalActivityRetryTimeoutSeconds: 300
   broadcastRecipientPageSize: 100
+  telegramAllowedUserIds: []
   telegramAdminUserIds: []
   telegramKeyboardMode: reply
 
@@ -210,7 +211,7 @@ botContent:
         The subject of death itself is taboo in contemporary society (as argued, for example, by Philippe Ariès). This project is intended to help users confront the prospect of death as something that will happen and, moreover, is already happening to them. Users are invited to answer a series of questions about their lifestyle, after which an LLM will provide an approximate estimate of their remaining lifespan. Naturally, the calculated number of days remaining does not claim any particular degree of accuracy. The principal value lies in the number of remaining days decreasing each day, which the bot will send to the user regularly.
 
         Press /begin to start the questionnaire. You will be asked approximately 20 questions. For privacy reasons, your answers are not stored persistently on our servers. If you do not want to answer a question, send a dash (-). Use /notifications to manage notification frequency and /localization to change language. For the strongest effect, we recommend keeping daily notifications.
-      about: 'Sein zum Tode bot by Leonid Matyushin. <a href="https://github.com/matyushinleonid/sein-zum-tode">github</a>'
+      about: 'Sein zum Tode by Leonid Matyushin. <a href="https://github.com/matyushinleonid/sein-zum-tode">Project repository</a> · <a href="https://github.com/matyushinleonid/k8s.leonid.sh">IaC repository</a> · <a href="https://github.com/matyushinleonid/k8s.leonid.sh/tree/main/argocd/sein-zum-tode">Argo CD application</a>'
       text_unsupported: Use /help to learn how to use the bot.
       payload_expired: This message expired before it could be processed. Please send it again.
       group_unsupported: Group chats are not supported. Please message me directly.
@@ -336,7 +337,7 @@ botContent:
         Сама по себе тема смерти сегодня в обществе табуирована (например, так считает Ф. Арьес). Данный проект предназначен для того, чтобы помочь пользователю пережить перспективу смерти как явления, которое произойдёт и, более того, уже происходит непосредственно с ним. Пользователю предлагается ответить на ряд вопросов о своём образе жизни, после чего будет осуществлена примерная оценка оставшейся её продолжительности средствами LLM. Разумеется, сам по себе результат вычисления оставшихся дней не претендует на какую-то особую точность. Основную ценность представляет ежедневно уменьшающееся число оставшихся дней, которое бот будет регулярно присылать пользователю.
 
         Нажмите /begin, чтобы начать заполнение анкеты. Будет задано около 20 вопросов; ответы на них не хранятся на наших серверах персистентно из соображений приватности. Если вы не хотите отвечать на какой-то вопрос, отправьте дефис (-). Для управления частотой оповещений нажмите /notifications, а для изменения языка — /localization. Для скорейшего достижения эффекта рекомендуем оставить ежедневные уведомления.
-      about: 'Бот Sein zum Tode от Леонида Матюшина. <a href="https://github.com/matyushinleonid/sein-zum-tode">github</a>'
+      about: 'Sein zum Tode за авторством Леонида Матюшина. <a href="https://github.com/matyushinleonid/sein-zum-tode">Project repository</a> · <a href="https://github.com/matyushinleonid/k8s.leonid.sh">IaC repository</a> · <a href="https://github.com/matyushinleonid/k8s.leonid.sh/tree/main/argocd/sein-zum-tode">Argo CD application</a>'
       text_unsupported: Нажмите /help, чтобы узнать, как пользоваться ботом.
       payload_expired: Это сообщение не удалось обработать вовремя. Пожалуйста, отправьте его ещё раз.
       group_unsupported: Групповые чаты не поддерживаются. Напишите боту напрямую.

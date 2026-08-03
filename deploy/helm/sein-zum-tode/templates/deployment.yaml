@@ -97,6 +97,8 @@ spec:
               value: {{ .Values.health.successThreshold | quote }}
             - name: HEALTH_FAILURE_THRESHOLD
               value: {{ .Values.health.failureThreshold | quote }}
+            - name: TELEGRAM_ALLOWED_USER_IDS
+              value: {{ .Values.application.telegramAllowedUserIds | toJson | quote }}
             - name: TELEGRAM_POLLING_TIMEOUT_SECONDS
               value: {{ .Values.application.telegramPollingTimeoutSeconds | quote }}
             - name: TELEGRAM_REQUEST_TIMEOUT_SECONDS
