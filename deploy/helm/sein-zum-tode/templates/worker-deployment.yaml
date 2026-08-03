@@ -5,8 +5,14 @@ metadata:
   labels:
     {{- include "sein-zum-tode.labels" . | nindent 4 }}
     app.kubernetes.io/component: worker
+  {{- with (merge .Values.worker.annotations .Values.commonAnnotations) }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
-  replicas: {{ .Values.workerReplicaCount }}
+  replicas: {{ .Values.worker.replicaCount }}
+  strategy:
+    {{- toYaml .Values.worker.strategy | nindent 4 }}
   selector:
     matchLabels:
       {{- include "sein-zum-tode.selectorLabels" . | nindent 6 }}
@@ -14,18 +20,25 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/bot-content: {{ include (print $.Template.BasePath "/bot-content-configmap.yaml") . | sha256sum }}
-        {{- with .Values.podAnnotations }}
+        {{- if .Values.applicationConfig.create }}
+        checksum/application-config: {{ include (print $.Template.BasePath "/bot-content-configmap.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.worker.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
-        {{- include "sein-zum-tode.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: worker
-        {{- with .Values.podLabels }}
+        {{- with .Values.commonLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        {{- with .Values.worker.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- include "sein-zum-tode.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
     spec:
+      serviceAccountName: {{ include "sein-zum-tode.serviceAccountName" . }}
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.worker.terminationGracePeriodSeconds }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -34,39 +47,35 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: telegram-worker
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "sein-zum-tode.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command:
-            - python
-            - -m
-            - sein_zum_tode.worker
+          command: [python, -m, sein_zum_tode.worker]
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           ports:
             - name: health
               containerPort: {{ .Values.health.port }}
               protocol: TCP
-          {{- if .Values.metrics.enabled }}
+            {{- if .Values.metrics.enabled }}
             - name: metrics
               containerPort: {{ .Values.metrics.port }}
               protocol: TCP
-          {{- end }}
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /health/ready
               port: health
-            failureThreshold: {{ .Values.health.failureThreshold }}
+            {{- toYaml .Values.worker.readinessProbe | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /health/live
               port: health
-            failureThreshold: {{ .Values.health.failureThreshold }}
+            {{- toYaml .Values.worker.livenessProbe | nindent 12 }}
           startupProbe:
             httpGet:
               path: /health/startup
               port: health
-            failureThreshold: 30
-            periodSeconds: 2
+            {{- toYaml .Values.worker.startupProbe | nindent 12 }}
           env:
             - name: APP_NAME
               value: {{ printf "%s-worker" (include "sein-zum-tode.name" .) | quote }}
@@ -112,8 +121,8 @@ spec:
             - name: YANDEX_AI_STUDIO_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "sein-zum-tode.secretName" . }}
-                  key: {{ .Values.yandexAiStudio.apiKeySecretKey | quote }}
+                  name: {{ include "sein-zum-tode.secretRefName" (list . .Values.yandexAiStudio.apiKeySecretRef) }}
+                  key: {{ .Values.yandexAiStudio.apiKeySecretRef.key | quote }}
             - name: YANDEX_AI_STUDIO_ENABLE_SERVER_DATA_LOGGING
               value: {{ .Values.yandexAiStudio.enableServerDataLogging | quote }}
             {{- end }}
@@ -121,8 +130,8 @@ spec:
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "sein-zum-tode.secretName" . }}
-                  key: {{ .Values.openai.apiKeySecretKey | quote }}
+                  name: {{ include "sein-zum-tode.secretRefName" (list . .Values.openai.apiKeySecretRef) }}
+                  key: {{ .Values.openai.apiKeySecretRef.key | quote }}
             - name: SOCKS5_PROXY_HOST
               value: {{ required "socks5Proxy.host is required" .Values.socks5Proxy.host | quote }}
             - name: SOCKS5_PROXY_PORT
@@ -132,8 +141,8 @@ spec:
             - name: SOCKS5_PROXY_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "sein-zum-tode.secretName" . }}
-                  key: {{ .Values.socks5Proxy.passwordSecretKey | quote }}
+                  name: {{ include "sein-zum-tode.secretRefName" (list . .Values.socks5Proxy.passwordSecretRef) }}
+                  key: {{ .Values.socks5Proxy.passwordSecretRef.key | quote }}
             {{- end }}
             - name: TEMPORAL_ADDRESS
               value: {{ .Values.temporal.address | quote }}
@@ -142,25 +151,71 @@ spec:
             - name: TEMPORAL_TASK_QUEUE
               value: {{ .Values.temporal.taskQueue | quote }}
             - name: TEMPORAL_TLS
-              value: {{ .Values.temporal.tls | quote }}
+              value: {{ .Values.temporal.tls.enabled | quote }}
+            {{- with .Values.temporal.tls.serverName }}
+            - name: TEMPORAL_TLS_SERVER_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.temporal.tls.secretRef.caKey }}
+            - name: TEMPORAL_TLS_CA_FILE
+              value: /app/tls/temporal/ca.crt
+            {{- end }}
+            {{- with .Values.temporal.tls.secretRef.certificateKey }}
+            - name: TEMPORAL_TLS_CERTIFICATE_FILE
+              value: /app/tls/temporal/tls.crt
+            {{- end }}
+            {{- with .Values.temporal.tls.secretRef.privateKeyKey }}
+            - name: TEMPORAL_TLS_PRIVATE_KEY_FILE
+              value: /app/tls/temporal/tls.key
+            {{- end }}
             - name: TEMPORAL_ACTIVITY_RETRY_TIMEOUT_SECONDS
               value: {{ .Values.application.temporalActivityRetryTimeoutSeconds | quote }}
             - name: TELEGRAM_BOT_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "sein-zum-tode.secretName" . }}
-                  key: {{ .Values.application.telegramBotTokenSecretKey | quote }}
+                  name: {{ include "sein-zum-tode.secretRefName" (list . .Values.telegram.tokenSecretRef) }}
+                  key: {{ .Values.telegram.tokenSecretRef.key | quote }}
             - name: REDIS_HOST
               value: {{ .Values.redis.host | quote }}
             - name: REDIS_PORT
               value: {{ .Values.redis.port | quote }}
             - name: REDIS_DATABASE
               value: {{ .Values.redis.database | quote }}
+            {{- with .Values.redis.username }}
+            - name: REDIS_USERNAME
+              value: {{ . | quote }}
+            {{- end }}
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "sein-zum-tode.secretName" . }}
-                  key: {{ .Values.redis.passwordSecretKey | quote }}
+                  name: {{ include "sein-zum-tode.secretRefName" (list . .Values.redis.passwordSecretRef) }}
+                  key: {{ .Values.redis.passwordSecretRef.key | quote }}
+            - name: REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS
+              value: {{ .Values.redis.connection.socketConnectTimeoutSeconds | quote }}
+            - name: REDIS_SOCKET_TIMEOUT_SECONDS
+              value: {{ .Values.redis.connection.socketTimeoutSeconds | quote }}
+            {{- if ne .Values.redis.connection.maxConnections nil }}
+            - name: REDIS_MAX_CONNECTIONS
+              value: {{ .Values.redis.connection.maxConnections | quote }}
+            {{- end }}
+            - name: REDIS_HEALTH_CHECK_INTERVAL_SECONDS
+              value: {{ .Values.redis.connection.healthCheckIntervalSeconds | quote }}
+            - name: REDIS_TLS
+              value: {{ .Values.redis.tls.enabled | quote }}
+            - name: REDIS_TLS_VERIFY
+              value: {{ .Values.redis.tls.verify | quote }}
+            {{- with .Values.redis.tls.secretRef.caKey }}
+            - name: REDIS_TLS_CA_FILE
+              value: /app/tls/redis/ca.crt
+            {{- end }}
+            {{- with .Values.redis.tls.secretRef.certificateKey }}
+            - name: REDIS_TLS_CERTIFICATE_FILE
+              value: /app/tls/redis/tls.crt
+            {{- end }}
+            {{- with .Values.redis.tls.secretRef.privateKeyKey }}
+            - name: REDIS_TLS_PRIVATE_KEY_FILE
+              value: /app/tls/redis/tls.key
+            {{- end }}
             - name: POSTGRES_HOST
               value: {{ .Values.postgres.host | quote }}
             - name: POSTGRES_PORT
@@ -172,40 +227,148 @@ spec:
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "sein-zum-tode.secretName" . }}
-                  key: {{ .Values.postgres.passwordSecretKey | quote }}
-            - name: POSTGRES_SSL
-              value: {{ .Values.postgres.ssl | quote }}
+                  name: {{ include "sein-zum-tode.secretRefName" (list . .Values.postgres.passwordSecretRef) }}
+                  key: {{ .Values.postgres.passwordSecretRef.key | quote }}
+            - name: POSTGRES_TLS_MODE
+              value: {{ .Values.postgres.tls.mode | quote }}
+            {{- with .Values.postgres.tls.secretRef.caKey }}
+            - name: POSTGRES_TLS_CA_FILE
+              value: /app/tls/postgres/ca.crt
+            {{- end }}
+            {{- with .Values.postgres.tls.secretRef.certificateKey }}
+            - name: POSTGRES_TLS_CERTIFICATE_FILE
+              value: /app/tls/postgres/tls.crt
+            {{- end }}
+            {{- with .Values.postgres.tls.secretRef.privateKeyKey }}
+            - name: POSTGRES_TLS_PRIVATE_KEY_FILE
+              value: /app/tls/postgres/tls.key
+            {{- end }}
             - name: POSTGRES_PGBOUNCER
               value: {{ .Values.postgres.pgbouncer | quote }}
+            - name: POSTGRES_CONNECT_TIMEOUT_SECONDS
+              value: {{ .Values.postgres.connection.connectTimeoutSeconds | quote }}
+            - name: POSTGRES_POOL_SIZE
+              value: {{ .Values.postgres.connection.poolSize | quote }}
+            - name: POSTGRES_MAX_OVERFLOW
+              value: {{ .Values.postgres.connection.maxOverflow | quote }}
+            - name: POSTGRES_POOL_TIMEOUT_SECONDS
+              value: {{ .Values.postgres.connection.poolTimeoutSeconds | quote }}
+            - name: POSTGRES_POOL_RECYCLE_SECONDS
+              value: {{ .Values.postgres.connection.poolRecycleSeconds | quote }}
+            {{- with .Values.worker.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.worker.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+            {{- toYaml .Values.worker.resources | nindent 12 }}
           volumeMounts:
-            - name: bot-content
+            - name: application-config
               mountPath: /app/config/bot-content.yaml
               subPath: bot-content.yaml
               readOnly: true
-            - name: bot-content
+            - name: application-config
               mountPath: /app/config/death-prediction.yaml
               subPath: death-prediction.yaml
               readOnly: true
-            - name: bot-content
+            - name: application-config
               mountPath: /app/config/notification-schedule.yaml
               subPath: notification-schedule.yaml
               readOnly: true
+            {{- if include "sein-zum-tode.redisTlsMaterial" . }}
+            - name: redis-tls
+              mountPath: /app/tls/redis
+              readOnly: true
+            {{- end }}
+            {{- if include "sein-zum-tode.postgresTlsMaterial" . }}
+            - name: postgres-tls
+              mountPath: /app/tls/postgres
+              readOnly: true
+            {{- end }}
+            {{- if include "sein-zum-tode.temporalTlsMaterial" . }}
+            - name: temporal-tls
+              mountPath: /app/tls/temporal
+              readOnly: true
+            {{- end }}
+            {{- with .Values.worker.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
       volumes:
-        - name: bot-content
+        - name: application-config
           configMap:
-            name: {{ include "sein-zum-tode.fullname" . }}-bot-content
-      {{- with .Values.nodeSelector }}
+            name: {{ include "sein-zum-tode.configMapName" . }}
+        {{- if include "sein-zum-tode.redisTlsMaterial" . }}
+        - name: redis-tls
+          secret:
+            secretName: {{ include "sein-zum-tode.secretRefName" (list . .Values.redis.tls.secretRef) }}
+            items:
+              {{- with .Values.redis.tls.secretRef.caKey }}
+              - key: {{ . | quote }}
+                path: ca.crt
+              {{- end }}
+              {{- with .Values.redis.tls.secretRef.certificateKey }}
+              - key: {{ . | quote }}
+                path: tls.crt
+              {{- end }}
+              {{- with .Values.redis.tls.secretRef.privateKeyKey }}
+              - key: {{ . | quote }}
+                path: tls.key
+              {{- end }}
+        {{- end }}
+        {{- if include "sein-zum-tode.postgresTlsMaterial" . }}
+        - name: postgres-tls
+          secret:
+            secretName: {{ include "sein-zum-tode.secretRefName" (list . .Values.postgres.tls.secretRef) }}
+            items:
+              {{- with .Values.postgres.tls.secretRef.caKey }}
+              - key: {{ . | quote }}
+                path: ca.crt
+              {{- end }}
+              {{- with .Values.postgres.tls.secretRef.certificateKey }}
+              - key: {{ . | quote }}
+                path: tls.crt
+              {{- end }}
+              {{- with .Values.postgres.tls.secretRef.privateKeyKey }}
+              - key: {{ . | quote }}
+                path: tls.key
+              {{- end }}
+        {{- end }}
+        {{- if include "sein-zum-tode.temporalTlsMaterial" . }}
+        - name: temporal-tls
+          secret:
+            secretName: {{ include "sein-zum-tode.secretRefName" (list . .Values.temporal.tls.secretRef) }}
+            items:
+              {{- with .Values.temporal.tls.secretRef.caKey }}
+              - key: {{ . | quote }}
+                path: ca.crt
+              {{- end }}
+              {{- with .Values.temporal.tls.secretRef.certificateKey }}
+              - key: {{ . | quote }}
+                path: tls.crt
+              {{- end }}
+              {{- with .Values.temporal.tls.secretRef.privateKeyKey }}
+              - key: {{ . | quote }}
+                path: tls.key
+              {{- end }}
+        {{- end }}
+        {{- with .Values.worker.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.worker.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
+      {{- with .Values.worker.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.tolerations }}
+      {{- with .Values.worker.tolerations }}
       tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.topologySpreadConstraints }}
+      topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}

@@ -1,7 +1,14 @@
-The {{ .Chart.Name }} application has been installed.
+{{ .Chart.Name }} was installed.
 
-Application image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+Image: {{ include "sein-zum-tode.image" . }}
+Ingress replicas: {{ .Values.ingress.replicaCount }}
+Worker replicas: {{ .Values.worker.replicaCount }}
 Temporal: {{ .Values.temporal.address }}
 PostgreSQL: {{ .Values.postgres.host }}:{{ .Values.postgres.port }}
 Redis: {{ .Values.redis.host }}:{{ .Values.redis.port }}
-Secret: {{ include "sein-zum-tode.secretName" . }}
+Default Secret: {{ include "sein-zum-tode.defaultSecretName" . }}
+
+{{- if .Values.networkPolicy.enabled }}
+NetworkPolicy is enabled. The configured egress rules must permit DNS, Telegram,
+Temporal, Redis, PostgreSQL, and the selected LLM provider.
+{{- end }}

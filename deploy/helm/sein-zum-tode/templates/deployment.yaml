@@ -5,26 +5,37 @@ metadata:
   labels:
     {{- include "sein-zum-tode.labels" . | nindent 4 }}
     app.kubernetes.io/component: ingress
+  {{- with (merge .Values.ingress.annotations .Values.commonAnnotations) }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: {{ .Values.ingress.replicaCount }}
   strategy:
-    type: Recreate
+    {{- toYaml .Values.ingress.strategy | nindent 4 }}
   selector:
     matchLabels:
       {{- include "sein-zum-tode.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: ingress
   template:
     metadata:
+      {{- with .Values.ingress.podAnnotations }}
       annotations:
-        {{- toYaml .Values.podAnnotations | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       labels:
-        {{- include "sein-zum-tode.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: ingress
-        {{- with .Values.podLabels }}
+        {{- with .Values.commonLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        {{- with .Values.ingress.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- include "sein-zum-tode.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ingress
     spec:
+      serviceAccountName: {{ include "sein-zum-tode.serviceAccountName" . }}
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.ingress.terminationGracePeriodSeconds }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -33,35 +44,34 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: telegram-ingress
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "sein-zum-tode.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           ports:
             - name: health
               containerPort: {{ .Values.health.port }}
               protocol: TCP
-          {{- if .Values.metrics.enabled }}
+            {{- if .Values.metrics.enabled }}
             - name: metrics
               containerPort: {{ .Values.metrics.port }}
               protocol: TCP
-          {{- end }}
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /health/ready
               port: health
-            failureThreshold: {{ .Values.health.failureThreshold }}
+            {{- toYaml .Values.ingress.readinessProbe | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /health/live
               port: health
-            failureThreshold: {{ .Values.health.failureThreshold }}
+            {{- toYaml .Values.ingress.livenessProbe | nindent 12 }}
           startupProbe:
             httpGet:
               path: /health/startup
               port: health
-            failureThreshold: 30
-            periodSeconds: 2
+            {{- toYaml .Values.ingress.startupProbe | nindent 12 }}
           env:
             - name: APP_NAME
               value: {{ include "sein-zum-tode.name" . | quote }}
@@ -106,7 +116,23 @@ spec:
             - name: TEMPORAL_TASK_QUEUE
               value: {{ .Values.temporal.taskQueue | quote }}
             - name: TEMPORAL_TLS
-              value: {{ .Values.temporal.tls | quote }}
+              value: {{ .Values.temporal.tls.enabled | quote }}
+            {{- with .Values.temporal.tls.serverName }}
+            - name: TEMPORAL_TLS_SERVER_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.temporal.tls.secretRef.caKey }}
+            - name: TEMPORAL_TLS_CA_FILE
+              value: /app/tls/temporal/ca.crt
+            {{- end }}
+            {{- with .Values.temporal.tls.secretRef.certificateKey }}
+            - name: TEMPORAL_TLS_CERTIFICATE_FILE
+              value: /app/tls/temporal/tls.crt
+            {{- end }}
+            {{- with .Values.temporal.tls.secretRef.privateKeyKey }}
+            - name: TEMPORAL_TLS_PRIVATE_KEY_FILE
+              value: /app/tls/temporal/tls.key
+            {{- end }}
             - name: TEMPORAL_ACTIVITY_RETRY_TIMEOUT_SECONDS
               value: {{ .Values.application.temporalActivityRetryTimeoutSeconds | quote }}
             - name: BROADCAST_RECIPIENT_PAGE_SIZE
@@ -114,30 +140,129 @@ spec:
             - name: TELEGRAM_BOT_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "sein-zum-tode.secretName" . }}
-                  key: {{ .Values.application.telegramBotTokenSecretKey | quote }}
+                  name: {{ include "sein-zum-tode.secretRefName" (list . .Values.telegram.tokenSecretRef) }}
+                  key: {{ .Values.telegram.tokenSecretRef.key | quote }}
             - name: REDIS_HOST
               value: {{ .Values.redis.host | quote }}
             - name: REDIS_PORT
               value: {{ .Values.redis.port | quote }}
             - name: REDIS_DATABASE
               value: {{ .Values.redis.database | quote }}
+            {{- with .Values.redis.username }}
+            - name: REDIS_USERNAME
+              value: {{ . | quote }}
+            {{- end }}
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "sein-zum-tode.secretName" . }}
-                  key: {{ .Values.redis.passwordSecretKey | quote }}
+                  name: {{ include "sein-zum-tode.secretRefName" (list . .Values.redis.passwordSecretRef) }}
+                  key: {{ .Values.redis.passwordSecretRef.key | quote }}
+            - name: REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS
+              value: {{ .Values.redis.connection.socketConnectTimeoutSeconds | quote }}
+            - name: REDIS_SOCKET_TIMEOUT_SECONDS
+              value: {{ .Values.redis.connection.socketTimeoutSeconds | quote }}
+            {{- if ne .Values.redis.connection.maxConnections nil }}
+            - name: REDIS_MAX_CONNECTIONS
+              value: {{ .Values.redis.connection.maxConnections | quote }}
+            {{- end }}
+            - name: REDIS_HEALTH_CHECK_INTERVAL_SECONDS
+              value: {{ .Values.redis.connection.healthCheckIntervalSeconds | quote }}
+            - name: REDIS_TLS
+              value: {{ .Values.redis.tls.enabled | quote }}
+            - name: REDIS_TLS_VERIFY
+              value: {{ .Values.redis.tls.verify | quote }}
+            {{- with .Values.redis.tls.secretRef.caKey }}
+            - name: REDIS_TLS_CA_FILE
+              value: /app/tls/redis/ca.crt
+            {{- end }}
+            {{- with .Values.redis.tls.secretRef.certificateKey }}
+            - name: REDIS_TLS_CERTIFICATE_FILE
+              value: /app/tls/redis/tls.crt
+            {{- end }}
+            {{- with .Values.redis.tls.secretRef.privateKeyKey }}
+            - name: REDIS_TLS_PRIVATE_KEY_FILE
+              value: /app/tls/redis/tls.key
+            {{- end }}
+            {{- with .Values.ingress.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.ingress.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-      {{- with .Values.nodeSelector }}
+            {{- toYaml .Values.ingress.resources | nindent 12 }}
+          {{- if or (include "sein-zum-tode.redisTlsMaterial" .) (include "sein-zum-tode.temporalTlsMaterial" .) .Values.ingress.extraVolumeMounts }}
+          volumeMounts:
+            {{- if include "sein-zum-tode.redisTlsMaterial" . }}
+            - name: redis-tls
+              mountPath: /app/tls/redis
+              readOnly: true
+            {{- end }}
+            {{- if include "sein-zum-tode.temporalTlsMaterial" . }}
+            - name: temporal-tls
+              mountPath: /app/tls/temporal
+              readOnly: true
+            {{- end }}
+            {{- with .Values.ingress.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+      {{- if or (include "sein-zum-tode.redisTlsMaterial" .) (include "sein-zum-tode.temporalTlsMaterial" .) .Values.ingress.extraVolumes }}
+      volumes:
+        {{- if include "sein-zum-tode.redisTlsMaterial" . }}
+        - name: redis-tls
+          secret:
+            secretName: {{ include "sein-zum-tode.secretRefName" (list . .Values.redis.tls.secretRef) }}
+            items:
+              {{- with .Values.redis.tls.secretRef.caKey }}
+              - key: {{ . | quote }}
+                path: ca.crt
+              {{- end }}
+              {{- with .Values.redis.tls.secretRef.certificateKey }}
+              - key: {{ . | quote }}
+                path: tls.crt
+              {{- end }}
+              {{- with .Values.redis.tls.secretRef.privateKeyKey }}
+              - key: {{ . | quote }}
+                path: tls.key
+              {{- end }}
+        {{- end }}
+        {{- if include "sein-zum-tode.temporalTlsMaterial" . }}
+        - name: temporal-tls
+          secret:
+            secretName: {{ include "sein-zum-tode.secretRefName" (list . .Values.temporal.tls.secretRef) }}
+            items:
+              {{- with .Values.temporal.tls.secretRef.caKey }}
+              - key: {{ . | quote }}
+                path: ca.crt
+              {{- end }}
+              {{- with .Values.temporal.tls.secretRef.certificateKey }}
+              - key: {{ . | quote }}
+                path: tls.crt
+              {{- end }}
+              {{- with .Values.temporal.tls.secretRef.privateKeyKey }}
+              - key: {{ . | quote }}
+                path: tls.key
+              {{- end }}
+        {{- end }}
+        {{- with .Values.ingress.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.ingress.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
+      {{- with .Values.ingress.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.tolerations }}
+      {{- with .Values.ingress.tolerations }}
       tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ingress.topologySpreadConstraints }}
+      topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}

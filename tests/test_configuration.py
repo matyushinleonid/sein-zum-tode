@@ -120,3 +120,55 @@ def test_rejects_an_activity_retry_window_that_can_outlive_unsupported_session()
                 "postgres_password": "postgres-asterism-1907",
             }
         )
+
+
+@pytest.mark.parametrize(
+    ("certificate_setting", "private_key_setting"),
+    [
+        ("redis_tls_certificate_file", "redis_tls_private_key_file"),
+        ("temporal_tls_certificate_file", "temporal_tls_private_key_file"),
+    ],
+)
+@pytest.mark.parametrize("missing", ["certificate", "private_key"])
+def test_rejects_an_incomplete_client_tls_identity(
+    certificate_setting: str,
+    private_key_setting: str,
+    missing: str,
+) -> None:
+    identity = {
+        certificate_setting: "/certificates/client-1933.pem",
+        private_key_setting: "/certificates/client-1949.key",
+    }
+    identity.pop(certificate_setting if missing == "certificate" else private_key_setting)
+
+    with pytest.raises(ValidationError):
+        Settings.model_validate(
+            {
+                "telegram_bot_token": "229:tls-token",
+                "redis_password": "redis-tls-1973",
+                **identity,
+            }
+        )
+
+
+@pytest.mark.parametrize("missing", ["certificate", "private_key"])
+def test_rejects_an_incomplete_postgres_client_tls_identity(missing: str) -> None:
+    identity = {
+        "postgres_tls_certificate_file": "/certificates/postgres-1987.pem",
+        "postgres_tls_private_key_file": "/certificates/postgres-1993.key",
+    }
+    identity.pop(
+        "postgres_tls_certificate_file"
+        if missing == "certificate"
+        else "postgres_tls_private_key_file"
+    )
+
+    with pytest.raises(ValidationError):
+        WorkerSettings.model_validate(
+            {
+                "telegram_bot_token": "233:postgres-tls-token",
+                "redis_password": "redis-tls-1997",
+                "postgres_password": "postgres-tls-1999",
+                **identity,
+            }
+        )

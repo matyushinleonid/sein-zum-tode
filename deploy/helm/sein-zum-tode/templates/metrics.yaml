@@ -8,8 +8,12 @@ metadata:
     app.kubernetes.io/component: ingress
     component: ingress
     sein-zum-tode.io/metrics: "true"
+  {{- with .Values.metrics.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
-  publishNotReadyAddresses: true
+  publishNotReadyAddresses: {{ .Values.metrics.service.publishNotReadyAddresses }}
   selector:
     {{- include "sein-zum-tode.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: ingress
@@ -28,8 +32,12 @@ metadata:
     app.kubernetes.io/component: worker
     component: worker
     sein-zum-tode.io/metrics: "true"
+  {{- with .Values.metrics.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
-  publishNotReadyAddresses: true
+  publishNotReadyAddresses: {{ .Values.metrics.service.publishNotReadyAddresses }}
   selector:
     {{- include "sein-zum-tode.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: worker
@@ -57,6 +65,15 @@ spec:
     - port: metrics
       path: /metrics
       interval: {{ .Values.metrics.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}
+      {{- with .Values.metrics.serviceMonitor.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.metrics.serviceMonitor.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
   targetLabels:
     - component
 {{- end }}

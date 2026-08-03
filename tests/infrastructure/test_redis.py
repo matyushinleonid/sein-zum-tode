@@ -1,10 +1,97 @@
+from pathlib import Path
+
 import pytest
 from redis.exceptions import ConnectionError
 
-from sein_zum_tode.infrastructure.redis import RedisClientError
+import sein_zum_tode.infrastructure.redis as redis_module
+from sein_zum_tode.infrastructure.redis import RedisClientError, create_redis_transport
 from tests.support import RedisDouble
 
 pytestmark = pytest.mark.fast
+
+
+def test_creates_an_acl_and_tls_redis_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection = object()
+    calls: list[dict[str, object]] = []
+
+    def create_connection(**options: object) -> object:
+        calls.append(options)
+        return connection
+
+    monkeypatch.setattr(redis_module, "Redis", create_connection)
+
+    actual = create_redis_transport(
+        host="redis-orbit.internal",
+        port=887,
+        database=19,
+        username="mortal-redis",
+        password="private-907",
+        socket_connect_timeout_seconds=3.1,
+        socket_timeout_seconds=5.3,
+        max_connections=23,
+        health_check_interval_seconds=29,
+        tls=True,
+        tls_verify=True,
+        tls_ca_file=Path("/certificates/redis-ca-911.pem"),
+        tls_certificate_file=Path("/certificates/redis-919.pem"),
+        tls_private_key_file=Path("/certificates/redis-929.key"),
+    )
+
+    assert (actual, calls) == (
+        connection,
+        [
+            {
+                "host": "redis-orbit.internal",
+                "port": 887,
+                "db": 19,
+                "username": "mortal-redis",
+                "password": "private-907",
+                "socket_connect_timeout": 3.1,
+                "socket_timeout": 5.3,
+                "max_connections": 23,
+                "health_check_interval": 29,
+                "ssl": True,
+                "ssl_cert_reqs": "required",
+                "ssl_check_hostname": True,
+                "ssl_ca_certs": "/certificates/redis-ca-911.pem",
+                "ssl_certfile": "/certificates/redis-919.pem",
+                "ssl_keyfile": "/certificates/redis-929.key",
+            }
+        ],
+    ), "Redis transport discarded ACL, limits, or TLS material"
+
+
+def test_creates_a_plain_redis_transport_without_optional_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(redis_module, "Redis", lambda **options: calls.append(options))
+
+    actual = create_redis_transport(
+        host="redis-plain.internal",
+        port=937,
+        database=0,
+        username=None,
+        password="private-941",
+        socket_connect_timeout_seconds=7.0,
+        socket_timeout_seconds=11.0,
+        max_connections=None,
+        health_check_interval_seconds=0,
+        tls=False,
+        tls_verify=False,
+        tls_ca_file=None,
+        tls_certificate_file=None,
+        tls_private_key_file=None,
+    )
+
+    actual_object: object = actual
+    assert (actual_object, calls[0]["ssl_cert_reqs"], calls[0]["ssl_ca_certs"]) == (
+        None,
+        "none",
+        None,
+    ), "plain Redis transport unexpectedly required TLS material"
 
 
 @pytest.mark.parametrize(

@@ -5,7 +5,6 @@ from datetime import timedelta
 from aiogram import Bot
 from aiogram.types import Update
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
-from redis.asyncio import Redis
 from temporalio.client import Client
 from temporalio.worker import Worker
 from yandex_ai_studio_sdk import AsyncAIStudio
@@ -44,12 +43,13 @@ from sein_zum_tode.infrastructure.openai import (
     Socks5Proxy,
 )
 from sein_zum_tode.infrastructure.postgres import PostgresClient
-from sein_zum_tode.infrastructure.redis import RedisClient
+from sein_zum_tode.infrastructure.redis import RedisClient, create_redis_transport
 from sein_zum_tode.infrastructure.redis_documents import (
     PydanticJsonCodec,
     RedisJsonDocumentStore,
     RedisKeyCleaner,
 )
+from sein_zum_tode.infrastructure.tls import create_temporal_tls_config
 from sein_zum_tode.infrastructure.yandex_ai import (
     YandexAIStudioClient,
     YandexCompletionProfile,
@@ -302,17 +302,33 @@ async def run(settings: WorkerSettings) -> None:
         settings=settings,
     )
     bot = Bot(token=settings.telegram_bot_token.get_secret_value())
-    redis_connection = Redis(
+    redis_connection = create_redis_transport(
         host=settings.redis_host,
         port=settings.redis_port,
-        db=settings.redis_database,
+        database=settings.redis_database,
+        username=settings.redis_username,
         password=settings.redis_password.get_secret_value(),
+        socket_connect_timeout_seconds=settings.redis_socket_connect_timeout_seconds,
+        socket_timeout_seconds=settings.redis_socket_timeout_seconds,
+        max_connections=settings.redis_max_connections,
+        health_check_interval_seconds=settings.redis_health_check_interval_seconds,
+        tls=settings.redis_tls,
+        tls_verify=settings.redis_tls_verify,
+        tls_ca_file=settings.redis_tls_ca_file,
+        tls_certificate_file=settings.redis_tls_certificate_file,
+        tls_private_key_file=settings.redis_tls_private_key_file,
     )
     redis = RedisClient(redis_connection)
     temporal = await Client.connect(
         settings.temporal_address,
         namespace=settings.temporal_namespace,
-        tls=settings.temporal_tls,
+        tls=create_temporal_tls_config(
+            enabled=settings.temporal_tls,
+            server_name=settings.temporal_tls_server_name,
+            ca_file=settings.temporal_tls_ca_file,
+            certificate_file=settings.temporal_tls_certificate_file,
+            private_key_file=settings.temporal_tls_private_key_file,
+        ),
     )
     update_documents = RedisJsonDocumentStore(
         redis=redis,
@@ -351,8 +367,16 @@ async def run(settings: WorkerSettings) -> None:
         database=settings.postgres_database,
         user=settings.postgres_user,
         password=settings.postgres_password.get_secret_value(),
-        ssl=settings.postgres_ssl,
+        tls_mode=settings.postgres_tls_mode,
+        tls_ca_file=settings.postgres_tls_ca_file,
+        tls_certificate_file=settings.postgres_tls_certificate_file,
+        tls_private_key_file=settings.postgres_tls_private_key_file,
         pgbouncer=settings.postgres_pgbouncer,
+        connect_timeout_seconds=settings.postgres_connect_timeout_seconds,
+        pool_size=settings.postgres_pool_size,
+        max_overflow=settings.postgres_max_overflow,
+        pool_timeout_seconds=settings.postgres_pool_timeout_seconds,
+        pool_recycle_seconds=settings.postgres_pool_recycle_seconds,
     )
     mortals = PostgresMortalRepository(
         postgres,

@@ -1,5 +1,6 @@
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
+from pathlib import Path
 from typing import Any, Protocol, Self
 from uuid import uuid4
 
@@ -9,6 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 from sqlalchemy.sql import Executable
 from sqlalchemy.sql.expression import text
+
+from sein_zum_tode.infrastructure.tls import (
+    PostgresTlsMode,
+    create_postgres_ssl_context,
+)
 
 
 class PostgresClientError(Exception):
@@ -57,8 +63,16 @@ def create_postgres_engine(
     database: str,
     user: str,
     password: str,
-    ssl: bool,
+    tls_mode: PostgresTlsMode,
+    tls_ca_file: Path | None,
+    tls_certificate_file: Path | None,
+    tls_private_key_file: Path | None,
     pgbouncer: bool,
+    connect_timeout_seconds: float,
+    pool_size: int,
+    max_overflow: int,
+    pool_timeout_seconds: float,
+    pool_recycle_seconds: int,
 ) -> AsyncEngine:
     query = {"prepared_statement_cache_size": "0"} if pgbouncer else {}
     url = URL.create(
@@ -70,15 +84,28 @@ def create_postgres_engine(
         database=database,
         query=query,
     )
-    options: dict[str, Any] = {}
-    connect_args: dict[str, Any] = {}
-    if ssl:
-        connect_args["ssl"] = True
+    options: dict[str, Any] = {
+        "pool_recycle": pool_recycle_seconds,
+    }
+    connect_args: dict[str, Any] = {"timeout": connect_timeout_seconds}
+    ssl_context = create_postgres_ssl_context(
+        mode=tls_mode,
+        ca_file=tls_ca_file,
+        certificate_file=tls_certificate_file,
+        private_key_file=tls_private_key_file,
+    )
+    if ssl_context is not None:
+        connect_args["ssl"] = ssl_context
     if pgbouncer:
         options["poolclass"] = NullPool
         connect_args["prepared_statement_name_func"] = lambda: f"__asyncpg_{uuid4()}__"
-    if connect_args:
-        options["connect_args"] = connect_args
+    else:
+        options.update(
+            pool_size=pool_size,
+            max_overflow=max_overflow,
+            pool_timeout=pool_timeout_seconds,
+        )
+    options["connect_args"] = connect_args
     return create_async_engine(url, **options)
 
 
@@ -95,8 +122,16 @@ class PostgresClient:
         database: str,
         user: str,
         password: str,
-        ssl: bool,
+        tls_mode: PostgresTlsMode,
+        tls_ca_file: Path | None,
+        tls_certificate_file: Path | None,
+        tls_private_key_file: Path | None,
         pgbouncer: bool,
+        connect_timeout_seconds: float,
+        pool_size: int,
+        max_overflow: int,
+        pool_timeout_seconds: float,
+        pool_recycle_seconds: int,
     ) -> Self:
         return cls(
             create_postgres_engine(
@@ -105,8 +140,16 @@ class PostgresClient:
                 database=database,
                 user=user,
                 password=password,
-                ssl=ssl,
+                tls_mode=tls_mode,
+                tls_ca_file=tls_ca_file,
+                tls_certificate_file=tls_certificate_file,
+                tls_private_key_file=tls_private_key_file,
                 pgbouncer=pgbouncer,
+                connect_timeout_seconds=connect_timeout_seconds,
+                pool_size=pool_size,
+                max_overflow=max_overflow,
+                pool_timeout_seconds=pool_timeout_seconds,
+                pool_recycle_seconds=pool_recycle_seconds,
             )
         )
 

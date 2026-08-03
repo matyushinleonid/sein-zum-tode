@@ -1,0 +1,45 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "sein-zum-tode.fullname" . }}-ingress
+  labels:
+    {{- include "sein-zum-tode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "sein-zum-tode.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ingress
+  {{- toYaml .Values.networkPolicy.ingress | nindent 2 }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "sein-zum-tode.fullname" . }}-worker
+  labels:
+    {{- include "sein-zum-tode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "sein-zum-tode.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  {{- toYaml .Values.networkPolicy.worker | nindent 2 }}
+{{- if .Values.migration.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "sein-zum-tode.fullname" . }}-migration
+  labels:
+    {{- include "sein-zum-tode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "sein-zum-tode.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: migration
+  {{- toYaml .Values.networkPolicy.migration | nindent 2 }}
+{{- end }}
+{{- end }}

@@ -1,3 +1,4 @@
+{{- if .Values.migration.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -5,17 +6,28 @@ metadata:
   labels:
     {{- include "sein-zum-tode.labels" . | nindent 4 }}
     app.kubernetes.io/component: migration
+  {{- with (merge .Values.migration.annotations .Values.commonAnnotations) }}
   annotations:
-    argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
-  backoffLimit: 3
+  backoffLimit: {{ .Values.migration.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migration.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: {{ .Values.migration.ttlSecondsAfterFinished }}
   template:
     metadata:
+      {{- with .Values.migration.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       labels:
+        {{- with .Values.commonLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         {{- include "sein-zum-tode.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: migration
     spec:
+      serviceAccountName: {{ include "sein-zum-tode.serviceAccountName" . }}
       automountServiceAccountToken: false
       restartPolicy: Never
       {{- with .Values.imagePullSecrets }}
@@ -26,16 +38,11 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: migrate
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "sein-zum-tode.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command:
-            - python
-            - -m
-            - alembic
-            - upgrade
-            - head
+          command: [python, -m, alembic, upgrade, head]
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           env:
             - name: POSTGRES_HOST
               value: {{ .Values.postgres.host | quote }}
@@ -48,11 +55,71 @@ spec:
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "sein-zum-tode.secretName" . }}
-                  key: {{ .Values.postgres.passwordSecretKey | quote }}
-            - name: POSTGRES_SSL
-              value: {{ .Values.postgres.ssl | quote }}
+                  name: {{ include "sein-zum-tode.secretRefName" (list . .Values.postgres.passwordSecretRef) }}
+                  key: {{ .Values.postgres.passwordSecretRef.key | quote }}
+            - name: POSTGRES_TLS_MODE
+              value: {{ .Values.postgres.tls.mode | quote }}
+            {{- with .Values.postgres.tls.secretRef.caKey }}
+            - name: POSTGRES_TLS_CA_FILE
+              value: /app/tls/postgres/ca.crt
+            {{- end }}
+            {{- with .Values.postgres.tls.secretRef.certificateKey }}
+            - name: POSTGRES_TLS_CERTIFICATE_FILE
+              value: /app/tls/postgres/tls.crt
+            {{- end }}
+            {{- with .Values.postgres.tls.secretRef.privateKeyKey }}
+            - name: POSTGRES_TLS_PRIVATE_KEY_FILE
+              value: /app/tls/postgres/tls.key
+            {{- end }}
             - name: POSTGRES_PGBOUNCER
               value: {{ .Values.postgres.pgbouncer | quote }}
+            - name: POSTGRES_CONNECT_TIMEOUT_SECONDS
+              value: {{ .Values.postgres.connection.connectTimeoutSeconds | quote }}
+            - name: POSTGRES_POOL_SIZE
+              value: {{ .Values.postgres.connection.poolSize | quote }}
+            - name: POSTGRES_MAX_OVERFLOW
+              value: {{ .Values.postgres.connection.maxOverflow | quote }}
+            - name: POSTGRES_POOL_TIMEOUT_SECONDS
+              value: {{ .Values.postgres.connection.poolTimeoutSeconds | quote }}
+            - name: POSTGRES_POOL_RECYCLE_SECONDS
+              value: {{ .Values.postgres.connection.poolRecycleSeconds | quote }}
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+            {{- toYaml .Values.migration.resources | nindent 12 }}
+          {{- if include "sein-zum-tode.postgresTlsMaterial" . }}
+          volumeMounts:
+            - name: postgres-tls
+              mountPath: /app/tls/postgres
+              readOnly: true
+          {{- end }}
+      {{- if include "sein-zum-tode.postgresTlsMaterial" . }}
+      volumes:
+        - name: postgres-tls
+          secret:
+            secretName: {{ include "sein-zum-tode.secretRefName" (list . .Values.postgres.tls.secretRef) }}
+            items:
+              {{- with .Values.postgres.tls.secretRef.caKey }}
+              - key: {{ . | quote }}
+                path: ca.crt
+              {{- end }}
+              {{- with .Values.postgres.tls.secretRef.certificateKey }}
+              - key: {{ . | quote }}
+                path: tls.crt
+              {{- end }}
+              {{- with .Values.postgres.tls.secretRef.privateKeyKey }}
+              - key: {{ . | quote }}
+                path: tls.key
+              {{- end }}
+      {{- end }}
+      {{- with .Values.migration.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.migration.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.migration.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
