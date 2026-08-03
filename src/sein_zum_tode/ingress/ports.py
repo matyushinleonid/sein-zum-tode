@@ -69,3 +69,9 @@ class TemporalWorkflowClient(Protocol):
 
 class RetryWaiter(Protocol):
     async def wait(self, failure_count: int, stop_event: asyncio.Event) -> None: ...
+
+
+class PollingHealth(Protocol):
+    def polling_started(self) -> None: ...
+
+    def polling_succeeded(self) -> None: ...

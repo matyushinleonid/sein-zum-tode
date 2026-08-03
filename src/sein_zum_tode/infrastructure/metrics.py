@@ -46,6 +46,12 @@ class PrometheusMetrics:
             ("kind",),
             registry=registry,
         )
+        self._payload_expired = Counter(
+            "sein_zum_tode_payload_expired",
+            "Ephemeral payloads that expired before application processing.",
+            ("kind",),
+            registry=registry,
+        )
         self._responses = Counter(
             "sein_zum_tode_telegram_responses_prepared",
             "Prepared Telegram responses by bounded kind.",
@@ -126,6 +132,12 @@ class PrometheusMetrics:
             ("outcome", "locale"),
             registry=registry,
         )
+        self._health_dependencies = Gauge(
+            "sein_zum_tode_dependency_up",
+            "Current health of a bounded external dependency.",
+            ("dependency",),
+            registry=registry,
+        )
         info = Gauge(
             "sein_zum_tode_application_info",
             "Static application process information.",
@@ -152,6 +164,9 @@ class PrometheusMetrics:
 
     def inspected(self, *, kind: str) -> None:
         self._inspected.labels(kind=kind).inc()
+
+    def payload_expired(self, *, kind: str) -> None:
+        self._payload_expired.labels(kind=kind).inc()
 
     def response_prepared(self, *, kind: str) -> None:
         self._responses.labels(kind=kind).inc()
@@ -222,6 +237,9 @@ class PrometheusMetrics:
 
     def broadcast(self, *, outcome: str, locale: str, count: int = 1) -> None:
         self._broadcasts.labels(outcome=outcome, locale=locale).inc(count)
+
+    def health_dependency(self, *, name: str, healthy: bool) -> None:
+        self._health_dependencies.labels(dependency=name).set(1 if healthy else 0)
 
 
 class PrometheusHttpServer:

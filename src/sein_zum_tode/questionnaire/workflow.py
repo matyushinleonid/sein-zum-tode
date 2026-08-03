@@ -59,6 +59,7 @@ class TelegramQuestionnaireWorkflow:
         self._recent_update_keys: list[str] = []
         self._active_update_key: str | None = None
         self._privacy_response_key: str | None = None
+        self._cleanup_failure_response_key: str | None = None
         self._prepared_response_keys: list[str] = []
 
     @workflow.signal(name=QUESTIONNAIRE_UPDATE_SIGNAL_NAME)
@@ -78,10 +79,11 @@ class TelegramQuestionnaireWorkflow:
             if started is None:
                 return
             self._privacy_response_key = started.privacy_response_key
+            self._cleanup_failure_response_key = started.cleanup_failure_response_key
             self._prepared_response_keys.extend(started.response_keys)
             delivered = await self._deliver_all(started.response_keys)
-            await self._cleanup(started.response_keys)
-            self._forget_responses(started.response_keys)
+            if await self._cleanup(started.response_keys):
+                self._forget_responses(started.response_keys)
             if not delivered:
                 await self._finish(())
                 return
@@ -120,8 +122,8 @@ class TelegramQuestionnaireWorkflow:
                     )
                     return
 
-                await self._cleanup((update_key, *turn.response_keys))
-                self._forget_responses(turn.response_keys)
+                if await self._cleanup((update_key, *turn.response_keys)):
+                    self._forget_responses(turn.response_keys)
                 self._remember(update_key)
                 self._active_update_key = None
                 deadline = workflow.time() + self._inactivity_timeout.total_seconds()
@@ -254,13 +256,30 @@ class TelegramQuestionnaireWorkflow:
 
     async def _finish(self, keys: tuple[str, ...]) -> None:
         privacy_response_key = cast(str, self._privacy_response_key)
+        cleanup_failure_response_key = cast(str, self._cleanup_failure_response_key)
+        sensitive_keys = [
+            self._questionnaire_key,
+            *keys,
+            *self._prepared_response_keys,
+            *self._pending_update_keys,
+        ]
+        if self._active_update_key is not None:
+            sensitive_keys.append(self._active_update_key)
+        sensitive_keys = [
+            key
+            for key in sensitive_keys
+            if key not in {privacy_response_key, cleanup_failure_response_key}
+        ]
+        cleaned = await self._cleanup(tuple(sensitive_keys))
+        notice_key = privacy_response_key if cleaned else cleanup_failure_response_key
         await self._deliver_all(
-            (privacy_response_key,),
+            (notice_key,),
             update_key=self._active_update_key,
         )
-        await self._cleanup((self._questionnaire_key, *keys, privacy_response_key))
+        await self._cleanup((privacy_response_key, cleanup_failure_response_key))
         self._forget_responses(keys)
         self._privacy_response_key = None
+        self._cleanup_failure_response_key = None
         await self._notify_finished()
 
     async def _mark_mortal_unreachable(self) -> None:
@@ -293,6 +312,8 @@ class TelegramQuestionnaireWorkflow:
             keys.append(self._active_update_key)
         if self._privacy_response_key is not None:
             keys.append(self._privacy_response_key)
+        if self._cleanup_failure_response_key is not None:
+            keys.append(self._cleanup_failure_response_key)
         await self._cleanup(tuple(keys))
 
     async def _cleanup(self, keys: tuple[str, ...]) -> bool:

@@ -16,6 +16,7 @@ from sein_zum_tode.bot.models import (
     PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
     PREPARE_LOCALIZATION_ACTIVITY_NAME,
     PREPARE_NOTIFICATIONS_ACTIVITY_NAME,
+    PREPARE_PAYLOAD_EXPIRED_ACTIVITY_NAME,
     PREPARE_SCREAM_DENIED_ACTIVITY_NAME,
     TELEGRAM_UPDATE_SIGNAL_NAME,
     TELEGRAM_USER_WORKFLOW_NAME,
@@ -83,6 +84,7 @@ PREPARE_ACTIVITY_NAMES = {
     InspectionKind.NOTIFICATION_SELECTION: CONFIGURE_MORTAL_NOTIFICATIONS_ACTIVITY_NAME,
     InspectionKind.CUSTOM_NOTIFICATION_SELECTION: PREPARE_CUSTOM_NOTIFICATION_ACTIVITY_NAME,
     InspectionKind.LIMIT_EXHAUSTED: PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
+    InspectionKind.PAYLOAD_EXPIRED: PREPARE_PAYLOAD_EXPIRED_ACTIVITY_NAME,
     InspectionKind.GROUP_UNSUPPORTED: PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME,
     InspectionKind.SCREAM_DENIED: PREPARE_SCREAM_DENIED_ACTIVITY_NAME,
     InspectionKind.NOTIFICATION_SAMPLE: PREPARE_NOTIFICATION_SAMPLE_ACTIVITY_NAME,
@@ -114,6 +116,7 @@ class TelegramUserWorkflow:
         self._mortal_registered = False
         self._localization_required: bool | None = None
         self._awaiting_custom_notification = input.awaiting_custom_notification
+        self._broadcast_recipient_page_size = input.broadcast_recipient_page_size
 
     @workflow.signal(name=TELEGRAM_UPDATE_SIGNAL_NAME)
     def accept_update(self, input: TelegramUpdateSignal) -> None:
@@ -154,6 +157,12 @@ class TelegramUserWorkflow:
             await self._cleanup(update_key, payload_keys.response())
             return True
 
+        if inspected.kind not in {
+            InspectionKind.TEXT,
+            InspectionKind.PAYLOAD_EXPIRED,
+        }:
+            self._awaiting_custom_notification = False
+
         if inspected.kind == InspectionKind.MORTAL_BLOCKED:
             if self._questionnaire is not None:
                 await self._cancel_questionnaire()
@@ -164,7 +173,10 @@ class TelegramUserWorkflow:
             await self._restore_mortal(update_key)
             await self._cleanup(update_key, payload_keys.response())
             return True
-        if inspected.kind == InspectionKind.GROUP_UNSUPPORTED:
+        if inspected.kind in {
+            InspectionKind.GROUP_UNSUPPORTED,
+            InspectionKind.PAYLOAD_EXPIRED,
+        }:
             return await self._respond(inspected)
         if not await self._ensure_mortal(update_key):
             await self._cleanup(update_key, payload_keys.response())
@@ -184,8 +196,6 @@ class TelegramUserWorkflow:
             InspectionKind.LOCALIZATION_SELECTION,
             InspectionKind.NOTIFICATION_SELECTION,
         }:
-            if inspected.kind == InspectionKind.NOTIFICATION_SELECTION:
-                self._awaiting_custom_notification = False
             return await self._respond(inspected)
 
         if inspected.kind == InspectionKind.CUSTOM_NOTIFICATION_SELECTION:
@@ -247,6 +257,7 @@ class TelegramUserWorkflow:
                 admin_chat_id=inspected.chat_id,
                 update_key=inspected.update_key,
                 activity_retry_timeout_seconds=int(self._activity_timeout.total_seconds()),
+                recipient_page_size=self._broadcast_recipient_page_size,
             ),
             id=f"telegram-scream:{inspected.update_key}",
             parent_close_policy=workflow.ParentClosePolicy.ABANDON,
@@ -627,5 +638,6 @@ class TelegramUserWorkflow:
                 recent_update_keys=tuple(self._recent_update_keys),
                 continue_as_new_after_updates=self._continue_as_new_after_updates,
                 awaiting_custom_notification=self._awaiting_custom_notification,
+                broadcast_recipient_page_size=self._broadcast_recipient_page_size,
             )
         )

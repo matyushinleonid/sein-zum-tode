@@ -19,6 +19,7 @@ def test_exports_every_application_metric_with_bounded_dimensions() -> None:
     metrics.poll(stage="receive", outcome="success")
     metrics.updates(stage="received", outcome="success", count=19)
     metrics.inspected(kind="begin")
+    metrics.payload_expired(kind="telegram_update")
     metrics.response_prepared(kind="help")
     metrics.delivery(
         kind="response",
@@ -44,6 +45,7 @@ def test_exports_every_application_metric_with_bounded_dimensions() -> None:
     metrics.notification_schedule(kind="custom", outcome="applied", locale="ru")
     metrics.notification(outcome="prepared", locale="ru")
     metrics.broadcast(outcome="delivered", locale="ru", count=23)
+    metrics.health_dependency(name="postgres", healthy=False)
 
     exposition = generate_latest(registry).decode()
 
@@ -53,8 +55,10 @@ def test_exports_every_application_metric_with_bounded_dimensions() -> None:
         in exposition
         and 'sein_zum_tode_questionnaire_answers_total{locale="ru",question_index="7"} 1.0'
         in exposition
+        and 'sein_zum_tode_payload_expired_total{kind="telegram_update"} 1.0' in exposition
         and 'sein_zum_tode_broadcast_deliveries_total{locale="ru",outcome="delivered"} 23.0'
         in exposition
+        and 'sein_zum_tode_dependency_up{dependency="postgres"} 0.0' in exposition
         and "user_id" not in exposition
     ), "metrics exposition omitted a business signal or exposed a high-cardinality user label"
 

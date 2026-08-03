@@ -7,6 +7,13 @@ from redis.asyncio import Redis
 from temporalio.client import Client
 
 from sein_zum_tode.config import Settings
+from sein_zum_tode.infrastructure.health import (
+    CallableHealthCheck,
+    HealthHttpServer,
+    HealthMonitor,
+    HealthState,
+    IngressHealth,
+)
 from sein_zum_tode.infrastructure.metrics import PrometheusHttpServer, PrometheusMetrics
 from sein_zum_tode.infrastructure.redis import RedisClient
 from sein_zum_tode.infrastructure.redis_documents import (
@@ -31,6 +38,15 @@ async def run(settings: Settings) -> None:
     stop_event = asyncio.Event()
     install_signal_handlers(stop_event)
     metrics, registry = PrometheusMetrics.create(component="ingress")
+    health = HealthState(
+        dependencies=("redis", "temporal"),
+        freshness_limits={
+            "telegram_polling": settings.telegram_polling_timeout_seconds * 2 + 10,
+        },
+        liveness_timeout_seconds=settings.health_liveness_timeout_seconds,
+        success_threshold=settings.health_success_threshold,
+        failure_threshold=settings.health_failure_threshold,
+    )
     bot = Bot(token=settings.telegram_bot_token.get_secret_value())
     redis_connection = Redis(
         host=settings.redis_host,
@@ -69,6 +85,7 @@ async def run(settings: Settings) -> None:
         task_queue=settings.temporal_task_queue,
         activity_retry_timeout_seconds=settings.temporal_activity_retry_timeout_seconds,
         questionnaire_ttl_seconds=settings.questionnaire_ttl_seconds,
+        broadcast_recipient_page_size=settings.broadcast_recipient_page_size,
     )
     poller = TelegramPoller(
         source=source,
@@ -79,12 +96,32 @@ async def run(settings: Settings) -> None:
             max_delay_seconds=settings.retry_max_delay_seconds,
         ),
         metrics=metrics,
+        health=IngressHealth(health),
+    )
+    health_monitor = HealthMonitor(
+        state=health,
+        checks=(
+            CallableHealthCheck(name="redis", probe=redis.ping),
+            CallableHealthCheck(
+                name="temporal",
+                probe=temporal.service_client.check_health,
+            ),
+        ),
+        interval_seconds=settings.health_check_interval_seconds,
+        timeout_seconds=settings.health_check_timeout_seconds,
+        metrics=metrics,
     )
     metrics_server = PrometheusHttpServer.start(
         host=settings.metrics_host,
         port=settings.metrics_port,
         registry=registry,
     )
+    health_server = HealthHttpServer.start(
+        host=settings.health_host,
+        port=settings.health_port,
+        state=health,
+    )
+    health_task = asyncio.create_task(health_monitor.run(stop_event))
     logging.getLogger(__name__).info(
         "Telegram ingress started",
         extra=LogContext(component="ingress").event("application_started"),
@@ -92,10 +129,14 @@ async def run(settings: Settings) -> None:
     try:
         await poller.run(stop_event)
     finally:
+        health.stopping()
+        stop_event.set()
+        await health_task
         logging.getLogger(__name__).info(
             "Telegram ingress stopping",
             extra=LogContext(component="ingress").event("application_stopping"),
         )
+        health_server.close()
         metrics_server.close()
         await bot.session.close()
         await redis_connection.aclose()

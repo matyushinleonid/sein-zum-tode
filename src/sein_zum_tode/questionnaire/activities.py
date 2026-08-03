@@ -78,10 +78,17 @@ class StartTelegramQuestionnaireActivity:
                 TelegramResponse(chat_id=input.chat_id, text=text),
                 self._response_ttl_seconds,
             )
-        privacy_response_key = QuestionnairePayloadKeys(input.questionnaire_key).privacy_response()
+        payload_keys = QuestionnairePayloadKeys(input.questionnaire_key)
+        privacy_response_key = payload_keys.privacy_response()
         await self._responses.store(
             privacy_response_key,
             TelegramResponse(chat_id=input.chat_id, text=state.deleted_message),
+            self._privacy_response_ttl_seconds,
+        )
+        cleanup_failure_response_key = payload_keys.cleanup_failure_response()
+        await self._responses.store(
+            cleanup_failure_response_key,
+            TelegramResponse(chat_id=input.chat_id, text=state.cleanup_failed_message),
             self._privacy_response_ttl_seconds,
         )
         self._logger.info(
@@ -100,6 +107,7 @@ class StartTelegramQuestionnaireActivity:
         return QuestionnaireStarted(
             response_keys=response_keys,
             privacy_response_key=privacy_response_key,
+            cleanup_failure_response_key=cleanup_failure_response_key,
         )
 
 
@@ -162,9 +170,15 @@ class RecordTelegramQuestionnaireAnswerActivity:
             chat_id=state.chat_id,
             text=answer.response_text,
         )
+        payload_keys = QuestionnairePayloadKeys(input.questionnaire_key)
         await self._responses.store(
-            QuestionnairePayloadKeys(input.questionnaire_key).privacy_response(),
+            payload_keys.privacy_response(),
             TelegramResponse(chat_id=state.chat_id, text=state.deleted_message),
+            self._privacy_response_ttl_seconds,
+        )
+        await self._responses.store(
+            payload_keys.cleanup_failure_response(),
+            TelegramResponse(chat_id=state.chat_id, text=state.cleanup_failed_message),
             self._privacy_response_ttl_seconds,
         )
         kind = (

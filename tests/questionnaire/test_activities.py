@@ -82,6 +82,7 @@ async def test_starts_with_a_redis_snapshot_and_three_prepared_messages() -> Non
     assert (
         actual.response_keys,
         actual.privacy_response_key,
+        actual.cleanup_failure_response_key,
         state.content_version,
         memory.responses,
     ) == (
@@ -91,6 +92,7 @@ async def test_starts_with_a_redis_snapshot_and_three_prepared_messages() -> Non
             "telegram:questionnaire:2269:initial:2",
         ),
         "telegram:questionnaire:2269:privacy",
+        "telegram:questionnaire:2269:cleanup-failure",
         "debug-cosmos-v1",
         {
             "telegram:questionnaire:2269:initial:0": TelegramResponse(
@@ -109,6 +111,10 @@ async def test_starts_with_a_redis_snapshot_and_three_prepared_messages() -> Non
                 chat_id=226_979,
                 text="your answers were deleted from our system",
             ),
+            "telegram:questionnaire:2269:cleanup-failure": TelegramResponse(
+                chat_id=226_979,
+                text="questionnaire cleanup could not be confirmed",
+            ),
         },
     ), "questionnaire start failed to snapshot content or prepare its ordered messages"
     assert [
@@ -120,6 +126,7 @@ async def test_starts_with_a_redis_snapshot_and_three_prepared_messages() -> Non
         2251,
         2251,
         2251,
+        2267,
         2267,
     ], "questionnaire start assigned the wrong TTL to stored private data"
 
@@ -174,6 +181,10 @@ async def test_records_text_and_refreshes_only_questionnaire_privacy_data() -> N
                 chat_id=state.chat_id,
                 text="your answers were deleted from our system",
             ),
+            "telegram:questionnaire:2273:cleanup-failure": TelegramResponse(
+                chat_id=state.chat_id,
+                text="questionnaire cleanup could not be confirmed",
+            ),
         },
     ), "accepted text did not advance state or prepare the next question"
     assert [
@@ -183,6 +194,7 @@ async def test_records_text_and_refreshes_only_questionnaire_privacy_data() -> N
     ] == [
         2237,
         2239,
+        2243,
         2243,
     ], "accepted text failed to restart inactivity and privacy response TTLs"
 

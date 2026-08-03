@@ -715,6 +715,7 @@ async def test_cleans_private_data_when_initial_delivery_and_cleanup_fail(
         start_outcome=QuestionnaireStarted(
             response_keys=("telegram:response:initial:2467",),
             privacy_response_key="telegram:response:privacy:2473",
+            cleanup_failure_response_key="telegram:response:cleanup-failure:2473",
         ),
         turn_outcomes={},
         failed_deliveries={"telegram:response:initial:2467"},
@@ -729,12 +730,19 @@ async def test_cleans_private_data_when_initial_delivery_and_cleanup_fail(
         ("start", "telegram:questionnaire:fault:2401"),
         ("deliver", "telegram:response:initial:2467"),
         ("cleanup", ("telegram:response:initial:2467",)),
-        ("deliver", "telegram:response:privacy:2473"),
         (
             "cleanup",
             (
                 "telegram:questionnaire:fault:2401",
+                "telegram:response:initial:2467",
+            ),
+        ),
+        ("deliver", "telegram:response:cleanup-failure:2473"),
+        (
+            "cleanup",
+            (
                 "telegram:response:privacy:2473",
+                "telegram:response:cleanup-failure:2473",
             ),
         ),
     ], "delivery failure skipped best-effort questionnaire and privacy cleanup"
@@ -748,6 +756,7 @@ async def test_finishes_privately_when_recording_an_answer_fails(
         start_outcome=QuestionnaireStarted(
             response_keys=(),
             privacy_response_key="telegram:response:privacy:2503",
+            cleanup_failure_response_key="telegram:response:cleanup-failure:2503",
         ),
         turn_outcomes={update_key: ApplicationError("record rejected", non_retryable=True)},
     )
@@ -764,13 +773,13 @@ async def test_finishes_privately_when_recording_an_answer_fails(
     assert transcript.events == [
         ("start", "telegram:questionnaire:fault:2401"),
         ("record", update_key),
+        ("cleanup", ("telegram:questionnaire:fault:2401", update_key)),
         ("deliver", "telegram:response:privacy:2503"),
         (
             "cleanup",
             (
-                "telegram:questionnaire:fault:2401",
-                update_key,
                 "telegram:response:privacy:2503",
+                "telegram:response:cleanup-failure:2503",
             ),
         ),
     ], "failed answer recording left the update or questionnaire snapshot behind"
@@ -785,6 +794,7 @@ async def test_ignores_duplicate_input_then_finishes_an_expired_questionnaire(
         start_outcome=QuestionnaireStarted(
             response_keys=(),
             privacy_response_key="telegram:response:privacy:2539",
+            cleanup_failure_response_key="telegram:response:cleanup-failure:2539",
         ),
         turn_outcomes={
             ignored_key: QuestionnaireTurn(kind=QuestionnaireTurnKind.IGNORED),
@@ -830,6 +840,7 @@ async def test_cancellation_cleans_an_update_being_recorded(
         start_outcome=QuestionnaireStarted(
             response_keys=(),
             privacy_response_key="telegram:response:privacy:2557",
+            cleanup_failure_response_key="telegram:response:cleanup-failure:2557",
         ),
         turn_outcomes={update_key: QuestionnaireTurn(kind=QuestionnaireTurnKind.QUESTION)},
         blocked_updates={update_key},
@@ -855,6 +866,7 @@ async def test_cancellation_cleans_an_update_being_recorded(
             "telegram:questionnaire:fault:2401",
             update_key,
             "telegram:response:privacy:2557",
+            "telegram:response:cleanup-failure:2557",
         ),
     ) in transcript.events, "cancellation failed to clean the answer currently being recorded"
 
@@ -868,6 +880,7 @@ async def test_activation_failure_does_not_restore_private_redis_data(
         start_outcome=QuestionnaireStarted(
             response_keys=(),
             privacy_response_key="telegram:response:privacy:2593",
+            cleanup_failure_response_key="telegram:response:cleanup-failure:2593",
         ),
         turn_outcomes={
             update_key: QuestionnaireTurn(
@@ -895,6 +908,7 @@ async def test_activation_failure_does_not_restore_private_redis_data(
         "apply_prediction",
         "prepare_prediction_failure",
         "deliver",
+        "cleanup",
         "deliver",
         "cleanup",
     ], "prediction failure changed the private-data completion sequence"
@@ -909,6 +923,7 @@ async def test_prediction_and_fallback_failure_still_deliver_privacy_notice(
         start_outcome=QuestionnaireStarted(
             response_keys=(),
             privacy_response_key="telegram:response:privacy:2603",
+            cleanup_failure_response_key="telegram:response:cleanup-failure:2603",
         ),
         turn_outcomes={
             update_key: QuestionnaireTurn(
@@ -929,8 +944,9 @@ async def test_prediction_and_fallback_failure_still_deliver_privacy_notice(
         )
         await handle.result()
 
-    assert [event[0] for event in transcript.events][-3:] == [
+    assert [event[0] for event in transcript.events][-4:] == [
         "deliver",
+        "cleanup",
         "deliver",
         "cleanup",
     ], "failed prediction fallback skipped response attempt, privacy notice, or cleanup"
@@ -946,6 +962,7 @@ async def test_forbidden_questionnaire_delivery_marks_the_mortal_unreachable(
         start_outcome=QuestionnaireStarted(
             response_keys=(response_key,),
             privacy_response_key="telegram:response:privacy:2617",
+            cleanup_failure_response_key="telegram:response:cleanup-failure:2617",
         ),
         turn_outcomes={},
         unavailable_deliveries={response_key},

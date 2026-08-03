@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 from time import monotonic
 
 from aiogram.enums import ChatMemberStatus, ChatType, ContentType
@@ -10,6 +11,7 @@ from sein_zum_tode.bot.content import BotContent, LocalizedBotContent, Notificat
 from sein_zum_tode.bot.errors import (
     InvalidStoredPayloadError,
     PermanentTelegramDeliveryError,
+    TelegramRateLimitedError,
     TelegramRecipientUnavailableError,
 )
 from sein_zum_tode.bot.models import (
@@ -23,6 +25,7 @@ from sein_zum_tode.bot.models import (
     PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME,
     PREPARE_LOCALIZATION_ACTIVITY_NAME,
     PREPARE_NOTIFICATIONS_ACTIVITY_NAME,
+    PREPARE_PAYLOAD_EXPIRED_ACTIVITY_NAME,
     PREPARE_SCREAM_DENIED_ACTIVITY_NAME,
     CleanupPayloadsInput,
     DeliverResponseInput,
@@ -77,11 +80,13 @@ class InspectTelegramUpdateActivity:
         try:
             update = await self._update_reader.load(input.update_key)
         except InvalidStoredPayloadError:
-            update = None
-        if update is None:
             inspected = self._unsupported(input)
         else:
-            inspected = self._classify(input, update)
+            if update is None:
+                inspected = self._expired(input)
+                self._metrics.payload_expired(kind="telegram_update")
+            else:
+                inspected = self._classify(input, update)
         self._logger.info(
             "Telegram update inspected",
             extra=LogContext(
@@ -278,6 +283,13 @@ class InspectTelegramUpdateActivity:
             chat_id=input.user_id,
         )
 
+    def _expired(self, input: InspectUpdateInput) -> InspectedUpdate:
+        return InspectedUpdate(
+            kind=InspectionKind.PAYLOAD_EXPIRED,
+            update_key=input.update_key,
+            chat_id=input.user_id,
+        )
+
     def _find_chat(self, update: Update) -> Chat | None:
         try:
             event = update.event
@@ -404,6 +416,14 @@ class PrepareTelegramResponseActivities:
             input,
             InspectionKind.LIMIT_EXHAUSTED,
             localized.llm.limit_exhausted,
+        )
+
+    @activity.defn(name=PREPARE_PAYLOAD_EXPIRED_ACTIVITY_NAME)
+    async def prepare_payload_expired(self, input: PrepareResponseInput) -> None:
+        await self._prepare_localized(
+            input,
+            InspectionKind.PAYLOAD_EXPIRED,
+            "payload_expired",
         )
 
     @activity.defn(name=PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME)
@@ -533,6 +553,13 @@ class DeliverTelegramResponseActivity:
             )
         try:
             await self._sender.send(response)
+        except TelegramRateLimitedError as error:
+            self._record_delivery(input, "failed", "rate_limited", started)
+            raise ApplicationError(
+                "Telegram delivery was rate limited",
+                type="TelegramRateLimited",
+                next_retry_delay=timedelta(seconds=error.retry_after_seconds),
+            ) from error
         except TelegramRecipientUnavailableError as error:
             self._record_delivery(input, "failed", "recipient_unavailable", started)
             raise ApplicationError(

@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 
 import pytest
 from aiogram.types import Update
@@ -14,6 +15,7 @@ from sein_zum_tode.bot.content import NotificationTier
 from sein_zum_tode.bot.errors import (
     InvalidStoredPayloadError,
     PermanentTelegramDeliveryError,
+    TelegramRateLimitedError,
     TelegramRecipientUnavailableError,
 )
 from sein_zum_tode.bot.models import (
@@ -26,6 +28,7 @@ from sein_zum_tode.bot.models import (
     TelegramResponse,
 )
 from sein_zum_tode.broadcasts.models import ScreamRequest
+from sein_zum_tode.ports.metrics import NoopApplicationMetrics
 from tests.support import (
     ActivityCase,
     BotContents,
@@ -41,6 +44,17 @@ pytestmark = pytest.mark.fast
 HELP_TEXT = "Navigate by the constellations"
 GROUP_UNSUPPORTED_RESPONSE_TEXT = "Group chats are not supported."
 SCREAM_DENIED_TEXT = "You can't scream 🤷‍♂️"
+PAYLOAD_EXPIRED_RESPONSE_TEXT = "This message expired. Please send it again."
+
+
+class InspectionMetrics(NoopApplicationMetrics):
+    def __init__(self) -> None:
+        self.expired: list[str] = []
+
+    def payload_expired(self, *, kind: str) -> None:
+        super().payload_expired(kind=kind)
+        self.expired.append(kind)
+
 
 SCREAM_MEDIA: tuple[dict[str, object], ...] = (
     {
@@ -525,7 +539,6 @@ async def test_hides_invalid_or_non_admin_notification_samples(
 @pytest.mark.parametrize(
     "update_outcome",
     [
-        None,
         InvalidStoredPayloadError("damaged comet 1327"),
         Update.model_validate({"update_id": 1357}),
         TelegramUpdates.anonymous_poll(update_id=1361),
@@ -548,6 +561,28 @@ async def test_falls_back_to_the_user_when_update_cannot_be_inspected(
     ), "inspection lost the user fallback for unavailable or unsupported input"
 
 
+async def test_reports_an_expired_update_without_treating_it_as_user_input() -> None:
+    metrics = InspectionMetrics()
+    subject = InspectTelegramUpdateActivity(
+        update_reader=memory(None).update_documents,
+        logger=SilentLogger(),
+        metrics=metrics,
+    )
+
+    actual = await subject.inspect(
+        InspectUpdateInput(update_key="telegram:expired:1369", user_id=136_777)
+    )
+
+    assert (actual, metrics.expired) == (
+        InspectedUpdate(
+            kind=InspectionKind.PAYLOAD_EXPIRED,
+            update_key="telegram:expired:1369",
+            chat_id=136_777,
+        ),
+        ["telegram_update"],
+    ), "an expired Redis payload was hidden as unsupported input or went unmeasured"
+
+
 @pytest.mark.parametrize(
     ("prepare", "expected_text"),
     [
@@ -566,6 +601,10 @@ async def test_falls_back_to_the_user_when_update_cannot_be_inspected(
         (
             lambda subject, input: subject.prepare_limit_exhausted(input),
             "LLM request limit exhausted",
+        ),
+        (
+            lambda subject, input: subject.prepare_payload_expired(input),
+            PAYLOAD_EXPIRED_RESPONSE_TEXT,
         ),
     ],
 )
@@ -798,6 +837,40 @@ async def test_rejects_a_permanent_telegram_delivery_failure() -> None:
                 user_id=None,
             )
         )
+
+
+async def test_retries_a_rate_limited_delivery_after_telegram_delay() -> None:
+    response = TelegramResponse(chat_id=148_743, text="Wait for the next orbit")
+    payloads = TelegramMemory(
+        update_result=None,
+        response_result=response,
+        store_result=None,
+        send_result=TelegramRateLimitedError(retry_after_seconds=31),
+        delete_result=None,
+    )
+    subject = DeliverTelegramResponseActivity(
+        response_reader=payloads.response_documents,
+        sender=payloads,
+        logger=SilentLogger(),
+    )
+
+    with pytest.raises(ApplicationError) as captured:
+        await subject.deliver(
+            DeliverResponseInput(
+                response_key="telegram:response:rate-limit:1491",
+                user_id=148_743,
+            )
+        )
+
+    assert (
+        captured.value.type,
+        captured.value.next_retry_delay,
+        captured.value.non_retryable,
+    ) == (
+        "TelegramRateLimited",
+        timedelta(seconds=31),
+        False,
+    ), "delivery Activity ignored Telegram retry-after semantics"
 
 
 async def test_marks_a_forbidden_recipient_for_mortal_deactivation() -> None:

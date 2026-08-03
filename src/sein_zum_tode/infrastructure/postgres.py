@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 from sqlalchemy.sql import Executable
+from sqlalchemy.sql.expression import text
 
 
 class PostgresClientError(Exception):
@@ -115,6 +116,14 @@ class PostgresClient:
                 await connection.execute(statement)
         except SQLAlchemyError as error:
             raise PostgresClientError("PostgreSQL statement failed") from error
+
+    async def ping(self) -> bool:
+        try:
+            async with self._engine.connect() as connection:
+                await connection.execute(text("SELECT 1"))
+        except SQLAlchemyError as error:
+            raise PostgresClientError("PostgreSQL health check failed") from error
+        return True
 
     async def fetch_one(self, statement: Executable) -> Mapping[str, Any] | None:
         try:

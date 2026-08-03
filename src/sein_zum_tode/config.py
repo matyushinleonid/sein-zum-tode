@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     log_format: Literal["console", "json"] = "console"
     metrics_host: str = "0.0.0.0"
     metrics_port: int = Field(default=8000, ge=1, le=65535)
+    health_host: str = "0.0.0.0"
+    health_port: int = Field(default=8001, ge=1, le=65535)
+    health_check_interval_seconds: float = Field(default=10.0, gt=0)
+    health_check_timeout_seconds: float = Field(default=3.0, gt=0)
+    health_liveness_timeout_seconds: float = Field(default=30.0, gt=0)
+    health_success_threshold: int = Field(default=1, ge=1)
+    health_failure_threshold: int = Field(default=2, ge=1)
+    broadcast_recipient_page_size: int = Field(default=100, ge=1, le=1000)
 
     telegram_bot_token: SecretStr
     telegram_polling_timeout_seconds: int = Field(default=30, ge=1)
@@ -54,9 +62,22 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode="after")
+    def validate_health_settings(self) -> Self:
+        if self.health_port == self.metrics_port:
+            raise ValueError("HEALTH_PORT and METRICS_PORT must be different")
+        minimum_liveness_timeout = (
+            self.health_check_interval_seconds + self.health_check_timeout_seconds
+        )
+        if self.health_liveness_timeout_seconds <= minimum_liveness_timeout:
+            raise ValueError(
+                "HEALTH_LIVENESS_TIMEOUT_SECONDS must exceed the health check interval and timeout"
+            )
+        return self
+
 
 class WorkerSettings(Settings):
-    telegram_admin_user_ids: frozenset[int] = frozenset({162573173})
+    telegram_admin_user_ids: frozenset[int] = frozenset()
     unsupported_update_session_ttl_seconds: int = Field(default=3600, ge=1)
     postgres_host: str = "localhost"
     postgres_port: int = Field(default=5432, ge=1, le=65535)

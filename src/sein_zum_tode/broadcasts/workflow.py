@@ -37,22 +37,37 @@ class TelegramScreamWorkflow:
     @workflow.run
     async def run(self, input: ScreamWorkflowInput) -> None:
         activity_timeout = timedelta(seconds=input.activity_retry_timeout_seconds)
-        delivered = 0
-        failed = 0
-        cursor: int | None = None
-        while True:
-            recipients = await self._recipients(input, cursor, activity_timeout)
-            if recipients is None:
-                break
-            for recipient_id in recipients.mortal_ids:
-                if await self._deliver(input, recipient_id, activity_timeout):
-                    delivered += 1
-                else:
-                    failed += 1
-            cursor = recipients.next_cursor()
-            if len(recipients.mortal_ids) < input.recipient_page_size:
-                break
-        await self._report(input, delivered, failed, activity_timeout)
+        recipients = await self._recipients(
+            input,
+            input.after_mortal_id,
+            activity_timeout,
+        )
+        if recipients is None:
+            await self._report(input, input.delivered, input.failed, activity_timeout)
+            return
+        delivered = input.delivered
+        failed = input.failed
+        for recipient_id in recipients.mortal_ids:
+            if await self._deliver(input, recipient_id, activity_timeout):
+                delivered += 1
+            else:
+                failed += 1
+        if len(recipients.mortal_ids) < input.recipient_page_size:
+            await self._report(input, delivered, failed, activity_timeout)
+            return
+        workflow.continue_as_new(
+            ScreamWorkflowInput(
+                request=input.request,
+                admin_user_id=input.admin_user_id,
+                admin_chat_id=input.admin_chat_id,
+                update_key=input.update_key,
+                activity_retry_timeout_seconds=input.activity_retry_timeout_seconds,
+                recipient_page_size=input.recipient_page_size,
+                after_mortal_id=recipients.next_cursor(),
+                delivered=delivered,
+                failed=failed,
+            )
+        )
 
     async def _recipients(
         self,

@@ -1,10 +1,12 @@
 import logging
+from datetime import timedelta
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from sein_zum_tode.bot.errors import (
     PermanentTelegramDeliveryError,
+    TelegramRateLimitedError,
     TelegramRecipientUnavailableError,
 )
 from sein_zum_tode.bot.models import TelegramResponse
@@ -74,6 +76,13 @@ class DeliverScreamActivity:
     async def deliver(self, input: DeliverScreamInput) -> None:
         try:
             await self._copier.copy(input.request, input.recipient_id)
+        except TelegramRateLimitedError as error:
+            self._metrics.broadcast(outcome="rate_limited", locale=input.request.locale)
+            raise ApplicationError(
+                f"Telegram rate limited scream for chat {input.recipient_id}",
+                type="TelegramRateLimited",
+                next_retry_delay=timedelta(seconds=error.retry_after_seconds),
+            ) from error
         except TelegramRecipientUnavailableError as error:
             self._metrics.broadcast(outcome="recipient_unavailable", locale=input.request.locale)
             raise ApplicationError(

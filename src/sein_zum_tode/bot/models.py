@@ -16,6 +16,7 @@ PREPARE_LOCALIZATION_ACTIVITY_NAME = "prepare_localization_response"
 PREPARE_NOTIFICATIONS_ACTIVITY_NAME = "prepare_notifications_response"
 PREPARE_CUSTOM_NOTIFICATION_ACTIVITY_NAME = "prepare_custom_notification_response"
 PREPARE_LIMIT_EXHAUSTED_ACTIVITY_NAME = "prepare_limit_exhausted_response"
+PREPARE_PAYLOAD_EXPIRED_ACTIVITY_NAME = "prepare_payload_expired_response"
 PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME = "prepare_group_unsupported_response"
 PREPARE_SCREAM_DENIED_ACTIVITY_NAME = "prepare_scream_denied_response"
 DELIVER_RESPONSE_ACTIVITY_NAME = "deliver_telegram_response"
@@ -39,6 +40,7 @@ class InspectionKind(StrEnum):
     UNSUPPORTED = "unsupported"
     GROUP_UNSUPPORTED = "group_unsupported"
     LIMIT_EXHAUSTED = "limit_exhausted"
+    PAYLOAD_EXPIRED = "payload_expired"
     MORTAL_BLOCKED = "mortal_blocked"
     MORTAL_UNBLOCKED = "mortal_unblocked"
 
@@ -67,6 +69,7 @@ class UserWorkflowInput:
     recent_update_keys: tuple[str, ...] = ()
     continue_as_new_after_updates: int | None = None
     awaiting_custom_notification: bool = False
+    broadcast_recipient_page_size: int = 100
 
 
 @dataclass(frozen=True, slots=True)

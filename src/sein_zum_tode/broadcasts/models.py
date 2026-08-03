@@ -21,6 +21,9 @@ class ScreamWorkflowInput:
     update_key: str
     activity_retry_timeout_seconds: int
     recipient_page_size: int = 100
+    after_mortal_id: int | None = None
+    delivered: int = 0
+    failed: int = 0
 
 
 @dataclass(frozen=True, slots=True)
