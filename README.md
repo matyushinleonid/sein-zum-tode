@@ -8,6 +8,7 @@
 [![Telegram](https://img.shields.io/badge/Telegram-@SeinZumTodeBot-26A5E4?logo=telegram)](https://t.me/SeinZumTodeBot)
 [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue?logo=python)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![](https://img.shields.io/badge/coffee%20drunk-694%20L-6F4E37)](https://github.com/sebmestrallet/absurd-badges)
 
 # Sein zum Tode
 

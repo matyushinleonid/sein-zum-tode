@@ -8,6 +8,7 @@ from pydantic import SecretStr
 
 import sein_zum_tode.main as ingress_module
 import sein_zum_tode.worker as worker_module
+from sein_zum_tode.bot.models import TelegramKeyboardMode
 from sein_zum_tode.infrastructure.completion_config import (
     CompletionProvider,
     OpenAICompletionConfig,
@@ -173,6 +174,7 @@ async def test_assembles_and_closes_the_temporal_worker(
             Path("config/notification-schedule.yaml"),
         ),
         ("notification_schedule_config.load",),
+        ("keyboards", True, True, TelegramKeyboardMode.REPLY),
         ("predictor", True, True),
         ("schedule_interpreter", True, True),
         ("bot", "181:irregular-token"),
@@ -263,7 +265,7 @@ async def test_assembles_and_closes_the_temporal_worker(
             1801,
         ),
         ("sender", True),
-        ("inspect", True, frozenset({181_081, 181_087})),
+        ("inspect", True, True, frozenset({181_081, 181_087})),
         ("prepare", True, 1823, True, True, True),
         ("prepare_unsupported", True, True, True, True, True, 1871, 1811, 1823),
         ("start_questionnaire", True, True, True, True, 1877, 1823, 3678),
@@ -283,6 +285,7 @@ async def test_assembles_and_closes_the_temporal_worker(
                 "schedules",
                 "content",
                 "presets",
+                "keyboards",
                 "response_ttl_seconds",
             ),
         ),
@@ -321,6 +324,7 @@ async def test_assembles_and_closes_the_temporal_worker(
                 "responses",
                 "mortals",
                 "content",
+                "keyboards",
                 "response_ttl_seconds",
             ),
         ),

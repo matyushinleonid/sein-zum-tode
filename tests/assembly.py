@@ -6,6 +6,7 @@ from typing import Any, cast
 
 from pydantic import SecretStr
 
+from sein_zum_tode.bot.models import TelegramKeyboardMode
 from sein_zum_tode.config import Settings, WorkerSettings
 from sein_zum_tode.mortals.models import MortalRegistrationDefaults
 
@@ -31,6 +32,7 @@ def explicit_settings() -> WorkerSettings:
         telegram_update_ttl_seconds=1823,
         unsupported_update_session_ttl_seconds=1811,
         telegram_admin_user_ids=frozenset({181_081, 181_087}),
+        telegram_keyboard_mode=TelegramKeyboardMode.REPLY,
         questionnaire_ttl_seconds=1877,
         bot_content_path=Path("config/cosmos-content.yaml"),
         retry_initial_delay_seconds=0.73,
@@ -408,6 +410,7 @@ class WorkerAssembly:
         self.mortals = object()
         self.schedules = object()
         self.sender = object()
+        self.keyboards = object()
         self.content = ContentResource()
         self.notification_presenter = object()
         self.prediction_config = SimpleNamespace(
@@ -452,6 +455,7 @@ class WorkerAssembly:
         )
         monkeypatch.setattr(module, "Client", SimpleNamespace(connect=self.connect_temporal))
         monkeypatch.setattr(module, "YamlBotContentLoader", self.create_content_loader)
+        monkeypatch.setattr(module, "TelegramKeyboardCatalog", self.create_keyboard_catalog)
         monkeypatch.setattr(
             module,
             "YamlDeathPredictionConfigLoader",
@@ -722,11 +726,23 @@ class WorkerAssembly:
         )
         return self.schedule_interpreter
 
+    def create_keyboard_catalog(self, **options: object) -> object:
+        self.events.append(
+            (
+                "keyboards",
+                options["content"] is self.content,
+                options["notification_presets"] is self.notification_schedule_config.presets,
+                options["mode"],
+            )
+        )
+        return self.keyboards
+
     def create_inspect(self, **options: object) -> ActivityDefinitions:
         self.events.append(
             (
                 "inspect",
                 options["update_reader"] is self.update_documents,
+                options["keyboards"] is self.keyboards,
                 options["admin_user_ids"],
             )
         )
@@ -740,7 +756,7 @@ class WorkerAssembly:
                 options["ttl_seconds"],
                 options["content"] is self.content,
                 options["mortals"] is self.mortals,
-                options["notification_presets"] is self.notification_schedule_config.presets,
+                options["keyboards"] is self.keyboards,
             )
         )
         return ActivityDefinitions(

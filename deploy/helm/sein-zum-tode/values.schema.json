@@ -29,7 +29,8 @@
         "telegramUpdateTtlSeconds",
         "unsupportedUpdateSessionTtlSeconds",
         "questionnaireTtlSeconds",
-        "temporalActivityRetryTimeoutSeconds"
+        "temporalActivityRetryTimeoutSeconds",
+        "telegramKeyboardMode"
       ],
       "properties": {
         "logLevel": {"enum": ["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]},
@@ -38,6 +39,7 @@
         "unsupportedUpdateSessionTtlSeconds": {"type": "integer", "minimum": 1},
         "questionnaireTtlSeconds": {"type": "integer", "minimum": 1},
         "temporalActivityRetryTimeoutSeconds": {"type": "integer", "minimum": 1},
+        "telegramKeyboardMode": {"enum": ["inline", "reply"]},
         "telegramAdminUserIds": {
           "type": "array",
           "uniqueItems": true,

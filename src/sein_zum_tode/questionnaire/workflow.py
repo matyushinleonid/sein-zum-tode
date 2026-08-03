@@ -272,6 +272,7 @@ class TelegramQuestionnaireWorkflow:
         ]
         cleaned = await self._cleanup(tuple(sensitive_keys))
         notice_key = privacy_response_key if cleaned else cleanup_failure_response_key
+        await self._notify_finished()
         await self._deliver_all(
             (notice_key,),
             update_key=self._active_update_key,
@@ -280,7 +281,6 @@ class TelegramQuestionnaireWorkflow:
         self._forget_responses(keys)
         self._privacy_response_key = None
         self._cleanup_failure_response_key = None
-        await self._notify_finished()
 
     async def _mark_mortal_unreachable(self) -> None:
         try:

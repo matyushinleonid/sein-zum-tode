@@ -16,6 +16,7 @@ from sein_zum_tode.bot.activities import (
     PrepareTelegramResponseActivities,
 )
 from sein_zum_tode.bot.content import BotContent, YamlBotContentLoader
+from sein_zum_tode.bot.keyboards import TelegramKeyboardCatalog
 from sein_zum_tode.bot.models import TelegramResponse
 from sein_zum_tode.bot.sender import AiogramTelegramMessageSender
 from sein_zum_tode.bot.workflow import TelegramUserWorkflow
@@ -291,6 +292,11 @@ async def run(settings: WorkerSettings) -> None:
     notification_schedule_config = YamlNotificationScheduleConfigLoader(
         settings.notification_schedule_config_path
     ).load()
+    keyboards = TelegramKeyboardCatalog(
+        content=content,
+        notification_presets=notification_schedule_config.presets,
+        mode=settings.telegram_keyboard_mode,
+    )
     predictor = create_death_predictor(
         config=prediction_config,
         content=content,
@@ -394,6 +400,7 @@ async def run(settings: WorkerSettings) -> None:
     sender = AiogramTelegramMessageSender(bot)
     inspect = InspectTelegramUpdateActivity(
         update_reader=update_documents,
+        keyboards=keyboards,
         admin_user_ids=settings.telegram_admin_user_ids,
         metrics=metrics,
     )
@@ -402,7 +409,7 @@ async def run(settings: WorkerSettings) -> None:
         ttl_seconds=settings.telegram_update_ttl_seconds,
         content=content,
         mortals=mortals,
-        notification_presets=notification_schedule_config.presets,
+        keyboards=keyboards,
         metrics=metrics,
     )
     prepare_unsupported = PrepareUnsupportedResponseActivity(
@@ -462,6 +469,7 @@ async def run(settings: WorkerSettings) -> None:
         schedules=schedules,
         content=content,
         presets=notification_schedule_config.presets,
+        keyboards=keyboards,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
         metrics=metrics,
     )
@@ -498,6 +506,7 @@ async def run(settings: WorkerSettings) -> None:
         responses=response_documents,
         mortals=mortals,
         content=content,
+        keyboards=keyboards,
         response_ttl_seconds=settings.telegram_update_ttl_seconds,
     )
     generate_prediction = GenerateDeathPredictionActivity(

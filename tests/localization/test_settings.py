@@ -11,6 +11,7 @@ from tests.support import (
     TelegramMemory,
     TelegramUpdates,
     mortal,
+    telegram_keyboards,
 )
 
 pytestmark = pytest.mark.fast
@@ -47,6 +48,7 @@ async def test_configures_each_supported_localization(
         responses=payloads.response_documents,
         mortals=mortals,
         content=BotContents.debug(),
+        keyboards=telegram_keyboards(),
         response_ttl_seconds=3617,
         logger=SilentLogger(),
     )
@@ -70,6 +72,53 @@ async def test_configures_each_supported_localization(
         confirmation,
         "callback-Sphinx-915",
     ), "localization callback did not persist or confirm the selected language"
+
+
+async def test_configures_localization_from_reply_keyboard_text() -> None:
+    user_id = 361_017
+    payloads = TelegramMemory(
+        update_result=TelegramUpdates.message(
+            update_id=3617,
+            user_id=user_id,
+            chat_id=user_id,
+            text="🇷🇺 RU",
+            chat_type="private",
+        ),
+        response_result=None,
+        store_result=None,
+        send_result=None,
+        delete_result=None,
+    )
+    mortals = MortalMemory({user_id: mortal(id=user_id)})
+    subject = ConfigureMortalLocalizationActivity(
+        updates=payloads.update_documents,
+        responses=payloads.response_documents,
+        mortals=mortals,
+        content=BotContents.debug(),
+        keyboards=telegram_keyboards(),
+        response_ttl_seconds=3619,
+        logger=SilentLogger(),
+    )
+    input = PrepareResponseInput(
+        update_key="telegram:localization:3617",
+        response_key="telegram:localization:3617:response",
+        chat_id=user_id,
+        user_id=user_id,
+        remove_reply_keyboard=True,
+    )
+
+    await subject.configure(input)
+
+    response = payloads.responses[input.response_key]
+    assert (
+        mortals.mortals[user_id].locale,
+        response.text,
+        response.remove_reply_keyboard,
+    ) == (
+        "ru",
+        "Язык изменён на русский.",
+        True,
+    ), "reply keyboard locale was not persisted, confirmed, and dismissed"
 
 
 @pytest.mark.parametrize(
@@ -102,6 +151,7 @@ async def test_rejects_an_invalid_localization_callback(
         responses=payloads.response_documents,
         mortals=MortalMemory(),
         content=BotContents.debug(),
+        keyboards=telegram_keyboards(),
         response_ttl_seconds=3623,
         logger=SilentLogger(),
     )

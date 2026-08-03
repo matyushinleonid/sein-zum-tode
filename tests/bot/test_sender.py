@@ -8,7 +8,12 @@ from aiogram.exceptions import (
     TelegramRetryAfter,
 )
 from aiogram.methods import CopyMessage, SendAudio, SendMessage
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import (
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    ReplyMarkupUnion,
+)
 
 from sein_zum_tode.bot.errors import (
     PermanentTelegramDeliveryError,
@@ -20,6 +25,7 @@ from sein_zum_tode.bot.models import (
     TelegramAttachment,
     TelegramAttachmentKind,
     TelegramButton,
+    TelegramKeyboardMode,
     TelegramResponse,
 )
 from sein_zum_tode.bot.sender import AiogramTelegramMessageSender
@@ -45,7 +51,7 @@ class CustomEmojiRejectedBot(TelegramBotDouble):
         chat_id: int,
         text: str,
         parse_mode: str | None = None,
-        reply_markup: InlineKeyboardMarkup | None = None,
+        reply_markup: ReplyMarkupUnion | None = None,
     ) -> object:
         self.events.append(("send_message", (chat_id, text, parse_mode, reply_markup)))
         if len(self.events) == 1:
@@ -71,7 +77,7 @@ class CustomEmojiRejectedAudioBot(TelegramBotDouble):
         audio: str,
         caption: str,
         parse_mode: str | None = None,
-        reply_markup: InlineKeyboardMarkup | None = None,
+        reply_markup: ReplyMarkupUnion | None = None,
     ) -> object:
         self.audio_attempts += 1
         self.events.append(("send_audio", (chat_id, audio, caption, parse_mode, reply_markup)))
@@ -139,6 +145,70 @@ async def test_answers_a_callback_and_sends_an_inline_keyboard() -> None:
         (171_013, "Choose", "HTML"),
         "notifications:daily",
     ), "callback acknowledgement, HTML mode, or inline keyboard was lost"
+
+
+async def test_sends_a_one_time_reply_keyboard_below_the_input() -> None:
+    bot = TelegramBotDouble(
+        updates=[],
+        delete_result=None,
+        receive_result=None,
+        send_result=None,
+    )
+    sender = AiogramTelegramMessageSender(bot)
+
+    await sender.send(
+        TelegramResponse(
+            chat_id=171_019,
+            text="Choose",
+            keyboard=(
+                (
+                    TelegramButton(
+                        text="Daily · 09:00",
+                        callback_data="notifications:daily",
+                    ),
+                ),
+            ),
+            keyboard_mode=TelegramKeyboardMode.REPLY,
+        )
+    )
+
+    send_arguments = cast(tuple[object, ...], bot.events[0][1])
+    reply_markup = cast(ReplyKeyboardMarkup, send_arguments[3])
+    assert (
+        reply_markup.keyboard[0][0].text,
+        reply_markup.resize_keyboard,
+        reply_markup.one_time_keyboard,
+        reply_markup.is_persistent,
+    ) == (
+        "Daily · 09:00",
+        True,
+        True,
+        False,
+    ), "reply keyboard was not rendered as a compact one-time Telegram keyboard"
+
+
+async def test_removes_a_reply_keyboard_after_the_selection() -> None:
+    bot = TelegramBotDouble(
+        updates=[],
+        delete_result=None,
+        receive_result=None,
+        send_result=None,
+    )
+    sender = AiogramTelegramMessageSender(bot)
+
+    await sender.send(
+        TelegramResponse(
+            chat_id=171_029,
+            text="Selected",
+            remove_reply_keyboard=True,
+        )
+    )
+
+    send_arguments = cast(tuple[object, ...], bot.events[0][1])
+    reply_markup = cast(ReplyKeyboardRemove, send_arguments[3])
+    assert reply_markup.remove_keyboard is True, (
+        "reply keyboard remained visible after its selection was handled"
+    )
 
 
 async def test_classifies_a_rejected_chat_as_a_permanent_failure() -> None:

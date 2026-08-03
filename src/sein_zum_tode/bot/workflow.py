@@ -300,6 +300,7 @@ class TelegramUserWorkflow:
                 callback_query_id=inspected.callback_query_id,
                 is_text_message=inspected.kind == InspectionKind.TEXT,
                 notification_sample=inspected.notification_sample,
+                remove_reply_keyboard=inspected.reply_keyboard_selection,
             )
             response_prepared = True
             if inspected.kind in UNSUPPORTED_INSPECTION_KINDS:

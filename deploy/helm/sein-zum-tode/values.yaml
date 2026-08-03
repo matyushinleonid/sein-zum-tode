@@ -52,6 +52,7 @@ application:
   temporalActivityRetryTimeoutSeconds: 300
   broadcastRecipientPageSize: 100
   telegramAdminUserIds: []
+  telegramKeyboardMode: reply
 
 applicationConfig:
   create: true

@@ -82,7 +82,7 @@ from tests.support import (
     TelegramUpdates,
     UnsupportedSessionMemory,
     mortal,
-    notification_presets,
+    telegram_keyboards,
 )
 
 pytestmark = [
@@ -379,6 +379,7 @@ class QuestionnaireWorkflowStory:
         schedules = MortalScheduleMemory()
         inspect = InspectTelegramUpdateActivity(
             update_reader=memory.update_documents,
+            keyboards=telegram_keyboards(content=content),
             logger=SilentLogger(),
         )
         prepare = PrepareTelegramResponseActivities(
@@ -386,7 +387,7 @@ class QuestionnaireWorkflowStory:
             ttl_seconds=211,
             content=content,
             mortals=mortals,
-            notification_presets=notification_presets(),
+            keyboards=telegram_keyboards(content=content),
             logger=SilentLogger(),
         )
         prepare_unsupported = PrepareUnsupportedResponseActivity(

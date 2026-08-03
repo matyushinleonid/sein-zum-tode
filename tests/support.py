@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Protocol, cast
 
-from aiogram.types import InlineKeyboardMarkup, Update
+from aiogram.types import ReplyMarkupUnion, Update
 from temporalio.common import WorkflowIDConflictPolicy
 
 from sein_zum_tode.bot.content import (
@@ -28,8 +28,10 @@ from sein_zum_tode.bot.content import (
     QuestionContent,
     QuestionnaireContent,
 )
+from sein_zum_tode.bot.keyboards import TelegramKeyboardCatalog
 from sein_zum_tode.bot.models import (
     InspectionKind,
+    TelegramKeyboardMode,
     TelegramResponse,
     TelegramUpdateSignal,
     UserWorkflowInput,
@@ -71,6 +73,19 @@ def notification_presets() -> NotificationPresets:
         daily="0 9 * * *",
         weekly="0 9 * * 1",
         monthly="0 9 1 * *",
+    )
+
+
+def telegram_keyboards(
+    *,
+    content: BotContent | None = None,
+    presets: NotificationPresets | None = None,
+    mode: TelegramKeyboardMode = TelegramKeyboardMode.INLINE,
+) -> TelegramKeyboardCatalog:
+    return TelegramKeyboardCatalog(
+        content=content or BotContents.debug(),
+        notification_presets=presets or notification_presets(),
+        mode=mode,
     )
 
 
@@ -625,7 +640,7 @@ class TelegramBotDouble:
         chat_id: int,
         text: str,
         parse_mode: str | None = None,
-        reply_markup: InlineKeyboardMarkup | None = None,
+        reply_markup: ReplyMarkupUnion | None = None,
     ) -> object:
         self.events.append(("send_message", (chat_id, text, parse_mode, reply_markup)))
         return result_or_raise(self.send_result)
@@ -637,7 +652,7 @@ class TelegramBotDouble:
         audio: str,
         caption: str,
         parse_mode: str | None = None,
-        reply_markup: InlineKeyboardMarkup | None = None,
+        reply_markup: ReplyMarkupUnion | None = None,
     ) -> object:
         self.events.append(("send_audio", (chat_id, audio, caption, parse_mode, reply_markup)))
         return result_or_raise(self.send_result)
@@ -649,7 +664,7 @@ class TelegramBotDouble:
         photo: str,
         caption: str,
         parse_mode: str | None = None,
-        reply_markup: InlineKeyboardMarkup | None = None,
+        reply_markup: ReplyMarkupUnion | None = None,
     ) -> object:
         self.events.append(("send_photo", (chat_id, photo, caption, parse_mode, reply_markup)))
         return result_or_raise(self.send_result)
@@ -661,7 +676,7 @@ class TelegramBotDouble:
         video: str,
         caption: str,
         parse_mode: str | None = None,
-        reply_markup: InlineKeyboardMarkup | None = None,
+        reply_markup: ReplyMarkupUnion | None = None,
     ) -> object:
         self.events.append(("send_video", (chat_id, video, caption, parse_mode, reply_markup)))
         return result_or_raise(self.send_result)
@@ -673,7 +688,7 @@ class TelegramBotDouble:
         document: str,
         caption: str,
         parse_mode: str | None = None,
-        reply_markup: InlineKeyboardMarkup | None = None,
+        reply_markup: ReplyMarkupUnion | None = None,
     ) -> object:
         self.events.append(
             ("send_document", (chat_id, document, caption, parse_mode, reply_markup))
@@ -1185,3 +1200,4 @@ class ActivityCase:
     expected_kind: InspectionKind
     expected_chat_id: int
     expected_callback_query_id: str | None = None
+    expected_reply_keyboard_selection: bool = False

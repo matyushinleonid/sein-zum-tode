@@ -95,7 +95,7 @@ from tests.support import (
     TelegramUpdates,
     UnsupportedSessionMemory,
     mortal,
-    notification_presets,
+    telegram_keyboards,
 )
 
 pytestmark = [
@@ -193,6 +193,7 @@ class ActivityTranscript:
         failing_custom_schedule: bool = False,
         silent_unsupported_updates: set[str] | None = None,
         sample_tiers: dict[str, NotificationTier] | None = None,
+        reply_keyboard_selections: set[str] | None = None,
     ) -> None:
         self.inspections = inspections
         self.failing_inspection = failing_inspection
@@ -208,7 +209,9 @@ class ActivityTranscript:
         self.failing_custom_schedule = failing_custom_schedule
         self.silent_unsupported_updates = silent_unsupported_updates or set()
         self.sample_tiers = sample_tiers or {}
+        self.reply_keyboard_selections = reply_keyboard_selections or set()
         self.received_samples: list[NotificationTier | None] = []
+        self.received_remove_reply_keyboard: list[bool] = []
         self.events: list[tuple[str, str, int | None]] = []
         self.changed = asyncio.Event()
         self.inspection_started = asyncio.Event()
@@ -236,6 +239,7 @@ class ActivityTranscript:
             chat_id=input.user_id + 17,
             scream_request=self.scream_requests.get(input.update_key),
             notification_sample=self.sample_tiers.get(input.update_key),
+            reply_keyboard_selection=input.update_key in self.reply_keyboard_selections,
         )
 
     @activity.defn(name=PREPARE_HELP_ACTIVITY_NAME)
@@ -364,6 +368,7 @@ class ActivityTranscript:
 
     @activity.defn(name=CONFIGURE_MORTAL_LOCALIZATION_ACTIVITY_NAME)
     async def configure_localization(self, input: PrepareResponseInput) -> None:
+        self.received_remove_reply_keyboard.append(input.remove_reply_keyboard)
         self.record(
             operation="configure_localization",
             update_key=input.update_key,
@@ -1307,6 +1312,7 @@ async def test_requires_localization_before_processing_a_new_mortal(
         failing_inspection=None,
         failing_cleanup=False,
         localization_required=True,
+        reply_keyboard_selections={selection_key},
     )
     async with await WorkflowStory.open(
         pool=workflow_worker_pool,
@@ -1331,20 +1337,26 @@ async def test_requires_localization_before_processing_a_new_mortal(
         )
         await handle.result()
 
-    assert events == [
-        ("inspect", first_key, 173_357),
-        ("prepare_localization", first_key, 173_357),
-        ("deliver", first_key, 173_357),
-        ("cleanup", first_key, 173_357),
-        ("inspect", selection_key, 173_357),
-        ("configure_localization", selection_key, 173_357),
-        ("deliver", selection_key, 173_357),
-        ("cleanup", selection_key, 173_357),
-        ("inspect", text_key, 173_357),
-        ("prepare_unsupported", text_key, 173_357),
-        ("deliver", text_key, 173_357),
-        ("cleanup", text_key, 173_357),
-    ], "first contact was processed before explicit localization or lost after selection"
+    assert (
+        events,
+        transcript.received_remove_reply_keyboard,
+    ) == (
+        [
+            ("inspect", first_key, 173_357),
+            ("prepare_localization", first_key, 173_357),
+            ("deliver", first_key, 173_357),
+            ("cleanup", first_key, 173_357),
+            ("inspect", selection_key, 173_357),
+            ("configure_localization", selection_key, 173_357),
+            ("deliver", selection_key, 173_357),
+            ("cleanup", selection_key, 173_357),
+            ("inspect", text_key, 173_357),
+            ("prepare_unsupported", text_key, 173_357),
+            ("deliver", text_key, 173_357),
+            ("cleanup", text_key, 173_357),
+        ],
+        [True],
+    ), "first contact or reply-keyboard dismissal was lost after localization"
 
 
 @pytest.mark.parametrize(
@@ -1669,6 +1681,7 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
     )
     inspect = InspectTelegramUpdateActivity(
         update_reader=telegram.update_documents,
+        keyboards=telegram_keyboards(),
         logger=SilentLogger(),
     )
     prepare = PrepareTelegramResponseActivities(
@@ -1676,7 +1689,7 @@ async def test_keeps_sensitive_message_text_out_of_workflow_history(
         ttl_seconds=1801,
         content=BotContents.debug(),
         mortals=MortalMemory({173_357: mortal(id=173_357)}),
-        notification_presets=notification_presets(),
+        keyboards=telegram_keyboards(),
         logger=SilentLogger(),
     )
     unsupported_sessions = UnsupportedSessionMemory()

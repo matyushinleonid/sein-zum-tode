@@ -12,6 +12,8 @@ from tests.support import (
     TelegramMemory,
     TelegramUpdates,
     mortal,
+    notification_presets,
+    telegram_keyboards,
 )
 
 pytestmark = pytest.mark.fast
@@ -59,6 +61,7 @@ async def test_configures_each_notification_frequency(
             monthly="23 10 3 * *",
             never=None,
         ),
+        keyboards=telegram_keyboards(),
         response_ttl_seconds=3517,
         logger=SilentLogger(),
     )
@@ -84,6 +87,57 @@ async def test_configures_each_notification_frequency(
         f"Notifications: {label}",
         "callback-Sphinx-915",
     ), "callback selection did not update PostgreSQL, Schedule, or localized response"
+
+
+async def test_configures_notifications_from_reply_keyboard_text() -> None:
+    user_id = 351_019
+    payloads = TelegramMemory(
+        update_result=TelegramUpdates.message(
+            update_id=3519,
+            user_id=user_id,
+            chat_id=user_id,
+            text="Weekly · 09:00",
+            chat_type="private",
+        ),
+        response_result=None,
+        store_result=None,
+        send_result=None,
+        delete_result=None,
+    )
+    mortals = MortalMemory({user_id: mortal(id=user_id)})
+    schedules = MortalScheduleMemory()
+    presets = notification_presets()
+    subject = ConfigureMortalNotificationsActivity(
+        updates=payloads.update_documents,
+        responses=payloads.response_documents,
+        mortals=mortals,
+        schedules=schedules,
+        content=BotContents.debug(),
+        presets=presets,
+        keyboards=telegram_keyboards(presets=presets),
+        response_ttl_seconds=3521,
+        logger=SilentLogger(),
+    )
+    input = PrepareResponseInput(
+        update_key="telegram:notifications:3519",
+        response_key="telegram:notifications:3519:response",
+        chat_id=user_id,
+        user_id=user_id,
+        remove_reply_keyboard=True,
+    )
+
+    await subject.configure(input)
+
+    response = payloads.responses[input.response_key]
+    assert (
+        mortals.mortals[user_id].notification_cron,
+        response.text,
+        response.remove_reply_keyboard,
+    ) == (
+        "0 9 * * 1",
+        "Notifications: Weekly",
+        True,
+    ), "reply keyboard frequency was not persisted, confirmed, and dismissed"
 
 
 async def test_rejects_an_unknown_notification_callback() -> None:
@@ -112,6 +166,7 @@ async def test_rejects_an_unknown_notification_callback() -> None:
             monthly="23 10 3 * *",
             never=None,
         ),
+        keyboards=telegram_keyboards(),
         response_ttl_seconds=3529,
         logger=SilentLogger(),
     )
