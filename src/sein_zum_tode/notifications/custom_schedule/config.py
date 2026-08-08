@@ -50,11 +50,18 @@ class NotificationScheduleConfig(BaseModel):
     default_frequency: NotificationFrequency
     presets: NotificationPresets
     provider: CompletionProvider
+    fallback_provider: CompletionProvider | None = None
     minimum_interval_hours: int = Field(default=20, ge=1)
     system_prompt: str = Field(min_length=1)
     mock: MockNotificationScheduleConfig
     yandex: YandexCompletionConfig
     openai: OpenAICompletionConfig
+
+    @model_validator(mode="after")
+    def validate_fallback_provider(self) -> Self:
+        if self.fallback_provider == self.provider:
+            raise ValueError("fallback_provider must differ from provider")
+        return self
 
     @model_validator(mode="after")
     def validate_default_timezone(self) -> Self:

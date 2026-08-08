@@ -128,13 +128,15 @@ def create_death_predictor(
     config: DeathPredictionConfig,
     content: BotContent,
     settings: WorkerSettings,
+    provider: CompletionProvider | None = None,
 ) -> DeathPredictor:
-    if config.provider == CompletionProvider.MOCK:
+    selected = provider if provider is not None else config.provider
+    if selected == CompletionProvider.MOCK:
         return MockDeathPredictor(
             config=config.mock,
             content=content,
         )
-    if config.provider == CompletionProvider.OPENAI:
+    if selected == CompletionProvider.OPENAI:
         if (
             settings.openai_api_key is None
             or not settings.openai_api_key.get_secret_value()
@@ -204,13 +206,15 @@ def create_notification_schedule_interpreter(
     config: NotificationScheduleConfig,
     content: BotContent,
     settings: WorkerSettings,
+    provider: CompletionProvider | None = None,
 ) -> NotificationScheduleInterpreter:
-    if config.provider == CompletionProvider.MOCK:
+    selected = provider if provider is not None else config.provider
+    if selected == CompletionProvider.MOCK:
         return MockNotificationScheduleInterpreter(
             config=config.mock,
             content=content,
         )
-    if config.provider == CompletionProvider.OPENAI:
+    if selected == CompletionProvider.OPENAI:
         if (
             settings.openai_api_key is None
             or not settings.openai_api_key.get_secret_value()
@@ -302,10 +306,30 @@ async def run(settings: WorkerSettings) -> None:
         content=content,
         settings=settings,
     )
+    fallback_predictor = (
+        None
+        if prediction_config.fallback_provider is None
+        else create_death_predictor(
+            config=prediction_config,
+            content=content,
+            settings=settings,
+            provider=prediction_config.fallback_provider,
+        )
+    )
     schedule_interpreter = create_notification_schedule_interpreter(
         config=notification_schedule_config,
         content=content,
         settings=settings,
+    )
+    fallback_schedule_interpreter = (
+        None
+        if notification_schedule_config.fallback_provider is None
+        else create_notification_schedule_interpreter(
+            config=notification_schedule_config,
+            content=content,
+            settings=settings,
+            provider=notification_schedule_config.fallback_provider,
+        )
     )
     bot = Bot(token=settings.telegram_bot_token.get_secret_value())
     redis_connection = create_redis_transport(
@@ -480,6 +504,7 @@ async def run(settings: WorkerSettings) -> None:
         mortals=mortals,
         default_locale=content.default_locale,
         ttl_seconds=settings.telegram_update_ttl_seconds,
+        fallback_interpreter=fallback_schedule_interpreter,
         metrics=metrics,
     )
     apply_notification_schedule = ApplyCustomNotificationScheduleActivity(
@@ -515,6 +540,7 @@ async def run(settings: WorkerSettings) -> None:
         questionnaires=questionnaires,
         mortals=mortals,
         ttl_seconds=settings.questionnaire_ttl_seconds,
+        fallback_predictor=fallback_predictor,
         metrics=metrics,
     )
     apply_prediction = ApplyDeathPredictionActivity(
@@ -638,7 +664,11 @@ async def run(settings: WorkerSettings) -> None:
         health_server.close()
         metrics_server.close()
         await predictor.close()
+        if fallback_predictor is not None:
+            await fallback_predictor.close()
         await schedule_interpreter.close()
+        if fallback_schedule_interpreter is not None:
+            await fallback_schedule_interpreter.close()
         await bot.session.close()
         await redis_connection.aclose()
         await postgres.close()

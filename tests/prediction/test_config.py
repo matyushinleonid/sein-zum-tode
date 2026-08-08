@@ -1,9 +1,16 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
-from sein_zum_tode.infrastructure.completion_config import CompletionProvider
+from sein_zum_tode.infrastructure.completion_config import (
+    CompletionProvider,
+    OpenAICompletionConfig,
+    YandexCompletionConfig,
+)
 from sein_zum_tode.prediction.config import (
+    DeathPredictionConfig,
+    MockPredictionConfig,
     PredictionConfigurationError,
     YamlDeathPredictionConfigLoader,
 )
@@ -70,3 +77,15 @@ def test_rejects_invalid_prediction_configuration(
 def test_rejects_a_missing_prediction_configuration(tmp_path: Path) -> None:
     with pytest.raises(PredictionConfigurationError):
         YamlDeathPredictionConfigLoader(tmp_path / "missing.yaml").load()
+
+
+def test_rejects_a_fallback_provider_equal_to_the_primary_provider() -> None:
+    with pytest.raises(ValidationError, match="fallback_provider must differ"):
+        DeathPredictionConfig(
+            provider=CompletionProvider.OPENAI,
+            fallback_provider=CompletionProvider.OPENAI,
+            system_prompt="Return structured data",
+            mock=MockPredictionConfig(days_left=17),
+            yandex=YandexCompletionConfig(model="yandexgpt", model_version="rc"),
+            openai=OpenAICompletionConfig(model="gpt-5.6-sol"),
+        )

@@ -230,7 +230,7 @@ locales:
       cleanup_failed: Immediate deletion could not be confirmed. Your temporary questionnaire data will be deleted automatically when its retention period expires.
       questions:
         - id: q1
-          text: Your date of birth. A full date (DD.MM.YYYY) gives the model the most reliable basis for its estimate.
+          text: 'Your date of birth. Required: without it no estimate can be made. A full date (DD.MM.YYYY) gives the model the most reliable basis for its estimate.'
         - id: q2
           text: What you do for a living, where do you live? Any sports or hobbies?
   ru:
@@ -329,6 +329,6 @@ locales:
       cleanup_failed: Не удалось подтвердить немедленное удаление. Временные данные анкеты будут автоматически удалены после истечения срока хранения.
       questions:
         - id: q1
-          text: Ваша дата рождения. Полная дата (ДД.ММ.ГГГГ) даст модели наиболее надёжную основу для оценки.
+          text: 'Ваша дата рождения. Обязательный вопрос: без неё оценка невозможна. Полная дата (ДД.ММ.ГГГГ) даст модели наиболее надёжную основу для оценки.'
         - id: q2
           text: Кем вы работаете, где живёте? Есть ли у вас спорт или увлечения?

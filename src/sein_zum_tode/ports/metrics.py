@@ -42,6 +42,15 @@ class ApplicationMetrics(Protocol):
         elapsed_seconds: float,
     ) -> None: ...
 
+    def llm_fallback(
+        self,
+        *,
+        use_case: str,
+        from_provider: str,
+        to_provider: str,
+        error_kind: str,
+    ) -> None: ...
+
     def prediction(self, *, provider: str, outcome: str) -> None: ...
 
     def notification_schedule(self, *, kind: str, outcome: str, locale: str) -> None: ...
@@ -101,6 +110,16 @@ class NoopApplicationMetrics:
         provider: str,
         outcome: str,
         elapsed_seconds: float,
+    ) -> None:
+        return None
+
+    def llm_fallback(
+        self,
+        *,
+        use_case: str,
+        from_provider: str,
+        to_provider: str,
+        error_kind: str,
     ) -> None:
         return None
 

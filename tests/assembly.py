@@ -412,7 +412,7 @@ class NotificationScheduleConfigLoaderResource:
 
 
 class WorkerAssembly:
-    def __init__(self) -> None:
+    def __init__(self, *, fallback_provider: str | None = None) -> None:
         self.events: list[tuple[object, ...]] = []
         self.bot = BotResource(self.events)
         self.redis = RedisResource(self.events)
@@ -434,6 +434,7 @@ class WorkerAssembly:
         self.notification_presenter = object()
         self.prediction_config = SimpleNamespace(
             provider="mock",
+            fallback_provider=fallback_provider,
             system_prompt="Predict mortality",
             mock=object(),
             yandex=object(),
@@ -445,6 +446,7 @@ class WorkerAssembly:
             default_cron=lambda: "17 8 * * *",
             presets=object(),
             provider="mock",
+            fallback_provider=fallback_provider,
             minimum_interval_hours=20,
             system_prompt="Interpret schedule",
             mock=object(),

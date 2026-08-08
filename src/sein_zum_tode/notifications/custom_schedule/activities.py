@@ -35,6 +35,7 @@ from sein_zum_tode.notifications.custom_schedule.validation import (
 from sein_zum_tode.notifications.ports import MortalSchedule
 from sein_zum_tode.observability import LogContext
 from sein_zum_tode.ports.clock import Clock
+from sein_zum_tode.ports.completion import CompletionFailure
 from sein_zum_tode.ports.documents import DocumentReader, DocumentStore, DocumentWriter
 from sein_zum_tode.ports.metrics import ApplicationMetrics, NoopApplicationMetrics
 
@@ -49,11 +50,13 @@ class GenerateCustomNotificationScheduleActivity:
         mortals: MortalRepository,
         default_locale: str,
         ttl_seconds: int,
+        fallback_interpreter: NotificationScheduleInterpreter | None = None,
         clock: Clock | None = None,
         logger: logging.Logger | None = None,
         metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._interpreter = interpreter
+        self._fallback_interpreter = fallback_interpreter
         self._proposals = proposals
         self._updates = updates
         self._mortals = mortals
@@ -62,6 +65,33 @@ class GenerateCustomNotificationScheduleActivity:
         self._clock = clock or SystemClock()
         self._logger = logger or logging.getLogger(__name__)
         self._metrics = metrics or NoopApplicationMetrics()
+
+    def _record_fallback(
+        self,
+        *,
+        user_id: int,
+        failed_provider: str,
+        fallback: NotificationScheduleInterpreter,
+        error: Exception,
+    ) -> None:
+        kind = CompletionFailure.kind_of(error)
+        self._metrics.llm_fallback(
+            use_case="notification_schedule",
+            from_provider=failed_provider,
+            to_provider=fallback.provider_name,
+            error_kind=kind.value,
+        )
+        self._logger.warning(
+            "Notification schedule interpretation fell back to the secondary LLM provider",
+            extra=LogContext(component="worker", user_id=user_id).event(
+                "llm_provider_fallback",
+                use_case="notification_schedule",
+                from_provider=failed_provider,
+                to_provider=fallback.provider_name,
+                error_kind=kind.value,
+                error_type=type(error).__name__,
+            ),
+        )
 
     @activity.defn(name=GENERATE_CUSTOM_NOTIFICATION_SCHEDULE_ACTIVITY_NAME)
     async def generate(self, input: GenerateCustomNotificationScheduleInput) -> None:
@@ -84,27 +114,47 @@ class GenerateCustomNotificationScheduleActivity:
                 current_local_datetime=now.astimezone(ZoneInfo(mortal.timezone)),
                 user_request=message.text,
             )
+            interpreter = self._interpreter
             started = monotonic()
             try:
-                proposal = await self._interpreter.interpret(request)
-            except Exception:
+                proposal = await interpreter.interpret(request)
+            except Exception as error:
                 self._metrics.llm_request(
                     use_case="notification_schedule",
-                    provider=self._interpreter.provider_name,
+                    provider=interpreter.provider_name,
                     outcome="failed",
                     elapsed_seconds=monotonic() - started,
                 )
-                raise
+                if self._fallback_interpreter is None:
+                    raise
+                self._record_fallback(
+                    user_id=input.user_id,
+                    failed_provider=interpreter.provider_name,
+                    fallback=self._fallback_interpreter,
+                    error=error,
+                )
+                interpreter = self._fallback_interpreter
+                started = monotonic()
+                try:
+                    proposal = await interpreter.interpret(request)
+                except Exception:
+                    self._metrics.llm_request(
+                        use_case="notification_schedule",
+                        provider=interpreter.provider_name,
+                        outcome="failed",
+                        elapsed_seconds=monotonic() - started,
+                    )
+                    raise
             self._metrics.llm_request(
                 use_case="notification_schedule",
-                provider=self._interpreter.provider_name,
+                provider=interpreter.provider_name,
                 outcome="success",
                 elapsed_seconds=monotonic() - started,
             )
             stored = StoredNotificationScheduleProposal(
                 request_id=sha256(input.proposal_key.encode()).hexdigest(),
-                provider=self._interpreter.provider_name,
-                consumes_quota=self._interpreter.consumes_quota,
+                provider=interpreter.provider_name,
+                consumes_quota=interpreter.consumes_quota,
                 proposal=proposal,
             )
             await self._proposals.store(

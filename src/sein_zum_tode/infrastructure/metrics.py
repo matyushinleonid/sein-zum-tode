@@ -108,6 +108,12 @@ class PrometheusMetrics:
             buckets=(0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 180),
             registry=registry,
         )
+        self._llm_fallbacks = Counter(
+            "sein_zum_tode_llm_fallbacks",
+            "LLM provider fallbacks by use case, providers, and error kind.",
+            ("use_case", "from_provider", "to_provider", "error_kind"),
+            registry=registry,
+        )
         self._predictions = Counter(
             "sein_zum_tode_death_predictions",
             "Death prediction application outcomes by provider.",
@@ -221,6 +227,21 @@ class PrometheusMetrics:
         }
         self._llm_requests.labels(**labels).inc()
         self._llm_seconds.labels(**labels).observe(elapsed_seconds)
+
+    def llm_fallback(
+        self,
+        *,
+        use_case: str,
+        from_provider: str,
+        to_provider: str,
+        error_kind: str,
+    ) -> None:
+        self._llm_fallbacks.labels(
+            use_case=use_case,
+            from_provider=from_provider,
+            to_provider=to_provider,
+            error_kind=error_kind,
+        ).inc()
 
     def prediction(self, *, provider: str, outcome: str) -> None:
         self._predictions.labels(provider=provider, outcome=outcome).inc()
