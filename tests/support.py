@@ -20,6 +20,9 @@ from sein_zum_tode.bot.content import (
     NotificationMediaKind,
     NotificationMythicPool,
     NotificationMythicVariant,
+    NotificationOmen,
+    NotificationOmenForms,
+    NotificationOmenPool,
     NotificationRewards,
     NotificationSettingsContent,
     NotificationTextForms,
@@ -109,6 +112,11 @@ def notification_rewards() -> NotificationRewards:
             ltr_arrow_ids=("139",),
             dead_ids=("149",),
         ),
+        omen=NotificationOmenPool(
+            probability=0.04,
+            prelude="☄️ Omen!",
+            mini_witch_house_characters=3,
+        ),
         epic=NotificationEpicPool(
             probability=1 / 60,
             prelude="🌟 Epic!",
@@ -184,6 +192,12 @@ class BotContents:
                                     kind=NotificationMediaKind.AUDIO,
                                     url="https://example.com/mock.mp3",
                                 ),
+                            ),
+                        ),
+                        omens=(
+                            NotificationOmen(
+                                id="winters",
+                                text=NotificationOmenForms(other="{count} winters."),
                             ),
                         ),
                     ),
@@ -267,6 +281,12 @@ class BotContents:
                                     kind=NotificationMediaKind.AUDIO,
                                     url="https://example.com/mock.mp3",
                                 ),
+                            ),
+                        ),
+                        omens=(
+                            NotificationOmen(
+                                id="winters",
+                                text=NotificationOmenForms(other="{count} зим."),
                             ),
                         ),
                     ),

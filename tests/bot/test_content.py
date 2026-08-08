@@ -15,6 +15,9 @@ from sein_zum_tode.bot.content import (
     NotificationMediaKind,
     NotificationMythicPool,
     NotificationMythicVariant,
+    NotificationOmen,
+    NotificationOmenForms,
+    NotificationOmenPool,
     NotificationRewards,
     NotificationSettingsContent,
     NotificationTextForms,
@@ -46,6 +49,7 @@ def notification_rewards() -> NotificationRewards:
     return NotificationRewards(
         lucky=emoji_pool(probability=0.1, first_id=127, prelude="🍀 Lucky!"),
         rare=emoji_pool(probability=0.05, first_id=137, prelude="✨ Rare!"),
+        omen=NotificationOmenPool(probability=0.04, prelude="☄️ Omen!"),
         epic=NotificationEpicPool(probability=1 / 60, prelude="🌟 Epic!"),
         mythic=NotificationMythicPool(probability=1 / 180, prelude="👑 Mythic!"),
     )
@@ -66,6 +70,12 @@ def notification_content(
                     kind=NotificationMediaKind.AUDIO,
                     url="https://example.com/stupa.mp3",
                 ),
+            ),
+        ),
+        omens=(
+            NotificationOmen(
+                id="winters",
+                text=NotificationOmenForms(other="{count} winters."),
             ),
         ),
     )
@@ -156,6 +166,9 @@ notification_rewards:
     rtl_arrow_ids: ["163"]
     ltr_arrow_ids: ["167"]
     dead_ids: ["173"]
+  omen:
+    probability: 0.04
+    prelude: "☄️ Omen!"
   epic:
     probability: 0.016666666666666666
     prelude: "🌟 Epic!"
@@ -184,6 +197,10 @@ locales:
           media:
             kind: audio
             url: https://example.com/stupa.mp3
+      omens:
+        - id: winters
+          text:
+            other: "{count} winters."
     localization:
       prompt: Choose your language
       russian: "🇷🇺 RU"
@@ -324,6 +341,12 @@ def test_rejects_duplicate_notification_variant_ids_across_reward_tiers() -> Non
                     text=natural,
                 ),
             ),
+            omens=(
+                NotificationOmen(
+                    id="winters",
+                    text=NotificationOmenForms(other="{count} winters."),
+                ),
+            ),
         )
 
 
@@ -360,6 +383,7 @@ def test_rejects_reward_probabilities_that_cannot_be_mutually_exclusive() -> Non
         NotificationRewards(
             lucky=rewards.lucky.model_copy(update={"probability": 0.8}),
             rare=rewards.rare.model_copy(update={"probability": 0.3}),
+            omen=rewards.omen,
             epic=rewards.epic,
             mythic=rewards.mythic,
         )
@@ -367,6 +391,7 @@ def test_rejects_reward_probabilities_that_cannot_be_mutually_exclusive() -> Non
         NotificationRewards(
             lucky=rewards.lucky,
             rare=rewards.rare,
+            omen=rewards.omen,
             epic=rewards.epic.model_copy(update={"probability": 0.8}),
             mythic=rewards.mythic.model_copy(update={"probability": 0.3}),
         )
@@ -452,3 +477,38 @@ def test_falls_back_to_default_content_for_an_unknown_locale() -> None:
     assert content.localized("unknown") is content.default(), (
         "unknown Mortal locale did not use configured default content"
     )
+
+
+def test_rejects_an_omen_template_with_the_wrong_placeholder() -> None:
+    with pytest.raises(ValidationError):
+        NotificationOmenForms(other="{days_left} winters.")
+
+
+def test_rejects_an_omen_without_a_known_counter() -> None:
+    with pytest.raises(ValidationError):
+        NotificationOmen(
+            id="heat_death_of_the_universe",
+            text=NotificationOmenForms(other="{count} heat deaths."),
+        )
+
+
+def test_rejects_duplicate_omen_ids() -> None:
+    natural = NotificationTextForms(other="Natural {days_left}")
+    omen = NotificationOmen(id="winters", text=NotificationOmenForms(other="{count} winters."))
+    with pytest.raises(ValidationError):
+        NotificationContent(
+            default=NotificationTextForms(other="Default {days_left}"),
+            natural=natural,
+            epic=(NotificationTextVariant(id="haunting", text=natural),),
+            mythic=(NotificationMythicVariant(id="stupa", text=natural),),
+            omens=(omen, omen),
+        )
+
+
+def test_renders_an_omen_through_its_plural_form_and_falls_back_to_other() -> None:
+    forms = NotificationOmenForms(one="{count} winter.", other="{count} winters.")
+
+    assert (forms.render(1, "one"), forms.render(35, "many")) == (
+        "1 winter.",
+        "35 winters.",
+    ), "omen pluralisation ignored the requested form or lost its fallback"

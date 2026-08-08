@@ -52,6 +52,8 @@ where = ["src"]
 [tool.pytest.ini_options]
 addopts = [
     "-ra",
+    "-m",
+    "not replay",
     "--cov=sein_zum_tode",
     "--cov-report=term-missing:skip-covered",
 ]
@@ -60,6 +62,7 @@ testpaths = ["tests"]
 markers = [
     "fast: isolated test expected to finish within 100 milliseconds",
     "deep: integration test that exercises multiple production components",
+    "replay: replays recorded Temporal histories against the current workflow code",
 ]
 
 [tool.coverage.run]

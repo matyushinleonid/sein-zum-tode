@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from yaml import YAMLError
 
 from sein_zum_tode.bot.errors import ContentConfigurationError
+from sein_zum_tode.notifications.omens import OMEN_COUNTERS
 from sein_zum_tode.unsupported.models import UnsupportedUpdateContent
 
 TELEGRAM_TEXT_LIMIT = 4096
@@ -27,6 +28,7 @@ class NotificationNumberStyle(StrEnum):
 class NotificationTier(StrEnum):
     LUCKY = "lucky"
     RARE = "rare"
+    OMEN = "omen"
     EPIC = "epic"
     MYTHIC = "mythic"
 
@@ -102,6 +104,49 @@ class NotificationMythicVariant(BaseModel):
         return self
 
 
+class NotificationOmenForms(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    zero: str | None = Field(default=None, min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    one: str | None = Field(default=None, min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    two: str | None = Field(default=None, min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    few: str | None = Field(default=None, min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    many: str | None = Field(default=None, min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+    other: str = Field(min_length=1, max_length=TELEGRAM_TEXT_LIMIT)
+
+    @model_validator(mode="after")
+    def validate_templates(self) -> Self:
+        templates = (self.zero, self.one, self.two, self.few, self.many, self.other)
+        if any(self._fields(template) != {"count"} for template in templates if template):
+            raise ValueError("omen text forms must contain only the {count} placeholder")
+        return self
+
+    def render(self, count: int | str, plural_form: str) -> str:
+        template = getattr(self, plural_form, None) or self.other
+        return template.format(count=count)
+
+    @staticmethod
+    def _fields(template: str) -> set[str]:
+        return {
+            field_name
+            for _, field_name, _, _ in Formatter().parse(template)
+            if field_name is not None
+        }
+
+
+class NotificationOmen(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(min_length=1, max_length=128)
+    text: NotificationOmenForms
+
+    @model_validator(mode="after")
+    def validate_known_counter(self) -> Self:
+        if self.id not in OMEN_COUNTERS:
+            raise ValueError(f"unknown omen {self.id!r}")
+        return self
+
+
 class NotificationContent(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -109,6 +154,14 @@ class NotificationContent(BaseModel):
     natural: NotificationTextForms
     epic: tuple[NotificationTextVariant, ...] = Field(min_length=1)
     mythic: tuple[NotificationMythicVariant, ...] = Field(min_length=1)
+    omens: tuple[NotificationOmen, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_omen_ids(self) -> Self:
+        ids = tuple(omen.id for omen in self.omens)
+        if len(ids) != len(set(ids)):
+            raise ValueError("omen IDs must be unique")
+        return self
 
     @model_validator(mode="after")
     def validate_epic_variants(self) -> Self:
@@ -169,11 +222,20 @@ class NotificationMythicPool(BaseModel):
     prelude: str = Field(min_length=1, max_length=64)
 
 
+class NotificationOmenPool(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    probability: float = Field(gt=0, le=1)
+    prelude: str = Field(min_length=1, max_length=64)
+    mini_witch_house_characters: int = Field(default=3, ge=1, le=64)
+
+
 class NotificationRewards(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     lucky: NotificationEmojiPool
     rare: NotificationEmojiPool
+    omen: NotificationOmenPool
     epic: NotificationEpicPool
     mythic: NotificationMythicPool
 
@@ -181,7 +243,7 @@ class NotificationRewards(BaseModel):
     def validate_probabilities(self) -> Self:
         if self.lucky.probability + self.rare.probability > 1:
             raise ValueError("notification emoji tier probabilities must not exceed one")
-        if self.epic.probability + self.mythic.probability > 1:
+        if self.epic.probability + self.mythic.probability + self.omen.probability > 1:
             raise ValueError("notification message tier probabilities must not exceed one")
         return self
 

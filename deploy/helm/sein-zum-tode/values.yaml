@@ -199,6 +199,10 @@ botContent:
         - "5309896547972953593"
         - "5307763684393629810"
         - "5325923123948695594"
+    omen:
+      probability: 0.04
+      prelude: "☄️ Omen!"
+      mini_witch_house_characters: 3
     epic:
       probability: 0.016666666666666666
       prelude: "🌟 Epic!"
@@ -211,7 +215,7 @@ botContent:
         The subject of death itself is taboo in contemporary society (as argued, for example, by Philippe Ariès). This project is intended to help users confront the prospect of death as something that will happen and, moreover, is already happening to them. Users are invited to answer a series of questions about their lifestyle, after which an LLM will provide an approximate estimate of their remaining lifespan. Naturally, the calculated number of days remaining does not claim any particular degree of accuracy. The principal value lies in the number of remaining days decreasing each day, which the bot will send to the user regularly.
 
         Press /begin to start the questionnaire. You will be asked approximately 20 questions. For privacy reasons, your answers are not stored persistently on our servers. If you do not want to answer a question, send a dash (-). Use /notifications to manage notification frequency and /localization to change language. For the strongest effect, we recommend keeping daily notifications.
-      about: 'Sein zum Tode by Leonid Matyushin. <a href="https://github.com/matyushinleonid/sein-zum-tode">Project repository</a> · <a href="https://github.com/matyushinleonid/k8s.leonid.sh">IaC repository</a> · <a href="https://github.com/matyushinleonid/k8s.leonid.sh/tree/main/argocd/sein-zum-tode">Argo CD application</a>'
+      about: 'Sein zum Tode by Leonid Matyushin. <a href="https://github.com/matyushinleonid/sein-zum-tode">Репозиторий проекта</a> · <a href="https://github.com/matyushinleonid/k8s.leonid.sh">Репозиторий инфраструктуры</a> · <a href="https://github.com/matyushinleonid/k8s.leonid.sh/tree/main/argocd/sein-zum-tode">Приложение Argo CD</a>'
       text_unsupported: Use /help to learn how to use the bot.
       payload_expired: This message expired before it could be processed. Please send it again.
       group_unsupported: Group chats are not supported. Please message me directly.
@@ -222,6 +226,99 @@ botContent:
         natural:
           one: "{days_left} day remains"
           other: "{days_left} days remain"
+        omens:
+          - id: crab_pulsar_rotations
+            text:
+              one: "{count} rotation of the Crab pulsar."
+              other: "{count} rotations of the Crab pulsar."
+          - id: sundays
+            text:
+              one: "{count} Sunday."
+              other: "{count} Sundays."
+          - id: wednesdays
+            text:
+              one: "🐸 {count} Wednesday."
+              other: "🐸 {count} Wednesdays."
+          - id: full_moons
+            text:
+              one: "{count} full moon."
+              other: "{count} full moons."
+          - id: new_years
+            text:
+              one: "{count} New Year's Eve."
+              other: "{count} New Year's Eves."
+          - id: winters
+            text:
+              one: "{count} winter."
+              other: "{count} winters."
+          - id: jupiter_oppositions
+            text:
+              one: "{count} opposition of Jupiter."
+              other: "{count} oppositions of Jupiter."
+          - id: encke_returns
+            text:
+              one: "{count} return of comet Encke."
+              other: "{count} returns of comet Encke."
+          - id: leap_days
+            text:
+              one: "{count} leap day."
+              other: "{count} leap days."
+          - id: proxima_light_crossings
+            text:
+              one: "Light from Proxima Centauri will reach Earth {count} time."
+              other: "Light from Proxima Centauri will reach Earth {count} times."
+          - id: mercury_transits
+            text:
+              one: "{count} transit of Mercury."
+              other: "{count} transits of Mercury."
+          - id: sirius_light_crossings
+            text:
+              one: "Light from Sirius will reach Earth {count} time."
+              other: "Light from Sirius will reach Earth {count} times."
+          - id: saros_cycles
+            text:
+              one: "{count} saros cycle."
+              other: "{count} saros cycles."
+          - id: metonic_cycles
+            text:
+              one: "{count} Metonic cycle."
+              other: "{count} Metonic cycles."
+          - id: great_conjunctions
+            text:
+              one: "{count} great conjunction."
+              other: "{count} great conjunctions."
+          - id: saturn_returns
+            text:
+              one: "{count} return of Saturn."
+              other: "{count} returns of Saturn."
+          - id: tempel_tuttle_returns
+            text:
+              one: "{count} return of comet Tempel–Tuttle."
+              other: "{count} returns of comet Tempel–Tuttle."
+          - id: pons_brooks_returns
+            text:
+              one: "{count} return of comet Pons–Brooks."
+              other: "{count} returns of comet Pons–Brooks."
+          - id: halleys_comet_returns
+            text:
+              one: "{count} return of Halley's Comet."
+              other: "{count} returns of Halley's Comet."
+          - id: venus_transits
+            text:
+              one: "{count} transit of Venus."
+              other: "{count} transits of Venus."
+          - id: swift_tuttle_returns
+            text:
+              one: "{count} return of comet Swift–Tuttle."
+              other: "{count} returns of comet Swift–Tuttle."
+          - id: great_years
+            text:
+              one: "{count} Platonic year."
+              other: "{count} Platonic years."
+          - id: galactic_years
+            text:
+              one: "{count} galactic year."
+              other: "{count} galactic years."
         epic:
           - id: haunting
             text:
@@ -336,8 +433,8 @@ botContent:
       help: |-
         Сама по себе тема смерти сегодня в обществе табуирована (например, так считает Ф. Арьес). Данный проект предназначен для того, чтобы помочь пользователю пережить перспективу смерти как явления, которое произойдёт и, более того, уже происходит непосредственно с ним. Пользователю предлагается ответить на ряд вопросов о своём образе жизни, после чего будет осуществлена примерная оценка оставшейся её продолжительности средствами LLM. Разумеется, сам по себе результат вычисления оставшихся дней не претендует на какую-то особую точность. Основную ценность представляет ежедневно уменьшающееся число оставшихся дней, которое бот будет регулярно присылать пользователю.
 
-        Нажмите /begin, чтобы начать заполнение анкеты. Будет задано около 20 вопросов; ответы на них не хранятся на наших серверах персистентно из соображений приватности. Если вы не хотите отвечать на какой-то вопрос, отправьте дефис (-). Для управления частотой оповещений нажмите /notifications, а для изменения языка — /localization. Для скорейшего достижения эффекта рекомендуем оставить ежедневные уведомления.
-      about: 'Sein zum Tode за авторством Леонида Матюшина. <a href="https://github.com/matyushinleonid/sein-zum-tode">Project repository</a> · <a href="https://github.com/matyushinleonid/k8s.leonid.sh">IaC repository</a> · <a href="https://github.com/matyushinleonid/k8s.leonid.sh/tree/main/argocd/sein-zum-tode">Argo CD application</a>'
+        Нажмите /begin, чтобы начать заполнение анкеты. Будет задано около 20 вопросов; ответы на них не хранятся на наших серверах постоянно из соображений приватности. Если вы не хотите отвечать на какой-то вопрос, отправьте дефис (-). Для управления частотой оповещений нажмите /notifications, а для изменения языка — /localization. Для скорейшего достижения эффекта рекомендуем оставить ежедневные уведомления.
+      about: 'Sein zum Tode за авторством Леонида Матюшина. <a href="https://github.com/matyushinleonid/sein-zum-tode">Репозиторий проекта</a> · <a href="https://github.com/matyushinleonid/k8s.leonid.sh">Репозиторий инфраструктуры</a> · <a href="https://github.com/matyushinleonid/k8s.leonid.sh/tree/main/argocd/sein-zum-tode">Приложение Argo CD</a>'
       text_unsupported: Нажмите /help, чтобы узнать, как пользоваться ботом.
       payload_expired: Это сообщение не удалось обработать вовремя. Пожалуйста, отправьте его ещё раз.
       group_unsupported: Групповые чаты не поддерживаются. Напишите боту напрямую.
@@ -350,6 +447,145 @@ botContent:
           few: "Осталось {days_left} дня"
           many: "Осталось {days_left} дней"
           other: "Осталось {days_left} дня"
+        omens:
+          - id: crab_pulsar_rotations
+            text:
+              one: "{count} оборот пульсара в Крабовидной туманности."
+              few: "{count} оборота пульсара в Крабовидной туманности."
+              many: "{count} оборотов пульсара в Крабовидной туманности."
+              other: "{count} оборота пульсара в Крабовидной туманности."
+          - id: sundays
+            text:
+              one: "{count} воскресенье."
+              few: "{count} воскресенья."
+              many: "{count} воскресений."
+              other: "{count} воскресенья."
+          - id: wednesdays
+            text:
+              one: "🐸 {count} среда."
+              few: "🐸 {count} среды."
+              many: "🐸 {count} сред."
+              other: "🐸 {count} среды."
+          - id: full_moons
+            text:
+              one: "{count} полнолуние."
+              few: "{count} полнолуния."
+              many: "{count} полнолуний."
+              other: "{count} полнолуния."
+          - id: new_years
+            text:
+              one: "{count} новогодняя ночь."
+              few: "{count} новогодние ночи."
+              many: "{count} новогодних ночей."
+              other: "{count} новогодние ночи."
+          - id: winters
+            text:
+              one: "{count} зима."
+              few: "{count} зимы."
+              many: "{count} зим."
+              other: "{count} зимы."
+          - id: jupiter_oppositions
+            text:
+              one: "{count} противостояние Юпитера."
+              few: "{count} противостояния Юпитера."
+              many: "{count} противостояний Юпитера."
+              other: "{count} противостояния Юпитера."
+          - id: encke_returns
+            text:
+              one: "{count} возвращение кометы Энке."
+              few: "{count} возвращения кометы Энке."
+              many: "{count} возвращений кометы Энке."
+              other: "{count} возвращения кометы Энке."
+          - id: leap_days
+            text:
+              one: "{count} високосный день."
+              few: "{count} високосных дня."
+              many: "{count} високосных дней."
+              other: "{count} високосных дня."
+          - id: proxima_light_crossings
+            text:
+              one: "Свет от Проксимы Центавра дойдёт до Земли {count} раз."
+              few: "Свет от Проксимы Центавра дойдёт до Земли {count} раза."
+              many: "Свет от Проксимы Центавра дойдёт до Земли {count} раз."
+              other: "Свет от Проксимы Центавра дойдёт до Земли {count} раза."
+          - id: mercury_transits
+            text:
+              one: "{count} прохождение Меркурия по диску Солнца."
+              few: "{count} прохождения Меркурия по диску Солнца."
+              many: "{count} прохождений Меркурия по диску Солнца."
+              other: "{count} прохождения Меркурия по диску Солнца."
+          - id: sirius_light_crossings
+            text:
+              one: "Свет от Сириуса дойдёт до Земли {count} раз."
+              few: "Свет от Сириуса дойдёт до Земли {count} раза."
+              many: "Свет от Сириуса дойдёт до Земли {count} раз."
+              other: "Свет от Сириуса дойдёт до Земли {count} раза."
+          - id: saros_cycles
+            text:
+              one: "{count} сарос."
+              few: "{count} сароса."
+              many: "{count} саросов."
+              other: "{count} сароса."
+          - id: metonic_cycles
+            text:
+              one: "{count} Метонов цикл."
+              few: "{count} Метоновых цикла."
+              many: "{count} Метоновых циклов."
+              other: "{count} Метоновых цикла."
+          - id: great_conjunctions
+            text:
+              one: "{count} великое соединение."
+              few: "{count} великих соединения."
+              many: "{count} великих соединений."
+              other: "{count} великих соединения."
+          - id: saturn_returns
+            text:
+              one: "{count} возвращение Сатурна."
+              few: "{count} возвращения Сатурна."
+              many: "{count} возвращений Сатурна."
+              other: "{count} возвращения Сатурна."
+          - id: tempel_tuttle_returns
+            text:
+              one: "{count} возвращение кометы Темпеля — Туттля."
+              few: "{count} возвращения кометы Темпеля — Туттля."
+              many: "{count} возвращений кометы Темпеля — Туттля."
+              other: "{count} возвращения кометы Темпеля — Туттля."
+          - id: pons_brooks_returns
+            text:
+              one: "{count} возвращение кометы Понса — Брукса."
+              few: "{count} возвращения кометы Понса — Брукса."
+              many: "{count} возвращений кометы Понса — Брукса."
+              other: "{count} возвращения кометы Понса — Брукса."
+          - id: halleys_comet_returns
+            text:
+              one: "{count} возвращение кометы Галлея."
+              few: "{count} возвращения кометы Галлея."
+              many: "{count} возвращений кометы Галлея."
+              other: "{count} возвращения кометы Галлея."
+          - id: venus_transits
+            text:
+              one: "{count} прохождение Венеры по диску Солнца."
+              few: "{count} прохождения Венеры по диску Солнца."
+              many: "{count} прохождений Венеры по диску Солнца."
+              other: "{count} прохождения Венеры по диску Солнца."
+          - id: swift_tuttle_returns
+            text:
+              one: "{count} возвращение кометы Свифта — Туттля."
+              few: "{count} возвращения кометы Свифта — Туттля."
+              many: "{count} возвращений кометы Свифта — Туттля."
+              other: "{count} возвращения кометы Свифта — Туттля."
+          - id: great_years
+            text:
+              one: "{count} Платонов год."
+              few: "{count} Платоновых года."
+              many: "{count} Платоновых лет."
+              other: "{count} Платоновых года."
+          - id: galactic_years
+            text:
+              one: "{count} галактический год."
+              few: "{count} галактических года."
+              many: "{count} галактических лет."
+              other: "{count} галактических года."
         epic:
           - id: haunting
             text:
@@ -431,7 +667,7 @@ botContent:
         cleanup_failed: Не удалось подтвердить немедленное удаление. Временные данные анкеты будут автоматически удалены после истечения срока хранения.
         questions:
           - id: birth_date
-            text: "Ваша дата рождения. Обязательный вопрос: без неё оценка невозможна. Полная дата (ДД.ММ.ГГГГ) даст модели наиболее надёжную основу для оценки."
+            text: "Ваша дата рождения. Обязательный вопрос: без неё оценка невозможна. Полная дата (ДД.ММ.ГГГГ) даст модели самую надёжную основу."
           - id: sex
             text: "Ваш пол:"
           - id: height_cm
@@ -445,11 +681,11 @@ botContent:
           - id: sweets
             text: "Как часто вы употребляете сладости, выпечку или сладкие напитки? (ежедневно / несколько раз в неделю / редко / никогда):"
           - id: processed_meat
-            text: "Как часто вы употребляете обработанное или жареное мясо (колбаса, сосиски, жареная курица, бекон)? (ежедневно / несколько раз в неделю / редко / никогда):"
+            text: "Как часто вы употребляете переработанное или жареное мясо (колбаса, сосиски, жареная курица, бекон)? (ежедневно / несколько раз в неделю / редко / никогда):"
           - id: fast_food
-            text: "Как часто вы едите фаст-фуд или сильно обработанную пищу? (ежедневно / несколько раз в неделю / редко / никогда):"
+            text: "Как часто вы едите фаст-фуд или сильно переработанную пищу? (ежедневно / несколько раз в неделю / редко / никогда):"
           - id: physical_activity
-            text: "Как часто вы занимаетесь умеренной или интенсивной физической активностью (быстрая ходьба, велосипед, плавание, бег, тяжёлая атлетика, командные виды спорта и так далее)? Уточните вид активности и частоту (например: велосипед, 2 раза в неделю по 30 минут):"
+            text: "Как часто вы занимаетесь умеренной или интенсивной физической активностью (быстрая ходьба, велосипед, плавание, бег, силовые тренировки, командные виды спорта и так далее)? Уточните вид активности и частоту (например: велосипед, 2 раза в неделю по 30 минут):"
           - id: smoking
             text: "Курите ли вы? Уточните тип вещества и частоту (например: табак, 1 пачка в день / раньше курил табак, бросил 3 года назад):"
           - id: alcohol_and_substances
@@ -457,13 +693,13 @@ botContent:
           - id: chronic_conditions
             text: "Есть ли у вас хронические заболевания, диагностированные врачом? Перечислите кратко, если есть:"
           - id: family_medical_history
-            text: "Были ли у ваших ближайших родственников (родители, бабушки и дедушки, братья и сёстры) серьёзные заболевания, например диабет, онкология или сердечно-сосудистые заболевания? Уточните кратко заболевание и родственника:"
+            text: "Были ли у ваших ближайших родственников (родители, бабушки и дедушки, братья и сёстры) серьёзные болезни, например диабет, онкология или сердечно-сосудистые заболевания? Уточните кратко заболевание и родственника:"
           - id: family_longevity
             text: "Были ли в вашей семье случаи долголетия — родственники, жившие дольше 90 лет? Уточните родственника и возраст:"
           - id: stress_sources
             text: "Как бы вы описали основные источники стресса в вашей жизни? Выберите все подходящие варианты и уточните по желанию: работа / учёба / семейные отношения / финансы / здоровье / другие:"
           - id: depression
-            text: "Чувствуете ли вы себя подавленным или депрессивным на протяжении длительного времени, от нескольких недель и более? Уточните частоту и примерную продолжительность таких периодов (например: раз в год по несколько недель):"
+            text: "Бывают ли у вас длительные периоды подавленности, от нескольких недель и более? Уточните частоту и примерную продолжительность таких периодов (например: раз в год по несколько недель):"
           - id: sleep
             text: "Как вы оцениваете качество своего сна? Уточните продолжительность сна в среднем за ночь и укажите, часто ли испытываете проблемы с засыпанием или пробуждением ночью:"
           - id: occupation
@@ -516,12 +752,12 @@ deathPrediction:
       Estimate at calendar-day resolution. Internally choose a plausible non-boundary calendar death date and derive days_left from current_date. Never choose a round number of remaining years and multiply it by 365. In particular, choosing 50 years and returning 18250 days is forbidden. The integer days_left should not be an exact whole-year multiple merely for convenience, and no cosmetic random offset should be added after first making a round year estimate. Produce a plausible non-negative integer and avoid unjustified optimism.
 
       REQUIRED STRUCTURED RESULT
-      - Successful estimate: set prediction_possible to true, days_left to the estimated non-negative integer, and message to a bare statement of the facts that weigh most. Do not show arithmetic. End the message with the remaining time in years as a sentence of its own, always to one decimal place, with nothing after it. A whole number of years there is forbidden.
+      - Successful estimate: set prediction_possible to true, days_left to the estimated non-negative integer, and message to a short piece of connected prose naming the particulars that weigh most. Do not show arithmetic. End the message with the remaining time in years as a sentence of its own, always to one decimal place, with nothing after it. A whole number of years there is forbidden.
       - Insufficient questionnaire: set prediction_possible to false, days_left to null, and message to a bare statement of what made the answers unusable, followed by one imperative sentence directing that the questionnaire be completed. Do not include any lifespan estimate.
       Never contradict these field invariants. Return only the requested structured response fields.
 
       LANGUAGE AND STYLE
-      Write message in the language predominantly used in the user's answers. That language takes priority over saved_locale. If it cannot be determined reliably, use saved_locale. The message is not addressed to anyone. Use no first-person and no second-person pronouns, no greeting, no closing, no consolation, no encouragement, and no politeness formulas. Do not characterize the estimate or its reliability. State only what weighs most, at most four facts, never an inventory of the answers. Prefer bare nominal phrases and short declarative sentences. Avoid medical certainty, moral judgement, alarmism, and generic filler.
+      Write message in the language predominantly used in the user's answers. That language takes priority over saved_locale. If it cannot be determined reliably, use saved_locale. The message is not addressed to anyone. Use no first-person and no second-person pronouns, no greeting, no closing, no consolation, no encouragement, and no politeness formulas. Do not characterize the estimate or its reliability. Name the two or three particulars that weigh most, and name them concretely as they were given: a pack a day since twenty, a father dead at fifty-nine. Do not name a category where the answer gave you a particular. Do not sort the facts into helpful and harmful groups, and do not state that anything raises, lowers, worsens, or improves anything: naming a fact is enough. Do not build the message on abstract nouns such as risk, factor, prognosis, or lifestyle, and never repeat one. Write two or three connected sentences of uneven length. One sentence per category, or a run of parallel clauses ending in the same verb, is wrong. Avoid medical certainty, moral judgement, alarmism, and generic filler.
     mock:
       days_left: 26837
     yandex:

@@ -93,6 +93,8 @@ class NotificationPresenterMemory:
         locale: str | None,
         days_left: int,
         seed: str,
+        today: date | None = None,
+        death_date: date | None = None,
         sample: NotificationTier | None = None,
     ) -> RenderedNotification:
         self.events.append((locale, days_left, seed, sample))

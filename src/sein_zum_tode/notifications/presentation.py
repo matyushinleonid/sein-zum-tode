@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import date
 from hashlib import sha256
 from html import escape
 from typing import Protocol
@@ -17,6 +18,7 @@ from sein_zum_tode.bot.content import (
 )
 from sein_zum_tode.bot.models import TelegramAttachment, TelegramAttachmentKind
 from sein_zum_tode.notifications.models import RenderedNotification
+from sein_zum_tode.notifications.omens import OMEN_COUNTERS
 from sein_zum_tode.notifications.ports import NumberSpeller
 
 WITCH_HOUSE_CHARACTERS: dict[str, str | int | None] = {
@@ -81,6 +83,8 @@ class NotificationMessagePresenter:
         locale: str | None,
         days_left: int,
         seed: str,
+        today: date | None = None,
+        death_date: date | None = None,
         sample: NotificationTier | None = None,
     ) -> RenderedNotification:
         locale_name = locale if locale in self._content.locales else self._content.default_locale
@@ -96,6 +100,15 @@ class NotificationMessagePresenter:
         )
         if selected.style == NotificationTextStyle.WITCH_HOUSE:
             text = self._witch_house(text)
+        if tier == NotificationTier.OMEN:
+            text = self._omen(
+                text,
+                notification=notification,
+                locale_name=locale_name,
+                seed=seed,
+                today=today,
+                death_date=death_date,
+            )
         emoji_tier = self._emoji_tier(tier)
         if emoji_tier is None:
             rich_text = text
@@ -123,6 +136,11 @@ class NotificationMessagePresenter:
             return NotificationTier.MYTHIC
         if message < rewards.mythic.probability + rewards.epic.probability:
             return NotificationTier.EPIC
+        if (
+            message
+            < rewards.mythic.probability + rewards.epic.probability + rewards.omen.probability
+        ):
+            return NotificationTier.OMEN
         emoji = self._randomizer.value(seed, "emoji_tier")
         if emoji < rewards.rare.probability:
             return NotificationTier.RARE
@@ -184,8 +202,8 @@ class NotificationMessagePresenter:
         )
 
     def _emoji_tier(self, tier: NotificationTier | None) -> NotificationTier | None:
-        if tier in {NotificationTier.EPIC, NotificationTier.MYTHIC}:
-            return NotificationTier.RARE
+        if tier in {NotificationTier.EPIC, NotificationTier.MYTHIC, NotificationTier.OMEN}:
+            return None
         return tier
 
     def _decoration(self, seed: str, tier: NotificationTier) -> tuple[str, str]:
@@ -272,6 +290,8 @@ class NotificationMessagePresenter:
             return rewards.epic.prelude
         if tier == NotificationTier.MYTHIC:
             return rewards.mythic.prelude
+        if tier == NotificationTier.OMEN:
+            return rewards.omen.prelude
         return None
 
     @staticmethod
@@ -282,6 +302,45 @@ class NotificationMessagePresenter:
             kind=TelegramAttachmentKind(media.kind.value),
             url=media.url,
         )
+
+    def _omen(
+        self,
+        text: str,
+        *,
+        notification: NotificationContent,
+        locale_name: str,
+        seed: str,
+        today: date | None,
+        death_date: date | None,
+    ) -> str:
+        if self._randomizer.index(seed, "omen_kind", 2) == 0:
+            return self._mini_witch_house(text, seed)
+        if today is None or death_date is None:
+            return text
+        omen = notification.omens[
+            self._randomizer.index(seed, "omen_variant", len(notification.omens))
+        ]
+        count = OMEN_COUNTERS[omen.id](today, death_date)
+        line = omen.text.render(count, str(Locale.parse(locale_name).plural_form(count)))
+        appended = f"{text}\n{line}"
+        if self._randomizer.index(seed, "omen_mini_witch", 2) == 0:
+            return self._mini_witch_house(appended, seed)
+        return appended
+
+    def _mini_witch_house(self, value: str, seed: str) -> str:
+        positions = [
+            index
+            for index, character in enumerate(value)
+            if character.upper() in WITCH_HOUSE_CHARACTERS
+        ]
+        wanted = self._content.notification_rewards.omen.mini_witch_house_characters
+        characters = list(value)
+        for step in range(min(wanted, len(positions))):
+            chosen = positions.pop(
+                self._randomizer.index(seed, f"mini_witch_{step}", len(positions))
+            )
+            characters[chosen] = str(WITCH_HOUSE_CHARACTERS[characters[chosen].upper()])
+        return "".join(characters)
 
     @staticmethod
     def _witch_house(value: str) -> str:
