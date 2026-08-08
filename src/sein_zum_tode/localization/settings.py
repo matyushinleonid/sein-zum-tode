@@ -49,13 +49,16 @@ class ConfigureMortalLocalizationActivity:
                 type="InvalidLocalizationSelection",
                 non_retryable=True,
             )
+        existing = await self._mortals.get(input.user_id)
+        onboarding = existing is None or existing.locale is None
         mortal = await self._mortals.set_locale(input.user_id, locale.value)
         localized = self._content.localized(mortal.locale)
         await self._responses.store(
             input.response_key,
             TelegramResponse(
                 chat_id=input.chat_id,
-                text=localized.localization.updated,
+                text=localized.help if onboarding else localized.localization.updated,
+                prelude_text=localized.localization.updated if onboarding else None,
                 callback_query_id=input.callback_query_id,
                 remove_reply_keyboard=input.remove_reply_keyboard,
             ),
@@ -66,5 +69,6 @@ class ConfigureMortalLocalizationActivity:
             extra=LogContext(component="worker", user_id=input.user_id).event(
                 "mortal_localization_configured",
                 locale=locale.value,
+                onboarding=onboarding,
             ),
         )

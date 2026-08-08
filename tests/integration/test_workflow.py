@@ -933,21 +933,78 @@ async def test_starts_an_abandoned_scream_child_for_an_admin_reply(
     )
 
 
-async def test_routes_commands_without_advancing_an_active_questionnaire(
+@pytest.mark.parametrize(
+    ("command_kind", "prepare_event"),
+    [
+        (InspectionKind.HELP, "prepare_help"),
+        (InspectionKind.UNKNOWN_COMMAND, "prepare_unsupported"),
+    ],
+)
+async def test_a_command_cancels_the_questionnaire_before_its_own_response(
     workflow_worker_pool: WorkflowWorkerPool,
+    command_kind: InspectionKind,
+    prepare_event: str,
 ) -> None:
     begin_key = "redis:begin-before-commands:1756"
-    help_key = "redis:help-during-questionnaire:1757"
-    unknown_key = "redis:unknown-command-during-questionnaire:1758"
-    scream_key = "redis:scream-during-questionnaire:1759"
-    sample_key = "redis:sample-during-questionnaire:1760"
+    command_key = "redis:command-during-questionnaire:1757"
+    text_key = "redis:text-after-the-command:1758"
     transcript = ActivityTranscript(
         inspections={
             begin_key: InspectionKind.BEGIN,
-            help_key: InspectionKind.HELP,
-            unknown_key: InspectionKind.UNSUPPORTED,
-            scream_key: InspectionKind.SCREAM_UNSUPPORTED,
+            command_key: command_kind,
+            text_key: InspectionKind.TEXT,
+        },
+        failing_inspection=None,
+        failing_cleanup=False,
+    )
+    async with await WorkflowStory.open(
+        pool=workflow_worker_pool,
+        activities=transcript.definitions(),
+        questionnaire_workflow=RecordingTelegramQuestionnaireWorkflow,
+    ) as story:
+        handle = await story.start(begin_key, continue_after=None)
+        await transcript.wait_for("cleanup", 1)
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=command_key),
+        )
+        await handle.signal(
+            TELEGRAM_UPDATE_SIGNAL_NAME,
+            TelegramUpdateSignal(redis_key=text_key),
+        )
+        await transcript.wait_for("cleanup", 3)
+
+    assert [event[0] for event in transcript.events] == [
+        "inspect",
+        "cleanup",
+        "inspect",
+        prepare_event,
+        "deliver",
+        "cleanup",
+        "inspect",
+        "prepare_unsupported",
+        "deliver",
+        "cleanup",
+    ], "a command left the questionnaire alive, so the next text was still taken as an answer"
+
+
+async def test_non_command_updates_keep_an_active_questionnaire(
+    workflow_worker_pool: WorkflowWorkerPool,
+) -> None:
+    begin_key = "redis:begin-before-noise:1759"
+    sticker_key = "redis:sticker-during-questionnaire:1760"
+    sample_key = "redis:sample-during-questionnaire:1761"
+    scream_key = "redis:scream-during-questionnaire:1762"
+    answer_key = "redis:answer-after-noise:1763"
+    trailing_key = "redis:sticker-after-the-answer:1764"
+    transcript = ActivityTranscript(
+        inspections={
+            begin_key: InspectionKind.BEGIN,
+            sticker_key: InspectionKind.UNSUPPORTED,
             sample_key: InspectionKind.NOTIFICATION_SAMPLE,
+            scream_key: InspectionKind.SCREAM_UNSUPPORTED,
+            answer_key: InspectionKind.TEXT,
+            trailing_key: InspectionKind.UNSUPPORTED,
         },
         failing_inspection=None,
         failing_cleanup=False,
@@ -963,40 +1020,18 @@ async def test_routes_commands_without_advancing_an_active_questionnaire(
         child = story.environment.client.get_workflow_handle(
             f"{handle.id}:questionnaire:{begin_key}"
         )
-        await handle.signal(
-            TELEGRAM_UPDATE_SIGNAL_NAME,
-            TelegramUpdateSignal(redis_key=help_key),
-        )
-        await handle.signal(
-            TELEGRAM_UPDATE_SIGNAL_NAME,
-            TelegramUpdateSignal(redis_key=unknown_key),
-        )
-        await handle.signal(
-            TELEGRAM_UPDATE_SIGNAL_NAME,
-            TelegramUpdateSignal(redis_key=scream_key),
-        )
-        await handle.signal(
-            TELEGRAM_UPDATE_SIGNAL_NAME,
-            TelegramUpdateSignal(redis_key=sample_key),
-        )
+        for update_key in (sticker_key, sample_key, scream_key, answer_key, trailing_key):
+            await handle.signal(
+                TELEGRAM_UPDATE_SIGNAL_NAME,
+                TelegramUpdateSignal(redis_key=update_key),
+            )
         await transcript.wait_for("cleanup", 5)
         actual = await child.query("received_update_keys")
 
-    assert (
-        actual,
-        [event[0] for event in transcript.events],
-    ) == (
-        [],
+    assert (actual, [event[0] for event in transcript.events]) == (
+        [answer_key],
         [
             "inspect",
-            "cleanup",
-            "inspect",
-            "prepare_help",
-            "deliver",
-            "cleanup",
-            "inspect",
-            "prepare_unsupported",
-            "deliver",
             "cleanup",
             "inspect",
             "prepare_unsupported",
@@ -1006,8 +1041,17 @@ async def test_routes_commands_without_advancing_an_active_questionnaire(
             "prepare_notification_sample",
             "deliver",
             "cleanup",
+            "inspect",
+            "prepare_unsupported",
+            "deliver",
+            "cleanup",
+            "inspect",
+            "inspect",
+            "prepare_unsupported",
+            "deliver",
+            "cleanup",
         ],
-    ), "a command reached the questionnaire or bypassed its parent-level response"
+    ), "a sticker, sample or scream cancelled the questionnaire or swallowed the answer"
 
 
 async def test_routes_notification_callback_without_entering_a_questionnaire(

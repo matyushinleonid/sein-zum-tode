@@ -21,29 +21,17 @@ from sein_zum_tode.notifications.ports import NumberSpeller
 
 WITCH_HOUSE_CHARACTERS: dict[str, str | int | None] = {
     "A": "Λ",
-    "a": "λ",
     "D": "Δ",
-    "d": "δ",
     "E": "Ξ",
-    "e": "ξ",
     "O": "Ω",
-    "o": "ω",
     "S": "ϟ",
-    "s": "ϟ",
     "T": "Ŧ",
-    "t": "ŧ",
     "А": "Λ",
-    "а": "λ",
     "Д": "Δ",
-    "д": "δ",
     "Е": "Ξ",
-    "е": "ξ",
     "О": "Ω",
-    "о": "ω",
     "С": "Ͼ",
-    "с": "ϲ",
     "Т": "Ŧ",
-    "т": "ŧ",
 }
 
 
@@ -297,4 +285,4 @@ class NotificationMessagePresenter:
 
     @staticmethod
     def _witch_house(value: str) -> str:
-        return value.translate(str.maketrans(WITCH_HOUSE_CHARACTERS))
+        return value.upper().translate(str.maketrans(WITCH_HOUSE_CHARACTERS))

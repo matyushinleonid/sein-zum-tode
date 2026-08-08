@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 PREPARE_UNSUPPORTED_ACTIVITY_NAME = "prepare_unsupported_response"
-VISUALLY_EMPTY_TELEGRAM_MESSAGE = "\u00a0"
 
 
 class UnsupportedUpdateContent(BaseModel):
@@ -20,17 +19,19 @@ class UnsupportedUpdateContent(BaseModel):
             raise ValueError("unsupported update poem lines must not be empty")
         return self
 
-    def messages(self) -> tuple[str, ...]:
-        return tuple(
-            message
-            for stanza in self.stanzas
-            for message in (*stanza, VISUALLY_EMPTY_TELEGRAM_MESSAGE)
-        )
+    def messages(self) -> tuple[str | None, ...]:
+        return tuple(message for stanza in self.stanzas for message in (*stanza, None))
 
 
 @dataclass(frozen=True, slots=True)
 class UnsupportedResponsePreparation:
     response_prepared: bool
+
+
+@dataclass(frozen=True, slots=True)
+class UnsupportedTurn:
+    text: str | None = None
+    poem_gap: bool = False
 
 
 class UnsupportedUpdateSession(BaseModel):
@@ -40,15 +41,19 @@ class UnsupportedUpdateSession(BaseModel):
     next_message_index: int = Field(default=0, ge=0)
     last_update_key: str | None = None
     last_response_text: str | None = None
+    last_response_poem_gap: bool = False
 
     def advance(
         self,
         *,
         update_key: str,
         content: UnsupportedUpdateContent,
-    ) -> tuple[UnsupportedUpdateSession, str | None]:
+    ) -> tuple[UnsupportedUpdateSession, UnsupportedTurn]:
         if update_key == self.last_update_key:
-            return self, self.last_response_text
+            return self, UnsupportedTurn(
+                text=self.last_response_text,
+                poem_gap=self.last_response_poem_gap,
+            )
         if self.ignored_updates < content.initial_silence_count:
             return (
                 self.model_copy(
@@ -56,9 +61,10 @@ class UnsupportedUpdateSession(BaseModel):
                         "ignored_updates": self.ignored_updates + 1,
                         "last_update_key": update_key,
                         "last_response_text": None,
+                        "last_response_poem_gap": False,
                     }
                 ),
-                None,
+                UnsupportedTurn(),
             )
         messages = content.messages()
         text = messages[self.next_message_index % len(messages)]
@@ -68,7 +74,8 @@ class UnsupportedUpdateSession(BaseModel):
                     "next_message_index": (self.next_message_index + 1) % len(messages),
                     "last_update_key": update_key,
                     "last_response_text": text,
+                    "last_response_poem_gap": text is None,
                 }
             ),
-            text,
+            UnsupportedTurn(text=text, poem_gap=text is None),
         )
