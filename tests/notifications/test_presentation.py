@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 
 from sein_zum_tode.bot.content import (
@@ -8,6 +10,8 @@ from sein_zum_tode.bot.content import (
     NotificationMediaKind,
     NotificationMythicVariant,
     NotificationNumberStyle,
+    NotificationOmen,
+    NotificationOmenForms,
     NotificationTextForms,
     NotificationTextStyle,
     NotificationTextVariant,
@@ -91,6 +95,17 @@ def notification_content() -> NotificationContent:
                 text=natural,
                 style=NotificationTextStyle.WITCH_HOUSE,
                 number_style=NotificationNumberStyle.WORDS,
+            ),
+        ),
+        omens=(
+            NotificationOmen(
+                id="winters",
+                text=NotificationOmenForms(
+                    one="{count} зима.",
+                    few="{count} зимы.",
+                    many="{count} зим.",
+                    other="{count} зимы.",
+                ),
             ),
         ),
     )
@@ -230,15 +245,7 @@ def test_selects_each_epic_text_with_equal_index_space(
     expected_variant: str,
     expected_text: str,
 ) -> None:
-    randomizer = RandomizerMemory(
-        values={"rare_direction": 0.25},
-        indexes={
-            "epic_variant": variant_index,
-            "rare_ltr_walk": 0,
-            "rare_ltr_arrow": 0,
-            "rare_ltr_dead": 0,
-        },
-    )
+    randomizer = RandomizerMemory(indexes={"epic_variant": variant_index})
 
     actual = presenter(randomizer).render(
         locale="ru",
@@ -247,23 +254,16 @@ def test_selects_each_epic_text_with_equal_index_space(
         sample=NotificationTier.EPIC,
     )
 
-    assert (actual.variant_id, actual.fallback_text) == (
+    assert (actual.variant_id, actual.text, actual.fallback_text, actual.prelude_text) == (
         expected_variant,
-        f"🚶➡️💀\n{expected_text}",
-    ), "epic pool did not select its text variants uniformly or force Rare emoji"
+        expected_text,
+        None,
+        "🌟 Epic!",
+    ), "epic pool lost its title, kept an emoji triplet, or stopped varying its text"
 
 
-def test_renders_a_mythic_s3_attachment_with_base_text_and_rare_emoji() -> None:
-    randomizer = RandomizerMemory(
-        values={"rare_direction": 0.25},
-        indexes={
-            "mythic_variant": 0,
-            "base_text": 1,
-            "rare_ltr_walk": 0,
-            "rare_ltr_arrow": 0,
-            "rare_ltr_dead": 0,
-        },
-    )
+def test_renders_a_mythic_s3_attachment_with_base_text_and_its_title() -> None:
+    randomizer = RandomizerMemory(indexes={"mythic_variant": 0, "base_text": 1})
 
     actual = presenter(randomizer).render(
         locale="ru",
@@ -273,13 +273,9 @@ def test_renders_a_mythic_s3_attachment_with_base_text_and_rare_emoji() -> None:
     )
 
     assert actual == RenderedNotification(
-        text=(
-            '<tg-emoji emoji-id="19">🚶</tg-emoji>'
-            '<tg-emoji emoji-id="37">➡️</tg-emoji>'
-            '<tg-emoji emoji-id="43">💀</tg-emoji>\nОсталось 120 дней'
-        ),
-        parse_mode="HTML",
-        fallback_text="🚶➡️💀\nОсталось 120 дней",
+        text="Осталось 120 дней",
+        parse_mode=None,
+        fallback_text=None,
         prelude_text="👑 Mythic!",
         attachment=TelegramAttachment(
             kind=TelegramAttachmentKind.AUDIO,
@@ -287,19 +283,11 @@ def test_renders_a_mythic_s3_attachment_with_base_text_and_rare_emoji() -> None:
         ),
         variant_id="stupa",
         tier=NotificationTier.MYTHIC,
-    ), "Mythic reward lost its S3 media, separate prelude, base text, or forced Rare emoji"
+    ), "Mythic reward lost its S3 media, its title, or its base text"
 
 
 def test_supports_a_text_only_mythic_variant() -> None:
-    randomizer = RandomizerMemory(
-        values={"rare_direction": 0.75},
-        indexes={
-            "mythic_variant": 1,
-            "rare_rtl_dead": 0,
-            "rare_rtl_arrow": 0,
-            "rare_rtl_walk": 0,
-        },
-    )
+    randomizer = RandomizerMemory(indexes={"mythic_variant": 1})
 
     actual = presenter(randomizer).render(
         locale="ru",
@@ -310,11 +298,11 @@ def test_supports_a_text_only_mythic_variant() -> None:
 
     assert (
         actual.variant_id,
-        actual.fallback_text,
+        actual.text,
         actual.attachment,
     ) == (
         "mythic_words",
-        "💀⬅️🚶\nΩϾŦΛЛΩϾЬ ϾŦΩ ΔВΛΔЦΛŦЬ ΔНΞЙ",
+        "ΩϾŦΛЛΩϾЬ ϾŦΩ ΔВΛΔЦΛŦЬ ΔНΞЙ",
         None,
     ), "Mythic pool could not represent an Epic-like text-only reward"
 
@@ -414,3 +402,86 @@ def test_derives_repeatable_independent_values_from_a_notification_seed() -> Non
         subject.value("response-47", "emoji_tier"),
         subject.index("response-47", "walk", 29),
     ), "notification retry produced different pseudo-random choices for the same seed"
+
+
+def omen_randomizer(*, omen_kind: int, mini_witch: int = 1) -> RandomizerMemory:
+    return RandomizerMemory(
+        values={"message_tier": 0.03, "emoji_tier": 0.9},
+        indexes={
+            "base_text": 0,
+            "omen_kind": omen_kind,
+            "omen_variant": 0,
+            "omen_mini_witch": mini_witch,
+            "mini_witch_0": 0,
+            "mini_witch_1": 0,
+            "mini_witch_2": 0,
+        },
+    )
+
+
+def test_appends_an_omen_line_to_the_ordinary_countdown() -> None:
+    actual = presenter(omen_randomizer(omen_kind=1)).render(
+        locale="ru",
+        days_left=120,
+        seed="omen-120",
+        today=date(2026, 8, 8),
+        death_date=date(2061, 3, 14),
+    )
+
+    assert (actual.tier, actual.prelude_text, actual.text) == (
+        NotificationTier.OMEN,
+        "☄️ Omen!",
+        "Осталось дней: 120\n35 зим.",
+    ), "the omen tier replaced the countdown, added a prelude, or miscounted its omen"
+
+
+def test_morphs_only_a_few_characters_for_the_other_omen_variant() -> None:
+    actual = presenter(
+        RandomizerMemory(
+            values={"message_tier": 0.03, "emoji_tier": 0.9},
+            indexes={
+                "base_text": 0,
+                "omen_kind": 0,
+                "mini_witch_0": 0,
+                "mini_witch_1": 0,
+                "mini_witch_2": 0,
+            },
+        )
+    ).render(
+        locale="ru",
+        days_left=120,
+        seed="omen-120",
+        today=date(2026, 8, 8),
+        death_date=date(2061, 3, 14),
+    )
+
+    assert (actual.text, actual.tier) == (
+        "ΩϾŦалось дней: 120",
+        NotificationTier.OMEN,
+    ), "the mini witch house transformed the whole string instead of a few characters"
+
+
+def test_leaves_the_countdown_alone_when_no_death_date_is_available() -> None:
+    actual = presenter(omen_randomizer(omen_kind=1)).render(
+        locale="ru",
+        days_left=120,
+        seed="omen-120",
+    )
+
+    assert actual.text == "Осталось дней: 120", (
+        "an omen was appended without the dates needed to count it"
+    )
+
+
+def test_can_corrupt_an_appended_omen_line_as_well() -> None:
+    actual = presenter(omen_randomizer(omen_kind=1, mini_witch=0)).render(
+        locale="ru",
+        days_left=120,
+        seed="omen-120",
+        today=date(2026, 8, 8),
+        death_date=date(2061, 3, 14),
+    )
+
+    assert actual.text == "ΩϾŦалось дней: 120\n35 зим.", (
+        "the omen line was appended without the mini witch house that was rolled for it"
+    )

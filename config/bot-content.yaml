@@ -137,6 +137,10 @@ notification_rewards:
       - "5309896547972953593"
       - "5307763684393629810"
       - "5325923123948695594"
+  omen:
+    probability: 0.04
+    prelude: "☄️ Omen!"
+    mini_witch_house_characters: 3
   epic:
     probability: 0.016666666666666666
     prelude: "🌟 Epic!"
@@ -157,6 +161,99 @@ locales:
       natural:
         one: "{days_left} day remains"
         other: "{days_left} days remain"
+      omens:
+        - id: crab_pulsar_rotations
+          text:
+            one: "{count} rotation of the Crab pulsar."
+            other: "{count} rotations of the Crab pulsar."
+        - id: sundays
+          text:
+            one: "{count} Sunday."
+            other: "{count} Sundays."
+        - id: wednesdays
+          text:
+            one: "🐸 {count} Wednesday."
+            other: "🐸 {count} Wednesdays."
+        - id: full_moons
+          text:
+            one: "{count} full moon."
+            other: "{count} full moons."
+        - id: new_years
+          text:
+            one: "{count} New Year's Eve."
+            other: "{count} New Year's Eves."
+        - id: winters
+          text:
+            one: "{count} winter."
+            other: "{count} winters."
+        - id: jupiter_oppositions
+          text:
+            one: "{count} opposition of Jupiter."
+            other: "{count} oppositions of Jupiter."
+        - id: encke_returns
+          text:
+            one: "{count} return of comet Encke."
+            other: "{count} returns of comet Encke."
+        - id: leap_days
+          text:
+            one: "{count} leap day."
+            other: "{count} leap days."
+        - id: proxima_light_crossings
+          text:
+            one: "Light from Proxima Centauri will reach Earth {count} time."
+            other: "Light from Proxima Centauri will reach Earth {count} times."
+        - id: mercury_transits
+          text:
+            one: "{count} transit of Mercury."
+            other: "{count} transits of Mercury."
+        - id: sirius_light_crossings
+          text:
+            one: "Light from Sirius will reach Earth {count} time."
+            other: "Light from Sirius will reach Earth {count} times."
+        - id: saros_cycles
+          text:
+            one: "{count} saros cycle."
+            other: "{count} saros cycles."
+        - id: metonic_cycles
+          text:
+            one: "{count} Metonic cycle."
+            other: "{count} Metonic cycles."
+        - id: great_conjunctions
+          text:
+            one: "{count} great conjunction."
+            other: "{count} great conjunctions."
+        - id: saturn_returns
+          text:
+            one: "{count} return of Saturn."
+            other: "{count} returns of Saturn."
+        - id: tempel_tuttle_returns
+          text:
+            one: "{count} return of comet Tempel–Tuttle."
+            other: "{count} returns of comet Tempel–Tuttle."
+        - id: pons_brooks_returns
+          text:
+            one: "{count} return of comet Pons–Brooks."
+            other: "{count} returns of comet Pons–Brooks."
+        - id: halleys_comet_returns
+          text:
+            one: "{count} return of Halley's Comet."
+            other: "{count} returns of Halley's Comet."
+        - id: venus_transits
+          text:
+            one: "{count} transit of Venus."
+            other: "{count} transits of Venus."
+        - id: swift_tuttle_returns
+          text:
+            one: "{count} return of comet Swift–Tuttle."
+            other: "{count} returns of comet Swift–Tuttle."
+        - id: great_years
+          text:
+            one: "{count} Platonic year."
+            other: "{count} Platonic years."
+        - id: galactic_years
+          text:
+            one: "{count} galactic year."
+            other: "{count} galactic years."
       epic:
         - id: haunting
           text:
@@ -248,6 +345,145 @@ locales:
         few: "Осталось {days_left} дня"
         many: "Осталось {days_left} дней"
         other: "Осталось {days_left} дня"
+      omens:
+        - id: crab_pulsar_rotations
+          text:
+            one: "{count} оборот пульсара в Крабовидной туманности."
+            few: "{count} оборота пульсара в Крабовидной туманности."
+            many: "{count} оборотов пульсара в Крабовидной туманности."
+            other: "{count} оборота пульсара в Крабовидной туманности."
+        - id: sundays
+          text:
+            one: "{count} воскресенье."
+            few: "{count} воскресенья."
+            many: "{count} воскресений."
+            other: "{count} воскресенья."
+        - id: wednesdays
+          text:
+            one: "🐸 {count} среда."
+            few: "🐸 {count} среды."
+            many: "🐸 {count} сред."
+            other: "🐸 {count} среды."
+        - id: full_moons
+          text:
+            one: "{count} полнолуние."
+            few: "{count} полнолуния."
+            many: "{count} полнолуний."
+            other: "{count} полнолуния."
+        - id: new_years
+          text:
+            one: "{count} новогодняя ночь."
+            few: "{count} новогодние ночи."
+            many: "{count} новогодних ночей."
+            other: "{count} новогодние ночи."
+        - id: winters
+          text:
+            one: "{count} зима."
+            few: "{count} зимы."
+            many: "{count} зим."
+            other: "{count} зимы."
+        - id: jupiter_oppositions
+          text:
+            one: "{count} противостояние Юпитера."
+            few: "{count} противостояния Юпитера."
+            many: "{count} противостояний Юпитера."
+            other: "{count} противостояния Юпитера."
+        - id: encke_returns
+          text:
+            one: "{count} возвращение кометы Энке."
+            few: "{count} возвращения кометы Энке."
+            many: "{count} возвращений кометы Энке."
+            other: "{count} возвращения кометы Энке."
+        - id: leap_days
+          text:
+            one: "{count} високосный день."
+            few: "{count} високосных дня."
+            many: "{count} високосных дней."
+            other: "{count} високосных дня."
+        - id: proxima_light_crossings
+          text:
+            one: "Свет от Проксимы Центавра дойдёт до Земли {count} раз."
+            few: "Свет от Проксимы Центавра дойдёт до Земли {count} раза."
+            many: "Свет от Проксимы Центавра дойдёт до Земли {count} раз."
+            other: "Свет от Проксимы Центавра дойдёт до Земли {count} раза."
+        - id: mercury_transits
+          text:
+            one: "{count} прохождение Меркурия по диску Солнца."
+            few: "{count} прохождения Меркурия по диску Солнца."
+            many: "{count} прохождений Меркурия по диску Солнца."
+            other: "{count} прохождения Меркурия по диску Солнца."
+        - id: sirius_light_crossings
+          text:
+            one: "Свет от Сириуса дойдёт до Земли {count} раз."
+            few: "Свет от Сириуса дойдёт до Земли {count} раза."
+            many: "Свет от Сириуса дойдёт до Земли {count} раз."
+            other: "Свет от Сириуса дойдёт до Земли {count} раза."
+        - id: saros_cycles
+          text:
+            one: "{count} сарос."
+            few: "{count} сароса."
+            many: "{count} саросов."
+            other: "{count} сароса."
+        - id: metonic_cycles
+          text:
+            one: "{count} Метонов цикл."
+            few: "{count} Метоновых цикла."
+            many: "{count} Метоновых циклов."
+            other: "{count} Метоновых цикла."
+        - id: great_conjunctions
+          text:
+            one: "{count} великое соединение."
+            few: "{count} великих соединения."
+            many: "{count} великих соединений."
+            other: "{count} великих соединения."
+        - id: saturn_returns
+          text:
+            one: "{count} возвращение Сатурна."
+            few: "{count} возвращения Сатурна."
+            many: "{count} возвращений Сатурна."
+            other: "{count} возвращения Сатурна."
+        - id: tempel_tuttle_returns
+          text:
+            one: "{count} возвращение кометы Темпеля — Туттля."
+            few: "{count} возвращения кометы Темпеля — Туттля."
+            many: "{count} возвращений кометы Темпеля — Туттля."
+            other: "{count} возвращения кометы Темпеля — Туттля."
+        - id: pons_brooks_returns
+          text:
+            one: "{count} возвращение кометы Понса — Брукса."
+            few: "{count} возвращения кометы Понса — Брукса."
+            many: "{count} возвращений кометы Понса — Брукса."
+            other: "{count} возвращения кометы Понса — Брукса."
+        - id: halleys_comet_returns
+          text:
+            one: "{count} возвращение кометы Галлея."
+            few: "{count} возвращения кометы Галлея."
+            many: "{count} возвращений кометы Галлея."
+            other: "{count} возвращения кометы Галлея."
+        - id: venus_transits
+          text:
+            one: "{count} прохождение Венеры по диску Солнца."
+            few: "{count} прохождения Венеры по диску Солнца."
+            many: "{count} прохождений Венеры по диску Солнца."
+            other: "{count} прохождения Венеры по диску Солнца."
+        - id: swift_tuttle_returns
+          text:
+            one: "{count} возвращение кометы Свифта — Туттля."
+            few: "{count} возвращения кометы Свифта — Туттля."
+            many: "{count} возвращений кометы Свифта — Туттля."
+            other: "{count} возвращения кометы Свифта — Туттля."
+        - id: great_years
+          text:
+            one: "{count} Платонов год."
+            few: "{count} Платоновых года."
+            many: "{count} Платоновых лет."
+            other: "{count} Платоновых года."
+        - id: galactic_years
+          text:
+            one: "{count} галактический год."
+            few: "{count} галактических года."
+            many: "{count} галактических лет."
+            other: "{count} галактических года."
       epic:
         - id: haunting
           text:
@@ -329,6 +565,6 @@ locales:
       cleanup_failed: Не удалось подтвердить немедленное удаление. Временные данные анкеты будут автоматически удалены после истечения срока хранения.
       questions:
         - id: q1
-          text: 'Ваша дата рождения. Обязательный вопрос: без неё оценка невозможна. Полная дата (ДД.ММ.ГГГГ) даст модели наиболее надёжную основу для оценки.'
+          text: 'Ваша дата рождения. Обязательный вопрос: без неё оценка невозможна. Полная дата (ДД.ММ.ГГГГ) даст модели самую надёжную основу.'
         - id: q2
           text: Кем вы работаете, где живёте? Есть ли у вас спорт или увлечения?

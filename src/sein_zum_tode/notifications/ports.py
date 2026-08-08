@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Protocol
 
 from sein_zum_tode.bot.content import NotificationTier
@@ -18,6 +19,8 @@ class NotificationPresenter(Protocol):
         locale: str | None,
         days_left: int,
         seed: str,
+        today: date | None = None,
+        death_date: date | None = None,
         sample: NotificationTier | None = None,
     ) -> RenderedNotification: ...
 

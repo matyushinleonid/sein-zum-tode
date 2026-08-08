@@ -68,6 +68,8 @@ class PrepareMortalNotificationActivity:
             locale=mortal.locale,
             days_left=days_left,
             seed=input.response_key,
+            today=mortal.local_date(self._clock.now()),
+            death_date=mortal.death_date,
         )
         await self._responses.store(
             input.response_key,
@@ -138,6 +140,8 @@ class PrepareNotificationSampleActivity:
                 locale=mortal.locale,
                 days_left=days_left,
                 seed=input.response_key,
+                today=mortal.local_date(self._clock.now()),
+                death_date=mortal.death_date,
                 sample=tier,
             )
             response = _response(input.chat_id, rendered)
