@@ -220,9 +220,9 @@ def test_selects_default_and_natural_text_with_equal_index_space(
     ("variant_index", "expected_variant", "expected_text"),
     [
         (0, "haunting", "Осталось 120 дней. Игнорировать всё сложнее"),
-        (1, "witch_house", "Ωϲŧλлωϲь 120 δнξй"),
+        (1, "witch_house", "ΩϾŦΛЛΩϾЬ 120 ΔНΞЙ"),
         (2, "words", "Осталось сто двадцать дней"),
-        (3, "witch_house_words", "Ωϲŧλлωϲь ϲŧω δвλδцλŧь δнξй"),
+        (3, "witch_house_words", "ΩϾŦΛЛΩϾЬ ϾŦΩ ΔВΛΔЦΛŦЬ ΔНΞЙ"),
     ],
 )
 def test_selects_each_epic_text_with_equal_index_space(
@@ -314,7 +314,7 @@ def test_supports_a_text_only_mythic_variant() -> None:
         actual.attachment,
     ) == (
         "mythic_words",
-        "💀⬅️🚶\nΩϲŧλлωϲь ϲŧω δвλδцλŧь δнξй",
+        "💀⬅️🚶\nΩϾŦΛЛΩϾЬ ϾŦΩ ΔВΛΔЦΛŦЬ ΔНΞЙ",
         None,
     ), "Mythic pool could not represent an Epic-like text-only reward"
 

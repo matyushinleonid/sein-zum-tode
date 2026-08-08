@@ -58,7 +58,7 @@ class PrepareUnsupportedResponseActivity:
             session = await self._sessions.load(session_key)
         except InvalidStoredPayloadError:
             session = None
-        updated, response_text = (session or UnsupportedUpdateSession()).advance(
+        updated, turn = (session or UnsupportedUpdateSession()).advance(
             update_key=input.update_key,
             content=self._content,
         )
@@ -67,7 +67,8 @@ class PrepareUnsupportedResponseActivity:
             updated,
             self._session_ttl_seconds,
         )
-        if response_text is None and input.is_text_message:
+        response_text = turn.text
+        if response_text is None and not turn.poem_gap and input.is_text_message:
             mortal = await self._mortals.get(user_id)
             locale = mortal.locale if mortal is not None else self._bot_content.default_locale
             response_text = self._bot_content.localized(locale).text_unsupported

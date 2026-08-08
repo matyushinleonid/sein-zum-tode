@@ -216,7 +216,7 @@ def memory(update: object, response: object = None) -> TelegramMemory:
                 text="/unknown",
                 chat_type="private",
             ),
-            expected_kind=InspectionKind.UNSUPPORTED,
+            expected_kind=InspectionKind.UNKNOWN_COMMAND,
             expected_chat_id=128_287,
         ),
         ActivityCase(
@@ -227,7 +227,7 @@ def memory(update: object, response: object = None) -> TelegramMemory:
                 text="/help@mortality_bot",
                 chat_type="private",
             ),
-            expected_kind=InspectionKind.UNSUPPORTED,
+            expected_kind=InspectionKind.UNKNOWN_COMMAND,
             expected_chat_id=128_491,
         ),
         ActivityCase(

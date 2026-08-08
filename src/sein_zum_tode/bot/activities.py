@@ -161,7 +161,7 @@ class InspectTelegramUpdateActivity:
         elif message.text == "/notifications":
             kind = InspectionKind.NOTIFICATIONS
         elif message.text is not None and message.text.startswith("/"):
-            kind = InspectionKind.UNSUPPORTED
+            kind = InspectionKind.UNKNOWN_COMMAND
         else:
             kind = (
                 self._selection_kind(selection.data)

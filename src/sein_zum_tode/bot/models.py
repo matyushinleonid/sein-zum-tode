@@ -37,6 +37,7 @@ class InspectionKind(StrEnum):
     SCREAM_DENIED = "scream_denied"
     SCREAM_UNSUPPORTED = "scream_unsupported"
     NOTIFICATION_SAMPLE = "notification_sample"
+    UNKNOWN_COMMAND = "unknown_command"
     UNSUPPORTED = "unsupported"
     GROUP_UNSUPPORTED = "group_unsupported"
     LIMIT_EXHAUSTED = "limit_exhausted"

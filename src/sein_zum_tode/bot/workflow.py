@@ -92,7 +92,15 @@ PREPARE_ACTIVITY_NAMES = {
 UNSUPPORTED_INSPECTION_KINDS = {
     InspectionKind.TEXT,
     InspectionKind.SCREAM_UNSUPPORTED,
+    InspectionKind.UNKNOWN_COMMAND,
     InspectionKind.UNSUPPORTED,
+}
+COMMAND_INSPECTION_KINDS = {
+    InspectionKind.HELP,
+    InspectionKind.ABOUT,
+    InspectionKind.LOCALIZATION,
+    InspectionKind.NOTIFICATIONS,
+    InspectionKind.UNKNOWN_COMMAND,
 }
 
 
@@ -232,6 +240,8 @@ class TelegramUserWorkflow:
                     QuestionnaireUpdateSignal(update_key=update_key),
                 )
                 return True
+            if inspected.kind in COMMAND_INSPECTION_KINDS:
+                await self._cancel_questionnaire()
 
         if inspected.kind == InspectionKind.BEGIN:
             quota = await self._llm_quota(update_key)

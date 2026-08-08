@@ -18,15 +18,16 @@ pytestmark = pytest.mark.fast
 
 
 @pytest.mark.parametrize(
-    ("locale", "confirmation"),
+    ("locale", "confirmation", "help_text"),
     [
-        ("ru", "Язык изменён на русский."),
-        ("en", "Language changed to English."),
+        ("ru", "Язык изменён на русский.", "Путь укажут созвездия"),
+        ("en", "Language changed to English.", "Navigate by the constellations"),
     ],
 )
-async def test_configures_each_supported_localization(
+async def test_onboards_a_first_time_mortal_with_help_after_the_confirmation(
     locale: str,
     confirmation: str,
+    help_text: str,
 ) -> None:
     user_id = 361_013
     payloads = TelegramMemory(
@@ -65,13 +66,61 @@ async def test_configures_each_supported_localization(
     response = payloads.responses[input.response_key]
     assert (
         mortals.mortals[user_id].locale,
+        response.prelude_text,
         response.text,
         response.callback_query_id,
     ) == (
         locale,
         confirmation,
+        help_text,
         "callback-Sphinx-915",
-    ), "localization callback did not persist or confirm the selected language"
+    ), "first language choice did not persist, confirm, and then onboard with help"
+
+
+async def test_confirms_a_later_language_change_without_repeating_help() -> None:
+    user_id = 361_027
+    payloads = TelegramMemory(
+        update_result=TelegramUpdates.callback(
+            update_id=3623,
+            user_id=user_id,
+            chat_id=user_id,
+            chat_type="private",
+            data="localization:en",
+        ),
+        response_result=None,
+        store_result=None,
+        send_result=None,
+        delete_result=None,
+    )
+    mortals = MortalMemory({user_id: mortal(id=user_id, locale="ru")})
+    subject = ConfigureMortalLocalizationActivity(
+        updates=payloads.update_documents,
+        responses=payloads.response_documents,
+        mortals=mortals,
+        content=BotContents.debug(),
+        keyboards=telegram_keyboards(),
+        response_ttl_seconds=3631,
+        logger=SilentLogger(),
+    )
+    input = PrepareResponseInput(
+        update_key="telegram:localization:3623",
+        response_key="telegram:localization:3623:response",
+        chat_id=user_id,
+        user_id=user_id,
+    )
+
+    await subject.configure(input)
+
+    response = payloads.responses[input.response_key]
+    assert (
+        mortals.mortals[user_id].locale,
+        response.prelude_text,
+        response.text,
+    ) == (
+        "en",
+        None,
+        "Language changed to English.",
+    ), "a returning mortal was onboarded again instead of only confirming the switch"
 
 
 async def test_configures_localization_from_reply_keyboard_text() -> None:
@@ -112,11 +161,13 @@ async def test_configures_localization_from_reply_keyboard_text() -> None:
     response = payloads.responses[input.response_key]
     assert (
         mortals.mortals[user_id].locale,
+        response.prelude_text,
         response.text,
         response.remove_reply_keyboard,
     ) == (
         "ru",
         "Язык изменён на русский.",
+        "Путь укажут созвездия",
         True,
     ), "reply keyboard locale was not persisted, confirmed, and dismissed"
 

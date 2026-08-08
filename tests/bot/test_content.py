@@ -25,10 +25,7 @@ from sein_zum_tode.bot.content import (
     YamlBotContentLoader,
 )
 from sein_zum_tode.bot.errors import ContentConfigurationError
-from sein_zum_tode.unsupported.models import (
-    VISUALLY_EMPTY_TELEGRAM_MESSAGE,
-    UnsupportedUpdateContent,
-)
+from sein_zum_tode.unsupported.models import UnsupportedUpdateContent
 
 pytestmark = pytest.mark.fast
 
@@ -247,7 +244,7 @@ locales:
         "Navigate by the constellations",
         "Days left: 17",
         (QuestionContent(id="star", text="Which star?"),),
-        ("First line", "Second line", VISUALLY_EMPTY_TELEGRAM_MESSAGE),
+        ("First line", "Second line", None),
     ), "YAML loading changed the configured version, locale, or questions"
 
 
