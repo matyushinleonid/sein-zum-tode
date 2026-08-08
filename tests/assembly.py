@@ -185,7 +185,7 @@ class IngressAssembly:
         self.temporal = HealthProbeResource()
         self.temporal_adapter = object()
         self.temporal_handoff = object()
-        self.whitelisted_handoff = object()
+        self.user_resolver = object()
         self.update_documents = object()
         self.metrics = object()
         self.metrics_registry = object()
@@ -210,8 +210,8 @@ class IngressAssembly:
         monkeypatch.setattr(module, "TemporalUpdateHandoff", self.create_handoff)
         monkeypatch.setattr(
             module,
-            "WhitelistedUpdateHandoff",
-            self.create_whitelisted_handoff,
+            "WhitelistedUpdateAdmission",
+            self.create_admission,
         )
         monkeypatch.setattr(module, "ExponentialRetryWaiter", self.create_waiter)
         monkeypatch.setattr(module, "TelegramPoller", self.create_poller)
@@ -299,13 +299,14 @@ class IngressAssembly:
 
     def create_resolver(self) -> object:
         self.events.append(("resolver",))
-        return object()
+        return self.user_resolver
 
     def create_store(self, **options: object) -> object:
         self.events.append(
             (
                 "store",
                 options["updates"] is self.update_documents,
+                options["user_resolver"] is self.user_resolver,
                 options["bot_id"],
                 options["ttl_seconds"],
             )
@@ -334,15 +335,15 @@ class IngressAssembly:
         self.events.append(("handoff", options["workflow_starter"].__class__ is object))
         return self.temporal_handoff
 
-    def create_whitelisted_handoff(self, **options: object) -> object:
+    def create_admission(self, **options: object) -> object:
         self.events.append(
             (
-                "whitelist",
-                options["delegate"] is self.temporal_handoff,
+                "admission",
+                options["user_resolver"] is self.user_resolver,
                 options["allowed_user_ids"],
             )
         )
-        return self.whitelisted_handoff
+        return object()
 
     def create_waiter(self, **options: object) -> object:
         self.events.append(

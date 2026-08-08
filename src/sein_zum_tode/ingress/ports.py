@@ -40,6 +40,10 @@ class UpdateUserResolver(Protocol):
     def resolve(self, update: Update) -> int | None: ...
 
 
+class UpdateAdmission(Protocol):
+    def admits(self, update: Update) -> bool: ...
+
+
 class UpdateHandoff(Protocol):
     async def handoff(self, update: StoredUpdate) -> None: ...
 

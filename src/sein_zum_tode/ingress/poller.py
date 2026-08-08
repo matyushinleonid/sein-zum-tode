@@ -9,10 +9,10 @@ from sein_zum_tode.ingress.errors import (
     UpdateSourceError,
     UpdateStoreError,
 )
-from sein_zum_tode.ingress.models import StoredUpdate
 from sein_zum_tode.ingress.ports import (
     PollingHealth,
     RetryWaiter,
+    UpdateAdmission,
     UpdateHandoff,
     UpdateSource,
     UpdateStore,
@@ -56,6 +56,7 @@ class TelegramPoller:
         self,
         source: UpdateSource,
         store: UpdateStore,
+        admission: UpdateAdmission,
         handoff: UpdateHandoff,
         retry_waiter: RetryWaiter,
         logger: logging.Logger | None = None,
@@ -64,6 +65,7 @@ class TelegramPoller:
     ) -> None:
         self._source = source
         self._store = store
+        self._admission = admission
         self._handoff = handoff
         self._retry_waiter = retry_waiter
         self._logger = logger or logging.getLogger(__name__)
@@ -102,10 +104,9 @@ class TelegramPoller:
                 continue
 
             for update in updates:
-                stored = await self._ingest(update, stop_event)
-                if stored is None:
+                if not await self._ingest(update, stop_event):
                     return
-                offset = stored.next_offset()
+                offset = update.update_id + 1
 
     async def _prepare(self, stop_event: asyncio.Event) -> bool:
         failure_count = 0
@@ -134,7 +135,9 @@ class TelegramPoller:
         self,
         update: Update,
         stop_event: asyncio.Event,
-    ) -> StoredUpdate | None:
+    ) -> bool:
+        if not self._admission.admits(update):
+            return True
         failure_count = 0
         while not stop_event.is_set():
             try:
@@ -154,8 +157,8 @@ class TelegramPoller:
                 await self._wait(failure_count, stop_event)
             else:
                 self._metrics.updates(stage="ingest", outcome="success")
-                return stored
-        return None
+                return True
+        return False
 
     async def _wait(
         self,

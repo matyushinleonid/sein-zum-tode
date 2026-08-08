@@ -10,6 +10,7 @@ from sein_zum_tode.ingress.errors import (
 from sein_zum_tode.ingress.models import StoredUpdate
 from sein_zum_tode.ingress.poller import ExponentialRetryWaiter, TelegramPoller
 from tests.support import (
+    AdmissionDouble,
     HandoffDouble,
     RetryWaiterDouble,
     SilentLogger,
@@ -27,10 +28,12 @@ def poller(
     store: StoreDouble,
     handoff: HandoffDouble,
     waiter: RetryWaiterDouble,
+    admission: AdmissionDouble | None = None,
 ) -> TelegramPoller:
     return TelegramPoller(
         source=source,
         store=store,
+        admission=admission or AdmissionDouble(),
         handoff=handoff,
         retry_waiter=waiter,
         logger=SilentLogger(),
@@ -114,6 +117,53 @@ async def test_processes_updates_in_order_before_advancing_offset() -> None:
         stored,
         [],
     ), "poller acknowledged an update before ordered storage and handoff"
+
+
+async def test_never_stores_an_update_refused_by_admission() -> None:
+    stop = asyncio.Event()
+    refused = TelegramUpdates.message(
+        update_id=1289,
+        user_id=128_981,
+        chat_id=128_983,
+        text="Blowzy night-frumps",
+        chat_type="private",
+    )
+    admitted = TelegramUpdates.message(
+        update_id=1291,
+        user_id=129_113,
+        chat_id=129_127,
+        text="Jaded zombies acted",
+        chat_type="private",
+    )
+    stored = StoredUpdate(
+        update_id=1291,
+        key="telegram:zombies:1291",
+        ttl_seconds=1297,
+        user_id=129_113,
+    )
+    source = SourceDouble(
+        prepare_outcomes=[None],
+        receive_outcomes=[[refused, admitted], []],
+        stop_event=stop,
+    )
+    store = StoreDouble([stored])
+    handoff = HandoffDouble([None])
+    admission = AdmissionDouble(frozenset({1289}))
+
+    await poller(
+        source=source,
+        store=store,
+        handoff=handoff,
+        waiter=RetryWaiterDouble(False),
+        admission=admission,
+    ).run(stop)
+
+    assert (admission.events, store.events, handoff.events, source.events) == (
+        [1289, 1291],
+        [1291],
+        [stored],
+        [("prepare", 1), ("receive", None), ("receive", 1292)],
+    ), "refused update reached Redis or blocked the polling offset"
 
 
 async def test_retries_source_preparation_before_polling() -> None:
