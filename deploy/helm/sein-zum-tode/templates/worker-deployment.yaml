@@ -117,7 +117,7 @@ spec:
               value: /app/config/death-prediction.yaml
             - name: NOTIFICATION_SCHEDULE_CONFIG_PATH
               value: /app/config/notification-schedule.yaml
-            {{- if or (eq .Values.deathPrediction.config.provider "yandex") (eq .Values.notificationSchedule.config.provider "yandex") }}
+            {{- if or (eq .Values.deathPrediction.config.provider "yandex") (eq .Values.notificationSchedule.config.provider "yandex") (eq (default "" .Values.deathPrediction.config.fallback_provider) "yandex") (eq (default "" .Values.notificationSchedule.config.fallback_provider) "yandex") }}
             - name: YANDEX_AI_STUDIO_FOLDER_ID
               value: {{ required "yandexAiStudio.folderId is required" .Values.yandexAiStudio.folderId | quote }}
             - name: YANDEX_AI_STUDIO_API_KEY
@@ -128,7 +128,7 @@ spec:
             - name: YANDEX_AI_STUDIO_ENABLE_SERVER_DATA_LOGGING
               value: {{ .Values.yandexAiStudio.enableServerDataLogging | quote }}
             {{- end }}
-            {{- if or (eq .Values.deathPrediction.config.provider "openai") (eq .Values.notificationSchedule.config.provider "openai") }}
+            {{- if or (eq .Values.deathPrediction.config.provider "openai") (eq .Values.notificationSchedule.config.provider "openai") (eq (default "" .Values.deathPrediction.config.fallback_provider) "openai") (eq (default "" .Values.notificationSchedule.config.fallback_provider) "openai") }}
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
