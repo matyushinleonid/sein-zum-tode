@@ -57,7 +57,8 @@ class PrepareMortalNotificationActivity:
                 locale=mortal.locale or "unknown" if mortal is not None else "unknown",
             )
             return None
-        days_left = mortal.days_left(self._clock.now())
+        now = self._clock.now()
+        days_left = mortal.days_left(now)
         if days_left is None:
             self._metrics.notification(
                 outcome="skipped_no_prediction",
@@ -68,7 +69,7 @@ class PrepareMortalNotificationActivity:
             locale=mortal.locale,
             days_left=days_left,
             seed=input.response_key,
-            today=mortal.local_date(self._clock.now()),
+            today=mortal.local_date(now),
             death_date=mortal.death_date,
         )
         await self._responses.store(
@@ -127,7 +128,8 @@ class PrepareNotificationSampleActivity:
                 non_retryable=True,
             )
         mortal = await self._mortals.get(input.user_id) if input.user_id is not None else None
-        days_left = mortal.days_left(self._clock.now()) if mortal is not None else None
+        now = self._clock.now()
+        days_left = mortal.days_left(now) if mortal is not None else None
         if mortal is None or days_left is None:
             locale = mortal.locale if mortal is not None else None
             response = TelegramResponse(
@@ -140,7 +142,7 @@ class PrepareNotificationSampleActivity:
                 locale=mortal.locale,
                 days_left=days_left,
                 seed=input.response_key,
-                today=mortal.local_date(self._clock.now()),
+                today=mortal.local_date(now),
                 death_date=mortal.death_date,
                 sample=tier,
             )

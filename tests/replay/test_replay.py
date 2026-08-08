@@ -1,5 +1,6 @@
 import os
 from collections import Counter
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -26,18 +27,37 @@ REPLAYED_WORKFLOWS = [
 class Divergence:
     workflow: str
     workflow_id: str
+    run_id: str
     reason: str
 
 
-def replay_start() -> datetime:
+def replay_start() -> datetime | None:
     raw = os.environ.get("REPLAY_SINCE", "").strip()
     if not raw:
-        pytest.fail("REPLAY_SINCE is not set; run this through `make replay SINCE=2026-08-01`")
+        return None
     try:
         moment = datetime.fromisoformat(raw)
     except ValueError:
         pytest.fail(f"REPLAY_SINCE={raw!r} is not an ISO 8601 date or datetime")
     return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+
+
+def visibility_queries(task_queue: str, since: datetime | None) -> tuple[str, ...]:
+    prefix = f"TaskQueue = '{task_queue}' AND "
+    running = f"{prefix}ExecutionStatus = 'Running'"
+    if since is None:
+        return (running,)
+    return running, f"{prefix}StartTime >= '{since.isoformat()}'"
+
+
+async def histories(client: Client, queries: tuple[str, ...]) -> AsyncIterator[WorkflowHistory]:
+    seen: set[tuple[str, str]] = set()
+    for query in queries:
+        async for history in client.list_workflows(query).map_histories():
+            execution = history.workflow_id, history.run_id
+            if execution not in seen:
+                seen.add(execution)
+                yield history
 
 
 def workflow_name(history: WorkflowHistory) -> str:
@@ -47,7 +67,7 @@ def workflow_name(history: WorkflowHistory) -> str:
 
 def summary(
     *,
-    since: datetime,
+    since: datetime | None,
     namespace: str,
     task_queue: str,
     replayed: Counter[str],
@@ -57,7 +77,11 @@ def summary(
     lines = [
         "",
         "Replay summary",
-        f"  since        {since.isoformat()}",
+        (
+            "  scope        all running executions"
+            if since is None
+            else f"  scope        all running plus executions started since {since.isoformat()}"
+        ),
         f"  namespace    {namespace}",
         f"  task queue   {task_queue}",
         f"  executions   {sum(replayed.values())}",
@@ -68,9 +92,9 @@ def summary(
     if divergences:
         lines.append("  divergences")
         for divergence in divergences:
-            lines.append(f"    {divergence.workflow} {divergence.workflow_id}")
+            lines.append(f"    {divergence.workflow} {divergence.workflow_id}/{divergence.run_id}")
             lines.append(f"      {divergence.reason}")
-        lines.append("  verdict      DO NOT DEPLOY: running executions would break")
+        lines.append("  verdict      DO NOT DEPLOY: recorded histories diverge")
     else:
         lines.append("  verdict      every recorded history replays against the current code")
     return "\n".join(lines) + "\n"
@@ -83,12 +107,11 @@ async def test_recorded_histories_replay_against_the_current_workflow_code() -> 
     task_queue = os.environ.get("TEMPORAL_TASK_QUEUE", "sein-zum-tode")
 
     client = await Client.connect(address, namespace=namespace)
-    query = f"TaskQueue = '{task_queue}' AND StartTime >= '{since.isoformat()}'"
     replayed: Counter[str] = Counter()
     divergences: list[Divergence] = []
     replayer = Replayer(workflows=REPLAYED_WORKFLOWS)
     async with replayer.workflow_replay_iterator(
-        client.list_workflows(query).map_histories()
+        histories(client, visibility_queries(task_queue, since))
     ) as results:
         async for result in results:
             name = workflow_name(result.history)
@@ -98,6 +121,7 @@ async def test_recorded_histories_replay_against_the_current_workflow_code() -> 
                     Divergence(
                         workflow=name,
                         workflow_id=result.history.workflow_id,
+                        run_id=result.history.run_id,
                         reason=str(result.replay_failure).splitlines()[0][:200],
                     )
                 )
@@ -111,10 +135,7 @@ async def test_recorded_histories_replay_against_the_current_workflow_code() -> 
             divergences=divergences,
         )
     )
-    assert sum(replayed.values()) > 0, (
-        f"no execution on {task_queue!r} started at or after {since.isoformat()}, "
-        "so nothing was verified; choose an earlier SINCE"
-    )
+    assert sum(replayed.values()) > 0, f"no matching execution on {task_queue!r} was found"
     assert not divergences, (
         f"{len(divergences)} recorded execution(s) diverge from the current workflow code; "
         "gate the change with workflow.patched() instead of editing the workflow in place"

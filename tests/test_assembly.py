@@ -477,7 +477,7 @@ def test_builds_a_yandex_predictor_only_with_complete_credentials(
         model_version="rc",
         temperature=0.3,
         max_tokens=1000,
-        request_timeout_seconds=180,
+        request_timeout_seconds=120,
         system_prompt="Return structured data",
     ), "composition root did not map prediction settings into a generic Yandex profile"
     assert cast(type[object], client_options["response_type"]).__name__ == "DeathPrediction"
@@ -574,7 +574,7 @@ def test_builds_an_openai_predictor_with_mandatory_socks5_transport(
         model="gpt-5.6-sol",
         reasoning_effort="medium",
         max_output_tokens=1000,
-        request_timeout_seconds=180,
+        request_timeout_seconds=120,
         system_prompt="Return structured data",
     )
     assert cast(type[object], completion_options["response_type"]).__name__ == ("DeathPrediction")

@@ -53,12 +53,15 @@ def test_admits_an_update_permitted_by_the_access_policy(
     assert actual is True, "access policy blocked a permitted Telegram update"
 
 
-def test_admits_an_update_without_a_resolvable_user() -> None:
+def test_rejects_an_update_without_a_resolvable_user_in_whitelist_mode() -> None:
+    metrics = UpdateMetricsMemory()
     update = TelegramUpdates.anonymous_poll(update_id=1031)
 
-    actual = admission(frozenset({103_151})).admits(update)
+    actual = admission(frozenset({103_151}), metrics).admits(update)
 
-    assert actual is True, "access policy blocked an update it could not attribute to a user"
+    assert (actual, metrics.events) == (False, [("admission", "not_allowed", 1)]), (
+        "whitelist admitted an update that could not be attributed to an allowed user"
+    )
 
 
 def test_rejects_an_update_from_outside_the_whitelist() -> None:

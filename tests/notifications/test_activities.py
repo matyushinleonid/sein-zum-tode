@@ -30,8 +30,10 @@ pytestmark = pytest.mark.fast
 class ClockDouble:
     def __init__(self, value: datetime) -> None:
         self.value = value
+        self.calls = 0
 
     def now(self) -> datetime:
+        self.calls += 1
         return self.value
 
 
@@ -170,6 +172,7 @@ async def test_prepares_a_localized_countdown_in_redis() -> None:
     )
     repository = MortalRepositoryDouble(current_mortal)
     payloads = responses()
+    clock = ClockDouble(datetime(2099, 12, 30, 20, 59, tzinfo=UTC))
     subject = PrepareMortalNotificationActivity(
         mortals=repository,
         responses=payloads.response_documents,
@@ -178,7 +181,7 @@ async def test_prepares_a_localized_countdown_in_redis() -> None:
             number_speller=NumberSpellerMemory(words={}),
         ),
         response_ttl_seconds=3413,
-        clock=ClockDouble(datetime(2099, 12, 30, 20, 59, tzinfo=UTC)),
+        clock=clock,
         logger=SilentLogger(),
     )
 
@@ -194,6 +197,7 @@ async def test_prepares_a_localized_countdown_in_redis() -> None:
         payloads.responses["telegram:notification:3419"].chat_id,
         payloads.responses["telegram:notification:3419"].text,
         payloads.events[0][-1],
+        clock.calls,
     ) == (
         PreparedMortalNotification(
             response_key="telegram:notification:3419",
@@ -202,6 +206,7 @@ async def test_prepares_a_localized_countdown_in_redis() -> None:
         340_019,
         "mock notification: 2",
         3413,
+        1,
     ), "notification preparation used the wrong local day, recipient, text, or Redis TTL"
 
 
@@ -227,13 +232,14 @@ async def test_prepares_an_admin_notification_sample_with_its_reward_payload() -
         tier=NotificationTier.MYTHIC,
     )
     presenter = NotificationPresenterMemory(rendered)
+    clock = ClockDouble(datetime(2099, 12, 30, 20, 59, tzinfo=UTC))
     subject = PrepareNotificationSampleActivity(
         mortals=repository,
         responses=payloads.response_documents,
         presenter=presenter,
         content=BotContents.debug(),
         response_ttl_seconds=3421,
-        clock=ClockDouble(datetime(2099, 12, 30, 20, 59, tzinfo=UTC)),
+        clock=clock,
         logger=SilentLogger(),
     )
     input = PrepareResponseInput(
@@ -250,6 +256,7 @@ async def test_prepares_an_admin_notification_sample_with_its_reward_payload() -
         presenter.events,
         payloads.responses[input.response_key],
         payloads.events[0][-1],
+        clock.calls,
     ) == (
         [("ru", 2, input.response_key, NotificationTier.MYTHIC)],
         TelegramResponse(
@@ -261,6 +268,7 @@ async def test_prepares_an_admin_notification_sample_with_its_reward_payload() -
             attachment=rendered.attachment,
         ),
         3421,
+        1,
     ), "admin sample lost its forced tier, countdown, prelude, media, or response TTL"
 
 
