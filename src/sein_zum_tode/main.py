@@ -20,7 +20,8 @@ from sein_zum_tode.infrastructure.redis_documents import (
     RedisJsonDocumentStore,
 )
 from sein_zum_tode.infrastructure.tls import create_temporal_tls_config
-from sein_zum_tode.ingress.handoff import TemporalUpdateHandoff, WhitelistedUpdateHandoff
+from sein_zum_tode.ingress.admission import WhitelistedUpdateAdmission
+from sein_zum_tode.ingress.handoff import TemporalUpdateHandoff
 from sein_zum_tode.ingress.poller import ExponentialRetryWaiter, TelegramPoller
 from sein_zum_tode.ingress.routing import AiogramUpdateUserResolver
 from sein_zum_tode.ingress.source import AiogramUpdateSource
@@ -81,6 +82,7 @@ async def run(settings: Settings) -> None:
         polling_timeout_seconds=settings.telegram_polling_timeout_seconds,
         request_timeout_seconds=settings.telegram_request_timeout_seconds,
     )
+    user_resolver = AiogramUpdateUserResolver()
     store = TelegramUpdateStore(
         updates=RedisJsonDocumentStore(
             redis=redis,
@@ -91,7 +93,7 @@ async def run(settings: Settings) -> None:
             ),
             document_name="Telegram update",
         ),
-        user_resolver=AiogramUpdateUserResolver(),
+        user_resolver=user_resolver,
         bot_id=bot.id,
         ttl_seconds=settings.telegram_update_ttl_seconds,
     )
@@ -106,12 +108,13 @@ async def run(settings: Settings) -> None:
     poller = TelegramPoller(
         source=source,
         store=store,
-        handoff=WhitelistedUpdateHandoff(
-            delegate=TemporalUpdateHandoff(
-                workflow_starter=workflow_starter,
-                metrics=metrics,
-            ),
+        admission=WhitelistedUpdateAdmission(
+            user_resolver=user_resolver,
             allowed_user_ids=settings.telegram_allowed_user_ids,
+            metrics=metrics,
+        ),
+        handoff=TemporalUpdateHandoff(
+            workflow_starter=workflow_starter,
             metrics=metrics,
         ),
         retry_waiter=ExponentialRetryWaiter(

@@ -1121,6 +1121,16 @@ class SourceDouble:
         return cast(Sequence[Update], outcome)
 
 
+class AdmissionDouble:
+    def __init__(self, rejected_update_ids: frozenset[int] = frozenset()) -> None:
+        self.rejected_update_ids = rejected_update_ids
+        self.events: list[int] = []
+
+    def admits(self, update: Update) -> bool:
+        self.events.append(update.update_id)
+        return update.update_id not in self.rejected_update_ids
+
+
 class StoreDouble:
     def __init__(self, outcomes: Sequence[object]) -> None:
         self.outcomes = list(outcomes)
