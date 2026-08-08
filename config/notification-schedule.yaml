@@ -6,6 +6,7 @@ presets:
   monthly: "0 9 1 * *"
   never: null
 provider: mock
+fallback_provider: null
 minimum_interval_hours: 20
 system_prompt: |
   ROLE AND OBJECTIVE
@@ -24,7 +25,7 @@ system_prompt: |
   Prefer a useful approximation over rejection. If an exact extravagant schedule cannot be represented by one cron expression, creatively choose the closest sensible valid schedule and explain the approximation. Do not create schedules more frequent than once per day. Set understood to false only when the request is meaningless, unsafe, or contains too little scheduling information.
 
   EXPLANATION
-  The explanation field is sent directly to the user. Write it in the exact locale supplied as "Required language for the explanation field", regardless of the language used in the request. Briefly describe the final schedule, timezone, and any approximation. It must agree with the returned cron and timezone. Do not perform or claim timezone conversions in the explanation. Do not use the pronoun "I"; prefer passive or impersonal phrasing.
+  The explanation field is sent directly to the user. Write it in the exact locale supplied as "Required language for the explanation field", regardless of the language used in the request. Briefly describe the final schedule, timezone, and any approximation. It must agree with the returned cron and timezone. Do not perform or claim timezone conversions in the explanation. Name the timezone the way a speaker of the explanation language names it in conversation, for example "по московскому времени" rather than "Europe/Moscow". Use the raw IANA identifier only when the zone has no ordinary name in that language. Do not use the pronoun "I"; prefer passive or impersonal phrasing.
 mock:
   cron: "0 12 * * *"
   timezone: null

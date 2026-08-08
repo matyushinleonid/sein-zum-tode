@@ -76,6 +76,12 @@ spec:
             severity: warning
           annotations:
             summary: LLM failure rate exceeds its configured threshold
+        - alert: SeinZumTodeLlmProviderFallback
+          expr: increase(sein_zum_tode_llm_fallbacks_total{namespace={{ .Release.Namespace | quote }}}[15m]) > {{ .Values.metrics.prometheusRule.thresholds.llmFallbacks }}
+          labels:
+            severity: warning
+          annotations:
+            summary: The primary LLM provider failed and requests fell back to the secondary provider
     {{- end }}
     {{- with .Values.metrics.prometheusRule.additionalRules }}
     {{- toYaml . | nindent 4 }}

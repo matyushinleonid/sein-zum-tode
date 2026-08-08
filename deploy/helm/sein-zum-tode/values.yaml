@@ -680,6 +680,7 @@ metrics:
       handoffFailures: 3
       telegramDeliveryFailureRate: 0.1
       llmFailureRate: 0.25
+      llmFallbacks: 0
     additionalRules: []
 
 ingress:

@@ -41,6 +41,12 @@ def test_exports_every_application_metric_with_bounded_dimensions() -> None:
         outcome="success",
         elapsed_seconds=1.71,
     )
+    metrics.llm_fallback(
+        use_case="death_prediction",
+        from_provider="openai",
+        to_provider="yandex",
+        error_kind="connection",
+    )
     metrics.prediction(provider="alice", outcome="accepted")
     metrics.notification_schedule(kind="custom", outcome="applied", locale="ru")
     metrics.notification(outcome="prepared", locale="ru")
@@ -59,6 +65,12 @@ def test_exports_every_application_metric_with_bounded_dimensions() -> None:
         and 'sein_zum_tode_broadcast_deliveries_total{locale="ru",outcome="delivered"} 23.0'
         in exposition
         and 'sein_zum_tode_dependency_up{dependency="postgres"} 0.0' in exposition
+        and (
+            "sein_zum_tode_llm_fallbacks_total{"
+            'error_kind="connection",from_provider="openai",'
+            'to_provider="yandex",use_case="death_prediction"} 1.0'
+        )
+        in exposition
         and "user_id" not in exposition
     ), "metrics exposition omitted a business signal or exposed a high-cardinality user label"
 

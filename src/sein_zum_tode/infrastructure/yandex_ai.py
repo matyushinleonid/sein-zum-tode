@@ -1,7 +1,17 @@
 from dataclasses import dataclass
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from yandex_ai_studio_sdk import AsyncAIStudio
+
+from sein_zum_tode.ports.completion import CompletionErrorKind, CompletionFailure
+
+
+def classify_yandex_error(error: Exception) -> CompletionErrorKind:
+    if isinstance(error, TimeoutError):
+        return CompletionErrorKind.TIMEOUT
+    if isinstance(error, ValidationError):
+        return CompletionErrorKind.INVALID_RESPONSE
+    return CompletionErrorKind.UNKNOWN
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,17 +57,23 @@ class YandexAIStudioClient[ResponseT: BaseModel]:
             max_tokens=self._profile.max_tokens,
             response_format=self._response_type,
         )
-        result = await model.run(
-            [
-                {
-                    "role": "system",
-                    "text": self._profile.system_prompt,
-                },
-                {"role": "user", "text": user_prompt},
-            ],
-            timeout=self._profile.request_timeout_seconds,
-        )
-        return self._response_type.model_validate_json(result.text)
+        try:
+            result = await model.run(
+                [
+                    {
+                        "role": "system",
+                        "text": self._profile.system_prompt,
+                    },
+                    {"role": "user", "text": user_prompt},
+                ],
+                timeout=self._profile.request_timeout_seconds,
+            )
+            return self._response_type.model_validate_json(result.text)
+        except Exception as error:
+            raise CompletionFailure(
+                provider=self.provider_name,
+                kind=classify_yandex_error(error),
+            ) from error
 
     async def close(self) -> None:
         return None

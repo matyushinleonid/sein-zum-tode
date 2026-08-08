@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 import pytest
 from temporalio.exceptions import ApplicationError
@@ -24,6 +25,8 @@ from sein_zum_tode.notifications.custom_schedule.presentation import (
 from sein_zum_tode.notifications.custom_schedule.validation import (
     NotificationScheduleValidator,
 )
+from sein_zum_tode.ports.completion import CompletionErrorKind, CompletionFailure
+from sein_zum_tode.ports.metrics import ApplicationMetrics
 from tests.support import (
     BotContents,
     MortalMemory,
@@ -512,3 +515,117 @@ async def test_prepares_a_localized_failure_response(
 
 def test_custom_schedule_system_clock_is_timezone_aware() -> None:
     assert SystemClock().now().utcoffset() is not None
+
+
+class RecordingFallbackMetrics:
+    def __init__(self) -> None:
+        self.fallbacks: list[tuple[str, str, str, str]] = []
+
+    def llm_fallback(
+        self,
+        *,
+        use_case: str,
+        from_provider: str,
+        to_provider: str,
+        error_kind: str,
+    ) -> None:
+        self.fallbacks.append((use_case, from_provider, to_provider, error_kind))
+
+    def __getattr__(self, name: str) -> object:
+        return lambda **_: None
+
+
+class ClassifiedFailingInterpreter:
+    provider_name = "openai"
+    consumes_quota = True
+
+    async def interpret(
+        self,
+        request: NotificationScheduleRequest,
+    ) -> NotificationScheduleProposal:
+        raise CompletionFailure(provider="openai", kind=CompletionErrorKind.TIMEOUT)
+
+    async def close(self) -> None:
+        return None
+
+
+async def test_interprets_the_schedule_with_the_secondary_provider_after_a_primary_failure() -> (
+    None
+):
+    user_id = 410_021
+    update_key = "telegram:update:4127"
+    proposal_key = f"{update_key}:schedule"
+    proposals = ProposalMemory()
+    metrics = RecordingFallbackMetrics()
+    fallback = InterpreterDouble(proposal=accepted_proposal(), consumes_quota=True)
+    subject = GenerateCustomNotificationScheduleActivity(
+        interpreter=ClassifiedFailingInterpreter(),
+        proposals=proposals,
+        updates=telegram(
+            TelegramUpdates.message(
+                update_id=4127,
+                user_id=user_id,
+                chat_id=user_id,
+                text="Every evening",
+                chat_type="private",
+            )
+        ).update_documents,
+        mortals=MortalMemory({user_id: mortal(id=user_id)}),
+        default_locale="en",
+        ttl_seconds=4111,
+        fallback_interpreter=fallback,
+        clock=FixedClock(),
+        logger=SilentLogger(),
+        metrics=cast(ApplicationMetrics, metrics),
+    )
+
+    await subject.generate(
+        GenerateCustomNotificationScheduleInput(
+            update_key=update_key,
+            proposal_key=proposal_key,
+            user_id=user_id,
+        )
+    )
+
+    assert (
+        len(fallback.requests),
+        proposals.proposals[proposal_key].provider,
+        metrics.fallbacks,
+    ) == (
+        1,
+        "yandex",
+        [("notification_schedule", "openai", "yandex", "timeout")],
+    ), "the fallback interpreter did not serve the schedule or was mis-attributed"
+
+
+async def test_propagates_the_schedule_failure_when_the_fallback_also_fails() -> None:
+    user_id = 410_023
+    update_key = "telegram:update:4129"
+    subject = GenerateCustomNotificationScheduleActivity(
+        interpreter=ClassifiedFailingInterpreter(),
+        proposals=ProposalMemory(),
+        updates=telegram(
+            TelegramUpdates.message(
+                update_id=4129,
+                user_id=user_id,
+                chat_id=user_id,
+                text="Every evening",
+                chat_type="private",
+            )
+        ).update_documents,
+        mortals=MortalMemory({user_id: mortal(id=user_id)}),
+        default_locale="en",
+        ttl_seconds=4111,
+        fallback_interpreter=FailingInterpreter(),
+        clock=FixedClock(),
+        logger=SilentLogger(),
+    )
+
+    with pytest.raises(RuntimeError, match="schedule provider failed"):
+        await subject.generate(
+            GenerateCustomNotificationScheduleInput(
+                update_key=update_key,
+                proposal_key=f"{update_key}:schedule",
+                user_id=user_id,
+            )
+        )

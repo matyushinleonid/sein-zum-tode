@@ -9,7 +9,9 @@ from yandex_ai_studio_sdk import AsyncAIStudio
 from sein_zum_tode.infrastructure.yandex_ai import (
     YandexAIStudioClient,
     YandexCompletionProfile,
+    classify_yandex_error,
 )
+from sein_zum_tode.ports.completion import CompletionErrorKind, CompletionFailure
 
 pytestmark = pytest.mark.fast
 
@@ -20,7 +22,8 @@ class CompletionResult(BaseModel):
 
 
 class ModelDouble:
-    def __init__(self) -> None:
+    def __init__(self, text: str = '{"value": 3701, "explanation": "Structured"}') -> None:
+        self._text = text
         self.events: list[tuple[object, ...]] = []
 
     def configure(self, **options: object) -> ModelDouble:
@@ -29,9 +32,7 @@ class ModelDouble:
 
     async def run(self, messages: object, **options: object) -> object:
         self.events.append(("run", messages, options["timeout"]))
-        return SimpleNamespace(
-            text='{"value": 3701, "explanation": "Structured"}',
-        )
+        return SimpleNamespace(text=self._text)
 
 
 class ModelsDouble:
@@ -88,3 +89,44 @@ async def test_enforces_the_adapter_schema_in_yandex_and_returns_a_typed_model()
         True,
         CompletionResult(value=3701, explanation="Structured"),
     ), "infra client did not pass the schema to Yandex structured output"
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (TimeoutError("slow"), "timeout"),
+        (ValueError("nonsense"), "unknown"),
+    ],
+)
+def test_classifies_yandex_failures_into_a_bounded_error_kind(
+    error: Exception,
+    expected: str,
+) -> None:
+    assert classify_yandex_error(error).value == expected, (
+        "a Yandex failure was classified into the wrong bounded error kind"
+    )
+
+
+async def test_reports_unparseable_yandex_output_as_an_invalid_response() -> None:
+    sdk = Mock(spec=AsyncAIStudio)
+    sdk.models = ModelsDouble(ModelDouble(text="not json at all"))
+    client = YandexAIStudioClient(
+        sdk=sdk,
+        profile=YandexCompletionProfile(
+            model="yandexgpt",
+            model_version="rc",
+            temperature=0.37,
+            max_tokens=3719,
+            request_timeout_seconds=73,
+            system_prompt="Return mortality JSON",
+        ),
+        response_type=CompletionResult,
+    )
+
+    with pytest.raises(CompletionFailure) as failure:
+        await client.complete(user_prompt="Doomed")
+
+    assert (failure.value.provider, failure.value.kind) == (
+        "yandex",
+        CompletionErrorKind.INVALID_RESPONSE,
+    ), "unparseable Yandex output did not surface as an invalid-response failure"

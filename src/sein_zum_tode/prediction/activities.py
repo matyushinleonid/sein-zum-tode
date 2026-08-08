@@ -13,6 +13,7 @@ from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.notifications.ports import MortalSchedule
 from sein_zum_tode.observability import LogContext
 from sein_zum_tode.ports.clock import Clock
+from sein_zum_tode.ports.completion import CompletionFailure
 from sein_zum_tode.ports.documents import DocumentStore, DocumentWriter
 from sein_zum_tode.ports.metrics import ApplicationMetrics, NoopApplicationMetrics
 from sein_zum_tode.prediction.models import DeathPredictionRequest, StoredDeathPrediction
@@ -55,11 +56,13 @@ class GenerateDeathPredictionActivity:
         questionnaires: DocumentStore[QuestionnaireState],
         mortals: MortalRepository,
         ttl_seconds: int,
+        fallback_predictor: DeathPredictor | None = None,
         clock: Clock | None = None,
         logger: logging.Logger | None = None,
         metrics: ApplicationMetrics | None = None,
     ) -> None:
         self._predictor = predictor
+        self._fallback_predictor = fallback_predictor
         self._predictions = predictions
         self._questionnaires = questionnaires
         self._mortals = mortals
@@ -67,6 +70,33 @@ class GenerateDeathPredictionActivity:
         self._clock = clock or SystemClock()
         self._logger = logger or logging.getLogger(__name__)
         self._metrics = metrics or NoopApplicationMetrics()
+
+    def _record_fallback(
+        self,
+        *,
+        user_id: int,
+        failed_provider: str,
+        fallback: DeathPredictor,
+        error: Exception,
+    ) -> None:
+        kind = CompletionFailure.kind_of(error)
+        self._metrics.llm_fallback(
+            use_case="death_prediction",
+            from_provider=failed_provider,
+            to_provider=fallback.provider_name,
+            error_kind=kind.value,
+        )
+        self._logger.warning(
+            "Death prediction fell back to the secondary LLM provider",
+            extra=LogContext(component="worker", user_id=user_id).event(
+                "llm_provider_fallback",
+                use_case="death_prediction",
+                from_provider=failed_provider,
+                to_provider=fallback.provider_name,
+                error_kind=kind.value,
+                error_type=type(error).__name__,
+            ),
+        )
 
     @activity.defn(name=GENERATE_DEATH_PREDICTION_ACTIVITY_NAME)
     async def generate(self, input: GenerateDeathPredictionInput) -> None:
@@ -85,27 +115,47 @@ class GenerateDeathPredictionActivity:
                 locale=state.locale,
                 answers=state.prediction_answers(),
             )
+            predictor = self._predictor
             started = monotonic()
             try:
-                prediction = await self._predictor.predict(request)
-            except Exception:
+                prediction = await predictor.predict(request)
+            except Exception as error:
                 self._metrics.llm_request(
                     use_case="death_prediction",
-                    provider=self._predictor.provider_name,
+                    provider=predictor.provider_name,
                     outcome="failed",
                     elapsed_seconds=monotonic() - started,
                 )
-                raise
+                if self._fallback_predictor is None:
+                    raise
+                self._record_fallback(
+                    user_id=input.user_id,
+                    failed_provider=predictor.provider_name,
+                    fallback=self._fallback_predictor,
+                    error=error,
+                )
+                predictor = self._fallback_predictor
+                started = monotonic()
+                try:
+                    prediction = await predictor.predict(request)
+                except Exception:
+                    self._metrics.llm_request(
+                        use_case="death_prediction",
+                        provider=predictor.provider_name,
+                        outcome="failed",
+                        elapsed_seconds=monotonic() - started,
+                    )
+                    raise
             self._metrics.llm_request(
                 use_case="death_prediction",
-                provider=self._predictor.provider_name,
+                provider=predictor.provider_name,
                 outcome="success",
                 elapsed_seconds=monotonic() - started,
             )
             stored = StoredDeathPrediction(
                 request_id=sha256(input.prediction_key.encode()).hexdigest(),
-                provider=self._predictor.provider_name,
-                consumes_quota=self._predictor.consumes_quota,
+                provider=predictor.provider_name,
+                consumes_quota=predictor.consumes_quota,
                 current_date=request.current_date,
                 prediction=prediction,
             )

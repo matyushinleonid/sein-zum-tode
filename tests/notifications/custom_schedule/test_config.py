@@ -171,3 +171,42 @@ openai: {{model: b}}
 
     with pytest.raises(NotificationScheduleConfigurationError):
         YamlNotificationScheduleConfigLoader(path).load()
+
+
+def test_rejects_a_schedule_fallback_provider_equal_to_the_primary_provider(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "notification-schedule.yaml"
+    path.write_text(
+        """
+default_timezone: Asia/Tokyo
+default_frequency: weekly
+presets:
+  daily: "17 8 * * *"
+  weekly: "19 9 * * 2"
+  monthly: "23 10 3 * *"
+  never: null
+provider: openai
+fallback_provider: openai
+minimum_interval_hours: 19
+system_prompt: Return a structured cron proposal
+mock:
+  cron: "0 12 * * *"
+  timezone: null
+yandex:
+  model: aliceai-llm
+  model_version: latest
+  temperature: 0.2
+  max_tokens: 700
+  request_timeout_seconds: 180
+openai:
+  model: gpt-5.6-sol
+  reasoning_effort: medium
+  max_output_tokens: 700
+  request_timeout_seconds: 180
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(NotificationScheduleConfigurationError):
+        YamlNotificationScheduleConfigLoader(path).load()

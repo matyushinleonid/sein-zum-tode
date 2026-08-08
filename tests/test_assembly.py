@@ -299,6 +299,7 @@ async def test_assembles_and_closes_the_temporal_worker(
                 "mortals",
                 "default_locale",
                 "ttl_seconds",
+                "fallback_interpreter",
             ),
         ),
         (
@@ -331,7 +332,14 @@ async def test_assembles_and_closes_the_temporal_worker(
         ),
         (
             "generate_prediction",
-            ("predictor", "predictions", "questionnaires", "mortals", "ttl_seconds"),
+            (
+                "predictor",
+                "predictions",
+                "questionnaires",
+                "mortals",
+                "ttl_seconds",
+                "fallback_predictor",
+            ),
         ),
         (
             "apply_prediction",
@@ -758,3 +766,17 @@ def test_configures_and_runs_each_process_entrypoint(
         ("logging", "WARNING", "json", "telegram-cosmos-1811"),
         ("run", True),
     ], "process entrypoint skipped settings, logging, or its async application"
+
+
+async def test_builds_and_closes_a_fallback_provider_for_both_use_cases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assembly = WorkerAssembly(fallback_provider="mock")
+    assembly.install(monkeypatch, worker_module)
+
+    await worker_module.run(explicit_settings())
+
+    assert (
+        sum(1 for event in assembly.events if event == ("predictor.close",)),
+        sum(1 for event in assembly.events if event == ("schedule_interpreter.close",)),
+    ) == (2, 2), "a configured fallback provider was not built or was leaked on shutdown"

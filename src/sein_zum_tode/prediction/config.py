@@ -1,7 +1,8 @@
 from pathlib import Path
+from typing import Self
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from yaml import YAMLError
 
 from sein_zum_tode.infrastructure.completion_config import (
@@ -21,10 +22,17 @@ class DeathPredictionConfig(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     provider: CompletionProvider
+    fallback_provider: CompletionProvider | None = None
     system_prompt: str = Field(min_length=1)
     mock: MockPredictionConfig
     yandex: YandexCompletionConfig
     openai: OpenAICompletionConfig
+
+    @model_validator(mode="after")
+    def validate_fallback_provider(self) -> Self:
+        if self.fallback_provider == self.provider:
+            raise ValueError("fallback_provider must differ from provider")
+        return self
 
 
 class PredictionConfigurationError(Exception):

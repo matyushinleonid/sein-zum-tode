@@ -1,9 +1,12 @@
 from datetime import UTC, date, datetime
+from typing import cast
 
 import pytest
 from temporalio.exceptions import ApplicationError
 
 from sein_zum_tode.infrastructure.clock import SystemClock
+from sein_zum_tode.ports.completion import CompletionErrorKind, CompletionFailure
+from sein_zum_tode.ports.metrics import ApplicationMetrics
 from sein_zum_tode.prediction.activities import (
     ApplyDeathPredictionActivity,
     ApplyDeathPredictionInput,
@@ -375,3 +378,134 @@ async def test_prepares_a_localized_failure_response() -> None:
 
 def test_prediction_system_clock_is_timezone_aware() -> None:
     assert SystemClock().now().utcoffset() is not None
+
+
+class RecordingFallbackMetrics:
+    def __init__(self) -> None:
+        self.fallbacks: list[tuple[str, str, str, str]] = []
+
+    def llm_fallback(
+        self,
+        *,
+        use_case: str,
+        from_provider: str,
+        to_provider: str,
+        error_kind: str,
+    ) -> None:
+        self.fallbacks.append((use_case, from_provider, to_provider, error_kind))
+
+    def __getattr__(self, name: str) -> object:
+        return lambda **_: None
+
+
+class ClassifiedFailingPredictor:
+    provider_name = "openai"
+    consumes_quota = True
+
+    async def predict(self, request: DeathPredictionRequest) -> DeathPrediction:
+        raise CompletionFailure(provider="openai", kind=CompletionErrorKind.CONNECTION)
+
+    async def close(self) -> None:
+        return None
+
+
+async def test_falls_back_to_the_secondary_provider_and_attributes_it_to_that_provider() -> None:
+    key = "questionnaire:3803"
+    prediction_key = f"{key}:prediction"
+    memory = QuestionnaireMemory(questionnaires={key: completed_state()})
+    mortals = MortalMemory({372_013: mortal(id=372_013)})
+    metrics = RecordingFallbackMetrics()
+    fallback = PredictorDouble(consumes_quota=True)
+    subject = GenerateDeathPredictionActivity(
+        predictor=ClassifiedFailingPredictor(),
+        predictions=memory.prediction_repository,
+        questionnaires=memory.questionnaire_repository,
+        mortals=mortals,
+        ttl_seconds=3727,
+        fallback_predictor=fallback,
+        clock=FixedClock(),
+        logger=SilentLogger(),
+        metrics=cast(ApplicationMetrics, metrics),
+    )
+
+    await subject.generate(
+        GenerateDeathPredictionInput(
+            questionnaire_key=key,
+            prediction_key=prediction_key,
+            user_id=372_013,
+        )
+    )
+
+    assert (
+        len(fallback.events),
+        memory.predictions[prediction_key].provider,
+        metrics.fallbacks,
+    ) == (
+        1,
+        "yandex",
+        [("death_prediction", "openai", "yandex", "connection")],
+    ), "the fallback provider did not serve the prediction or was mis-attributed"
+
+
+async def test_propagates_the_failure_when_the_fallback_provider_also_fails() -> None:
+    key = "questionnaire:3805"
+    memory = QuestionnaireMemory(questionnaires={key: completed_state()})
+    subject = GenerateDeathPredictionActivity(
+        predictor=ClassifiedFailingPredictor(),
+        predictions=memory.prediction_repository,
+        questionnaires=memory.questionnaire_repository,
+        mortals=MortalMemory({372_013: mortal(id=372_013)}),
+        ttl_seconds=3727,
+        fallback_predictor=FailingPredictor(),
+        clock=FixedClock(),
+        logger=SilentLogger(),
+    )
+
+    with pytest.raises(RuntimeError, match="prediction provider failed"):
+        await subject.generate(
+            GenerateDeathPredictionInput(
+                questionnaire_key=key,
+                prediction_key=f"{key}:prediction",
+                user_id=372_013,
+            )
+        )
+
+
+class UnclassifiedFailingPredictor:
+    provider_name = "openai"
+    consumes_quota = True
+
+    async def predict(self, request: DeathPredictionRequest) -> DeathPrediction:
+        raise RuntimeError("the proxy hung up")
+
+    async def close(self) -> None:
+        return None
+
+
+async def test_records_an_unclassified_primary_failure_as_an_unknown_error_kind() -> None:
+    key = "questionnaire:3807"
+    memory = QuestionnaireMemory(questionnaires={key: completed_state()})
+    metrics = RecordingFallbackMetrics()
+    subject = GenerateDeathPredictionActivity(
+        predictor=UnclassifiedFailingPredictor(),
+        predictions=memory.prediction_repository,
+        questionnaires=memory.questionnaire_repository,
+        mortals=MortalMemory({372_013: mortal(id=372_013)}),
+        ttl_seconds=3727,
+        fallback_predictor=PredictorDouble(consumes_quota=True),
+        clock=FixedClock(),
+        logger=SilentLogger(),
+        metrics=cast(ApplicationMetrics, metrics),
+    )
+
+    await subject.generate(
+        GenerateDeathPredictionInput(
+            questionnaire_key=key,
+            prediction_key=f"{key}:prediction",
+            user_id=372_013,
+        )
+    )
+
+    assert metrics.fallbacks == [("death_prediction", "openai", "yandex", "unknown")], (
+        "an error without a completion classification was not labelled unknown"
+    )
