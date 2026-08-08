@@ -13,7 +13,7 @@ from sein_zum_tode.localization.models import (
 )
 from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.observability import LogContext
-from sein_zum_tode.ports.documents import DocumentReader, DocumentWriter
+from sein_zum_tode.ports.documents import DocumentReader, DocumentStore
 
 
 class ConfigureMortalLocalizationActivity:
@@ -21,7 +21,7 @@ class ConfigureMortalLocalizationActivity:
         self,
         *,
         updates: DocumentReader[Update],
-        responses: DocumentWriter[TelegramResponse],
+        responses: DocumentStore[TelegramResponse],
         mortals: MortalRepository,
         content: BotContent,
         keyboards: TelegramKeyboardCatalog,
@@ -49,21 +49,26 @@ class ConfigureMortalLocalizationActivity:
                 type="InvalidLocalizationSelection",
                 non_retryable=True,
             )
-        existing = await self._mortals.get(input.user_id)
-        onboarding = existing is None or existing.locale is None
-        mortal = await self._mortals.set_locale(input.user_id, locale.value)
-        localized = self._content.localized(mortal.locale)
-        await self._responses.store(
-            input.response_key,
-            TelegramResponse(
+        prepared = await self._responses.load(input.response_key)
+        if prepared is None:
+            existing = await self._mortals.get(input.user_id)
+            onboarding = existing is None or existing.locale is None
+            localized = self._content.localized(locale.value)
+            prepared = TelegramResponse(
                 chat_id=input.chat_id,
                 text=localized.help if onboarding else localized.localization.updated,
                 prelude_text=localized.localization.updated if onboarding else None,
                 callback_query_id=input.callback_query_id,
                 remove_reply_keyboard=input.remove_reply_keyboard,
-            ),
-            self._response_ttl_seconds,
-        )
+            )
+            await self._responses.store(
+                input.response_key,
+                prepared,
+                self._response_ttl_seconds,
+            )
+        else:
+            onboarding = prepared.prelude_text is not None
+        await self._mortals.set_locale(input.user_id, locale.value)
         self._logger.info(
             "Mortal localization configured",
             extra=LogContext(component="worker", user_id=input.user_id).event(

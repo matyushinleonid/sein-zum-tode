@@ -24,7 +24,7 @@ class WhitelistedUpdateAdmission:
         if not self._allowed_user_ids:
             return True
         user_id = self._user_resolver.resolve(update)
-        if user_id is None or user_id in self._allowed_user_ids:
+        if user_id in self._allowed_user_ids:
             return True
         self._logger.info(
             "Telegram update rejected by access policy",

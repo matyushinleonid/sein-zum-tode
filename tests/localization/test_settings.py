@@ -1,7 +1,7 @@
 import pytest
 from temporalio.exceptions import ApplicationError
 
-from sein_zum_tode.bot.models import PrepareResponseInput
+from sein_zum_tode.bot.models import PrepareResponseInput, TelegramResponse
 from sein_zum_tode.localization.models import SupportedLocale
 from sein_zum_tode.localization.settings import ConfigureMortalLocalizationActivity
 from tests.support import (
@@ -121,6 +121,56 @@ async def test_confirms_a_later_language_change_without_repeating_help() -> None
         None,
         "Language changed to English.",
     ), "a returning mortal was onboarded again instead of only confirming the switch"
+
+
+async def test_reuses_the_onboarding_response_after_locale_persistence_is_replayed() -> None:
+    user_id = 361_031
+    response_key = "telegram:localization:retry:response"
+    prepared = TelegramResponse(
+        chat_id=user_id,
+        text="Navigate by the constellations",
+        prelude_text="Language changed to English.",
+        callback_query_id="callback-retry-361",
+    )
+    payloads = TelegramMemory(
+        update_result=TelegramUpdates.callback(
+            update_id=3629,
+            user_id=user_id,
+            chat_id=user_id,
+            chat_type="private",
+            data="localization:en",
+        ),
+        response_result=None,
+        store_result=None,
+        send_result=None,
+        delete_result=None,
+    )
+    payloads.responses[response_key] = prepared
+    mortals = MortalMemory({user_id: mortal(id=user_id, locale="en")})
+    subject = ConfigureMortalLocalizationActivity(
+        updates=payloads.update_documents,
+        responses=payloads.response_documents,
+        mortals=mortals,
+        content=BotContents.debug(),
+        keyboards=telegram_keyboards(),
+        response_ttl_seconds=3637,
+        logger=SilentLogger(),
+    )
+
+    await subject.configure(
+        PrepareResponseInput(
+            update_key="telegram:localization:retry",
+            response_key=response_key,
+            chat_id=user_id,
+            user_id=user_id,
+            callback_query_id="callback-retry-361",
+        )
+    )
+
+    assert (payloads.responses[response_key], mortals.events) == (
+        prepared,
+        [("set_locale", user_id, "en")],
+    ), "Activity retry replaced the prepared onboarding help after locale persistence"
 
 
 async def test_configures_localization_from_reply_keyboard_text() -> None:
