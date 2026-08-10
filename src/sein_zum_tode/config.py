@@ -32,6 +32,21 @@ class Settings(BaseSettings):
     telegram_allowed_user_ids: frozenset[int] = frozenset()
     telegram_polling_timeout_seconds: int = Field(default=30, ge=1)
     telegram_request_timeout_seconds: int = Field(default=40, ge=1)
+    telegram_poll_coordination_mode: Literal["none", "kubernetes"] = "none"
+    telegram_poll_lease_name: str = "sein-zum-tode-telegram-polling"
+    telegram_poll_lease_namespace: str | None = None
+    telegram_poll_lease_holder_identity: str | None = None
+    telegram_poll_lease_duration_seconds: int = Field(default=60, ge=1)
+    telegram_poll_lease_retry_interval_seconds: float = Field(default=0.2, gt=0)
+    telegram_poll_lease_handoff_delay_seconds: float = Field(default=0.5, gt=0)
+    kubernetes_api_url: str = "https://kubernetes.default.svc"
+    kubernetes_service_account_token_path: Path = Path(
+        "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    )
+    kubernetes_service_account_ca_path: Path = Path(
+        "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+    )
+    kubernetes_api_request_timeout_seconds: float = Field(default=5.0, gt=0)
     telegram_update_ttl_seconds: int = Field(default=3600, ge=1)
     questionnaire_ttl_seconds: int = Field(default=3600, ge=1)
     bot_content_path: Path = Path("config/bot-content.yaml")
@@ -89,6 +104,24 @@ class Settings(BaseSettings):
         if self.health_liveness_timeout_seconds <= minimum_liveness_timeout:
             raise ValueError(
                 "HEALTH_LIVENESS_TIMEOUT_SECONDS must exceed the health check interval and timeout"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_polling_coordination(self) -> Self:
+        if self.telegram_poll_coordination_mode == "none":
+            return self
+        if not self.telegram_poll_lease_namespace:
+            raise ValueError(
+                "TELEGRAM_POLL_LEASE_NAMESPACE is required for Kubernetes coordination"
+            )
+        if not self.telegram_poll_lease_holder_identity:
+            raise ValueError(
+                "TELEGRAM_POLL_LEASE_HOLDER_IDENTITY is required for Kubernetes coordination"
+            )
+        if self.telegram_poll_lease_duration_seconds <= self.telegram_request_timeout_seconds:
+            raise ValueError(
+                "TELEGRAM_POLL_LEASE_DURATION_SECONDS must exceed TELEGRAM_REQUEST_TIMEOUT_SECONDS"
             )
         return self
 

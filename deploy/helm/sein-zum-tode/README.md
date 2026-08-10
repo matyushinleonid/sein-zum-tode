@@ -37,7 +37,9 @@ With `applicationConfig.create: true`, `botContent`, `deathPrediction.config`, a
 
 ## Availability and placement
 
-Ingress is deliberately restricted to one replica because Telegram long polling has a single offset owner. Workers support replica count, rolling-update strategy, PodDisruptionBudget, affinity, tolerations, node selectors, and topology spread constraints independently.
+Ingress is restricted to one steady-state replica because Telegram long polling has a single offset owner. Enable `ingress.coordination` and use `RollingUpdate` with `maxSurge: 1` and `maxUnavailable: 0` to serialize polling turns through a Kubernetes Lease while old and new pods overlap during a rollout. The chart creates a dedicated ServiceAccount, Role, and RoleBinding by default. If NetworkPolicy is enabled, its ingress egress rules must permit access to the Kubernetes API server.
+
+Workers support replica count, rolling-update strategy, PodDisruptionBudget, affinity, tolerations, node selectors, and topology spread constraints independently.
 
 ## Monitoring and network policy
 

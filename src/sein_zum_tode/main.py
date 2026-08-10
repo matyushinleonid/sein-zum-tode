@@ -13,6 +13,7 @@ from sein_zum_tode.infrastructure.health import (
     HealthState,
     IngressHealth,
 )
+from sein_zum_tode.infrastructure.kubernetes_leases import KubernetesPollingLeaseStore
 from sein_zum_tode.infrastructure.metrics import PrometheusHttpServer, PrometheusMetrics
 from sein_zum_tode.infrastructure.redis import RedisClient, create_redis_transport
 from sein_zum_tode.infrastructure.redis_documents import (
@@ -21,8 +22,13 @@ from sein_zum_tode.infrastructure.redis_documents import (
 )
 from sein_zum_tode.infrastructure.tls import create_temporal_tls_config
 from sein_zum_tode.ingress.admission import WhitelistedUpdateAdmission
+from sein_zum_tode.ingress.coordination import (
+    LeaseCoordinatedPollingTurns,
+    UncoordinatedPollingTurns,
+)
 from sein_zum_tode.ingress.handoff import TemporalUpdateHandoff
 from sein_zum_tode.ingress.poller import ExponentialRetryWaiter, TelegramPoller
+from sein_zum_tode.ingress.ports import PollingTurnCoordinator
 from sein_zum_tode.ingress.routing import AiogramUpdateUserResolver
 from sein_zum_tode.ingress.source import AiogramUpdateSource
 from sein_zum_tode.ingress.store import TelegramUpdateStore
@@ -33,6 +39,31 @@ from sein_zum_tode.ingress.temporal import (
 from sein_zum_tode.log_config import configure_logging
 from sein_zum_tode.observability import LogContext
 from sein_zum_tode.runtime import install_signal_handlers
+
+
+def create_polling_turns(
+    settings: Settings,
+) -> tuple[PollingTurnCoordinator, KubernetesPollingLeaseStore | None]:
+    if settings.telegram_poll_coordination_mode == "none":
+        return UncoordinatedPollingTurns(), None
+    leases = KubernetesPollingLeaseStore.from_service_account(
+        api_url=settings.kubernetes_api_url,
+        namespace=settings.telegram_poll_lease_namespace or "",
+        lease_name=settings.telegram_poll_lease_name,
+        token_path=settings.kubernetes_service_account_token_path,
+        ca_path=settings.kubernetes_service_account_ca_path,
+        request_timeout_seconds=settings.kubernetes_api_request_timeout_seconds,
+    )
+    return (
+        LeaseCoordinatedPollingTurns(
+            leases=leases,
+            holder_identity=settings.telegram_poll_lease_holder_identity or "",
+            lease_duration_seconds=settings.telegram_poll_lease_duration_seconds,
+            retry_interval_seconds=settings.telegram_poll_lease_retry_interval_seconds,
+            handoff_delay_seconds=settings.telegram_poll_lease_handoff_delay_seconds,
+        ),
+        leases,
+    )
 
 
 async def run(settings: Settings) -> None:
@@ -66,6 +97,7 @@ async def run(settings: Settings) -> None:
         tls_private_key_file=settings.redis_tls_private_key_file,
     )
     redis = RedisClient(redis_connection)
+    polling_turns, polling_leases = create_polling_turns(settings)
     temporal = await Client.connect(
         settings.temporal_address,
         namespace=settings.temporal_namespace,
@@ -123,6 +155,7 @@ async def run(settings: Settings) -> None:
         ),
         metrics=metrics,
         health=IngressHealth(health),
+        polling_turns=polling_turns,
     )
     health_monitor = HealthMonitor(
         state=health,
@@ -165,6 +198,8 @@ async def run(settings: Settings) -> None:
         health_server.close()
         metrics_server.close()
         await bot.session.close()
+        if polling_leases is not None:
+            await polling_leases.close()
         await redis_connection.aclose()
 
 

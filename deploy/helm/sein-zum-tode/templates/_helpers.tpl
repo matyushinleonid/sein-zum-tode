@@ -15,6 +15,30 @@
 {{- end }}
 {{- end }}
 
+{{- define "sein-zum-tode.ingressFullname" -}}
+{{- printf "%s-ingress" (include "sein-zum-tode.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "sein-zum-tode.pollingLeaseName" -}}
+{{- default (printf "%s-polling" (include "sein-zum-tode.ingressFullname" .)) .Values.ingress.coordination.leaseName | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "sein-zum-tode.ingressCoordinationName" -}}
+{{- printf "%s-coordination" (include "sein-zum-tode.ingressFullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "sein-zum-tode.ingressServiceAccountName" -}}
+{{- if .Values.ingress.coordination.enabled }}
+{{- if .Values.ingress.coordination.serviceAccount.create }}
+{{- default (include "sein-zum-tode.ingressFullname" .) .Values.ingress.coordination.serviceAccount.name }}
+{{- else }}
+{{- required "ingress.coordination.serviceAccount.name is required when its creation is disabled" .Values.ingress.coordination.serviceAccount.name }}
+{{- end }}
+{{- else }}
+{{- include "sein-zum-tode.serviceAccountName" . }}
+{{- end }}
+{{- end }}
+
 {{- define "sein-zum-tode.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}

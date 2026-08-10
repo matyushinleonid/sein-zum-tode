@@ -1,9 +1,11 @@
 import asyncio
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from aiogram.types import Update
 
+from sein_zum_tode.ingress.coordination import UncoordinatedPollingTurns
 from sein_zum_tode.ingress.errors import (
     UpdateHandoffError,
     UpdateSourceError,
@@ -11,6 +13,7 @@ from sein_zum_tode.ingress.errors import (
 )
 from sein_zum_tode.ingress.ports import (
     PollingHealth,
+    PollingTurnCoordinator,
     RetryWaiter,
     UpdateAdmission,
     UpdateHandoff,
@@ -62,6 +65,7 @@ class TelegramPoller:
         logger: logging.Logger | None = None,
         metrics: ApplicationMetrics | None = None,
         health: PollingHealth | None = None,
+        polling_turns: PollingTurnCoordinator | None = None,
     ) -> None:
         self._source = source
         self._store = store
@@ -71,6 +75,7 @@ class TelegramPoller:
         self._logger = logger or logging.getLogger(__name__)
         self._metrics = metrics or NoopApplicationMetrics()
         self._health = health or NoopPollingHealth()
+        self._polling_turns = polling_turns or UncoordinatedPollingTurns()
 
     async def run(self, stop_event: asyncio.Event) -> None:
         if not await self._prepare(stop_event):
@@ -79,27 +84,35 @@ class TelegramPoller:
         offset: int | None = None
         receive_failures = 0
         while not stop_event.is_set():
-            try:
-                updates = await self._source.receive(offset)
-                receive_failures = 0
-                self._metrics.poll(stage="receive", outcome="success")
-                self._health.polling_succeeded()
-                self._metrics.updates(
-                    stage="received",
-                    outcome="success",
-                    count=len(updates),
-                )
-            except UpdateSourceError:
-                self._metrics.poll(stage="receive", outcome="failed")
-                receive_failures += 1
-                self._logger.exception(
-                    "Failed to receive Telegram updates; retrying",
-                    extra=LogContext(component="ingress").event(
-                        "telegram_poll_failed",
-                        stage="receive",
-                        failure_count=receive_failures,
-                    ),
-                )
+            updates: Sequence[Update] = ()
+            receive_failed = False
+            async with self._polling_turns.turn(stop_event) as acquired:
+                if not acquired:
+                    return
+                try:
+                    updates = await self._source.receive(offset)
+                    receive_failures = 0
+                    self._metrics.poll(stage="receive", outcome="success")
+                    self._health.polling_succeeded()
+                    self._metrics.updates(
+                        stage="received",
+                        outcome="success",
+                        count=len(updates),
+                    )
+                except UpdateSourceError:
+                    self._metrics.poll(stage="receive", outcome="failed")
+                    receive_failures += 1
+                    receive_failed = True
+                    self._logger.exception(
+                        "Failed to receive Telegram updates; retrying",
+                        extra=LogContext(component="ingress").event(
+                            "telegram_poll_failed",
+                            stage="receive",
+                            failure_count=receive_failures,
+                        ),
+                    )
+
+            if receive_failed:
                 await self._wait(receive_failures, stop_event)
                 continue
 

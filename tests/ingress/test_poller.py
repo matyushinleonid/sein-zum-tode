@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
 import pytest
 
@@ -9,6 +11,7 @@ from sein_zum_tode.ingress.errors import (
 )
 from sein_zum_tode.ingress.models import StoredUpdate
 from sein_zum_tode.ingress.poller import ExponentialRetryWaiter, TelegramPoller
+from sein_zum_tode.ingress.ports import PollingTurnCoordinator, RetryWaiter
 from tests.support import (
     AdmissionDouble,
     HandoffDouble,
@@ -27,8 +30,9 @@ def poller(
     source: SourceDouble,
     store: StoreDouble,
     handoff: HandoffDouble,
-    waiter: RetryWaiterDouble,
+    waiter: RetryWaiter,
     admission: AdmissionDouble | None = None,
+    polling_turns: PollingTurnCoordinator | None = None,
 ) -> TelegramPoller:
     return TelegramPoller(
         source=source,
@@ -37,7 +41,41 @@ def poller(
         handoff=handoff,
         retry_waiter=waiter,
         logger=SilentLogger(),
+        polling_turns=polling_turns,
     )
+
+
+class RefusedPollingTurns:
+    def turn(self, stop_event: asyncio.Event) -> AbstractAsyncContextManager[bool]:
+        return self._turn()
+
+    @asynccontextmanager
+    async def _turn(self) -> AsyncIterator[bool]:
+        yield False
+
+
+class OrderedPollingTurns:
+    def __init__(self, events: list[str]) -> None:
+        self.events = events
+
+    def turn(self, stop_event: asyncio.Event) -> AbstractAsyncContextManager[bool]:
+        return self._turn()
+
+    @asynccontextmanager
+    async def _turn(self) -> AsyncIterator[bool]:
+        self.events.append("turn.enter")
+        try:
+            yield True
+        finally:
+            self.events.append("turn.exit")
+
+
+class OrderedRetryWaiter:
+    def __init__(self, events: list[str]) -> None:
+        self.events = events
+
+    async def wait(self, failure_count: int, stop_event: asyncio.Event) -> None:
+        self.events.append(f"retry.{failure_count}")
 
 
 @pytest.mark.parametrize(
@@ -117,6 +155,27 @@ async def test_processes_updates_in_order_before_advancing_offset() -> None:
         stored,
         [],
     ), "poller acknowledged an update before ordered storage and handoff"
+
+
+async def test_stops_before_telegram_when_no_polling_turn_can_be_acquired() -> None:
+    stop = asyncio.Event()
+    source = SourceDouble(
+        prepare_outcomes=[None],
+        receive_outcomes=[],
+        stop_event=stop,
+    )
+
+    await poller(
+        source=source,
+        store=StoreDouble([]),
+        handoff=HandoffDouble([]),
+        waiter=RetryWaiterDouble(False),
+        polling_turns=RefusedPollingTurns(),
+    ).run(stop)
+
+    assert source.events == [("prepare", 1)], (
+        "poller contacted Telegram without owning its coordinated polling turn"
+    )
 
 
 async def test_never_stores_an_update_refused_by_admission() -> None:
@@ -264,6 +323,32 @@ async def test_recovers_from_a_receive_failure_without_losing_offset() -> None:
         [1],
         [stored],
     ), "poller changed offset or duplicated handoff after receive recovery"
+
+
+async def test_releases_the_polling_turn_before_receive_backoff() -> None:
+    stop = asyncio.Event()
+    events: list[str] = []
+    source = SourceDouble(
+        prepare_outcomes=[None],
+        receive_outcomes=[UpdateSourceError("ionosphere 1207"), []],
+        stop_event=stop,
+    )
+
+    await poller(
+        source=source,
+        store=StoreDouble([]),
+        handoff=HandoffDouble([]),
+        waiter=OrderedRetryWaiter(events),
+        polling_turns=OrderedPollingTurns(events),
+    ).run(stop)
+
+    assert events == [
+        "turn.enter",
+        "turn.exit",
+        "retry.1",
+        "turn.enter",
+        "turn.exit",
+    ], "Telegram receive backoff retained the Kubernetes polling Lease"
 
 
 @pytest.mark.parametrize("failing_boundary", ["store", "handoff"])

@@ -102,6 +102,60 @@ def test_accepts_an_explicit_telegram_whitelist() -> None:
     )
 
 
+def test_accepts_kubernetes_polling_coordination_with_a_safe_lease_window() -> None:
+    actual = Settings.model_validate(
+        {
+            "telegram_bot_token": "226:lease-token",
+            "redis_password": "redis-lease-2309",
+            "telegram_request_timeout_seconds": 41,
+            "telegram_poll_coordination_mode": "kubernetes",
+            "telegram_poll_lease_namespace": "mortals-2311",
+            "telegram_poll_lease_holder_identity": "ingress-2333",
+            "telegram_poll_lease_duration_seconds": 67,
+        }
+    )
+
+    assert (
+        actual.telegram_poll_coordination_mode,
+        actual.telegram_poll_lease_namespace,
+        actual.telegram_poll_lease_holder_identity,
+        actual.telegram_poll_lease_duration_seconds,
+    ) == (
+        "kubernetes",
+        "mortals-2311",
+        "ingress-2333",
+        67,
+    ), "settings changed a valid Kubernetes polling coordination contract"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"telegram_poll_lease_namespace": None},
+        {"telegram_poll_lease_holder_identity": None},
+        {
+            "telegram_request_timeout_seconds": 43,
+            "telegram_poll_lease_duration_seconds": 43,
+        },
+    ],
+)
+def test_rejects_kubernetes_polling_coordination_without_safe_ownership(
+    overrides: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        Settings.model_validate(
+            {
+                "telegram_bot_token": "226:unsafe-lease-token",
+                "redis_password": "redis-unsafe-lease-2339",
+                "telegram_poll_coordination_mode": "kubernetes",
+                "telegram_poll_lease_namespace": "mortals-2341",
+                "telegram_poll_lease_holder_identity": "ingress-2347",
+                "telegram_poll_lease_duration_seconds": 61,
+                **overrides,
+            }
+        )
+
+
 def test_defaults_to_the_reply_keyboard_below_the_input() -> None:
     actual = WorkerSettings.model_validate(
         {
