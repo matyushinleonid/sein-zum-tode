@@ -1,5 +1,5 @@
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import cast
 
 import pytest
@@ -144,7 +144,18 @@ async def test_assembles_and_closes_the_ingress_process(
         ("admission", True, frozenset({181_091, 181_093})),
         ("handoff", True),
         ("waiter", 0.73, 18.29),
-        ("poller", ("source", "store", "admission", "handoff", "retry_waiter", "health")),
+        (
+            "poller",
+            (
+                "source",
+                "store",
+                "admission",
+                "handoff",
+                "retry_waiter",
+                "health",
+                "polling_turns",
+            ),
+        ),
         ("metrics.start", "127.0.0.19", 8191, True),
         ("health.start", "127.0.0.23", 8192),
         ("poller.run", False),
@@ -153,6 +164,102 @@ async def test_assembles_and_closes_the_ingress_process(
         ("bot.close",),
         ("redis.close",),
     ], "ingress composition root wired wrong settings or leaked a client"
+
+
+async def test_closes_the_kubernetes_lease_client_after_ingress_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assembly = IngressAssembly()
+    assembly.install(monkeypatch, ingress_module)
+
+    class LeaseResource:
+        async def close(self) -> None:
+            assembly.events.append(("leases.close",))
+
+    monkeypatch.setattr(
+        ingress_module,
+        "create_polling_turns",
+        lambda settings: (object(), LeaseResource()),
+    )
+
+    await ingress_module.run(explicit_settings())
+
+    assert assembly.events[-3:] == [
+        ("bot.close",),
+        ("leases.close",),
+        ("redis.close",),
+    ], "ingress leaked the Kubernetes Lease HTTP client during shutdown"
+
+
+def test_assembles_kubernetes_polling_turn_coordination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[object, ...]] = []
+    leases = object()
+    coordinator = object()
+    settings = explicit_settings().model_copy(
+        update={
+            "telegram_poll_coordination_mode": "kubernetes",
+            "telegram_poll_lease_namespace": "mortals-2351",
+            "telegram_poll_lease_holder_identity": "ingress-2357",
+            "telegram_poll_lease_name": "telegram-poll-2371",
+            "telegram_poll_lease_duration_seconds": 71,
+            "telegram_poll_lease_retry_interval_seconds": 0.37,
+            "telegram_poll_lease_handoff_delay_seconds": 0.61,
+            "kubernetes_api_url": "https://kubernetes-2377.invalid",
+            "kubernetes_service_account_token_path": Path("/var/run/token-2381"),
+            "kubernetes_service_account_ca_path": Path("/var/run/ca-2383"),
+            "kubernetes_api_request_timeout_seconds": 3.89,
+        }
+    )
+
+    def create_leases(**options: object) -> object:
+        events.append(("leases", options))
+        return leases
+
+    def create_coordinator(**options: object) -> object:
+        events.append(("coordinator", options))
+        return coordinator
+
+    monkeypatch.setattr(
+        ingress_module,
+        "KubernetesPollingLeaseStore",
+        SimpleNamespace(from_service_account=create_leases),
+    )
+    monkeypatch.setattr(
+        ingress_module,
+        "LeaseCoordinatedPollingTurns",
+        create_coordinator,
+    )
+
+    actual = ingress_module.create_polling_turns(settings)
+
+    assert (actual, events) == (
+        (coordinator, leases),
+        [
+            (
+                "leases",
+                {
+                    "api_url": "https://kubernetes-2377.invalid",
+                    "namespace": "mortals-2351",
+                    "lease_name": "telegram-poll-2371",
+                    "token_path": Path("/var/run/token-2381"),
+                    "ca_path": Path("/var/run/ca-2383"),
+                    "request_timeout_seconds": 3.89,
+                },
+            ),
+            (
+                "coordinator",
+                {
+                    "leases": leases,
+                    "holder_identity": "ingress-2357",
+                    "lease_duration_seconds": 71,
+                    "retry_interval_seconds": 0.37,
+                    "handoff_delay_seconds": 0.61,
+                },
+            ),
+        ],
+    ), "ingress composition did not bind Kubernetes Lease settings to polling turns"
 
 
 async def test_assembles_and_closes_the_temporal_worker(

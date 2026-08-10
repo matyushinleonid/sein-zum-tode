@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "sein-zum-tode.fullname" . }}
+  name: {{ include "sein-zum-tode.ingressFullname" . }}
   labels:
     {{- include "sein-zum-tode.labels" . | nindent 4 }}
     app.kubernetes.io/component: ingress
@@ -33,8 +33,8 @@ spec:
         {{- include "sein-zum-tode.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: ingress
     spec:
-      serviceAccountName: {{ include "sein-zum-tode.serviceAccountName" . }}
-      automountServiceAccountToken: false
+      serviceAccountName: {{ include "sein-zum-tode.ingressServiceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.ingress.coordination.enabled }}
       terminationGracePeriodSeconds: {{ .Values.ingress.terminationGracePeriodSeconds }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -103,6 +103,28 @@ spec:
               value: {{ .Values.application.telegramPollingTimeoutSeconds | quote }}
             - name: TELEGRAM_REQUEST_TIMEOUT_SECONDS
               value: {{ .Values.application.telegramRequestTimeoutSeconds | quote }}
+            - name: TELEGRAM_POLL_COORDINATION_MODE
+              value: {{ ternary "kubernetes" "none" .Values.ingress.coordination.enabled | quote }}
+            {{- if .Values.ingress.coordination.enabled }}
+            - name: TELEGRAM_POLL_LEASE_NAME
+              value: {{ include "sein-zum-tode.pollingLeaseName" . | quote }}
+            - name: TELEGRAM_POLL_LEASE_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: TELEGRAM_POLL_LEASE_HOLDER_IDENTITY
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: TELEGRAM_POLL_LEASE_DURATION_SECONDS
+              value: {{ .Values.ingress.coordination.leaseDurationSeconds | quote }}
+            - name: TELEGRAM_POLL_LEASE_RETRY_INTERVAL_SECONDS
+              value: {{ .Values.ingress.coordination.retryIntervalSeconds | quote }}
+            - name: TELEGRAM_POLL_LEASE_HANDOFF_DELAY_SECONDS
+              value: {{ .Values.ingress.coordination.handoffDelaySeconds | quote }}
+            - name: KUBERNETES_API_REQUEST_TIMEOUT_SECONDS
+              value: {{ .Values.ingress.coordination.apiRequestTimeoutSeconds | quote }}
+            {{- end }}
             - name: TELEGRAM_UPDATE_TTL_SECONDS
               value: {{ .Values.application.telegramUpdateTtlSeconds | quote }}
             - name: QUESTIONNAIRE_TTL_SECONDS

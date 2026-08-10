@@ -1,0 +1,52 @@
+{{- if .Values.ingress.coordination.enabled }}
+{{- if le (int .Values.ingress.coordination.leaseDurationSeconds) (int .Values.application.telegramRequestTimeoutSeconds) }}
+{{- fail "ingress.coordination.leaseDurationSeconds must exceed application.telegramRequestTimeoutSeconds" }}
+{{- end }}
+{{- if .Values.ingress.coordination.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "sein-zum-tode.ingressServiceAccountName" . }}
+  labels:
+    {{- include "sein-zum-tode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress
+  {{- with .Values.ingress.coordination.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: true
+---
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "sein-zum-tode.ingressCoordinationName" . }}
+  labels:
+    {{- include "sein-zum-tode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames:
+      - {{ include "sein-zum-tode.pollingLeaseName" . }}
+    verbs: ["get", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "sein-zum-tode.ingressCoordinationName" . }}
+  labels:
+    {{- include "sein-zum-tode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sein-zum-tode.ingressServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "sein-zum-tode.ingressCoordinationName" . }}
+{{- end }}

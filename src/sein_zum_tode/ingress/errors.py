@@ -12,3 +12,7 @@ class UpdateStoreError(IngressError):
 
 class UpdateHandoffError(IngressError):
     pass
+
+
+class PollingLeaseError(IngressError):
+    pass

@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Awaitable, Sequence
+from contextlib import AbstractAsyncContextManager
 from typing import Protocol
 
 from aiogram.types import Update
@@ -79,3 +80,31 @@ class PollingHealth(Protocol):
     def polling_started(self) -> None: ...
 
     def polling_succeeded(self) -> None: ...
+
+
+class PollingLease(Protocol):
+    def release(self) -> Awaitable[None]: ...
+
+
+class PollingLeaseStore(Protocol):
+    def acquire(
+        self,
+        *,
+        holder_identity: str,
+        duration_seconds: int,
+    ) -> Awaitable[PollingLease | None]: ...
+
+
+class PollingTurnWaiter(Protocol):
+    def wait(
+        self,
+        delay_seconds: float,
+        stop_event: asyncio.Event,
+    ) -> Awaitable[None]: ...
+
+
+class PollingTurnCoordinator(Protocol):
+    def turn(
+        self,
+        stop_event: asyncio.Event,
+    ) -> AbstractAsyncContextManager[bool]: ...
