@@ -642,27 +642,32 @@ async def test_reports_an_expired_update_without_treating_it_as_user_input() -> 
 
 
 @pytest.mark.parametrize(
-    ("prepare", "expected_text"),
+    ("prepare", "expected_text", "expected_parse_mode"),
     [
         (
             lambda subject, input: subject.prepare_help(input),
             HELP_TEXT,
+            "HTML",
         ),
         (
             lambda subject, input: subject.prepare_group_unsupported(input),
             GROUP_UNSUPPORTED_RESPONSE_TEXT,
+            None,
         ),
         (
             lambda subject, input: subject.prepare_scream_denied(input),
             SCREAM_DENIED_TEXT,
+            None,
         ),
         (
             lambda subject, input: subject.prepare_limit_exhausted(input),
             "LLM request limit exhausted",
+            None,
         ),
         (
             lambda subject, input: subject.prepare_payload_expired(input),
             PAYLOAD_EXPIRED_RESPONSE_TEXT,
+            None,
         ),
     ],
 )
@@ -672,6 +677,7 @@ async def test_prepares_each_static_response(
         Awaitable[None],
     ],
     expected_text: str,
+    expected_parse_mode: str | None,
 ) -> None:
     payloads = memory(None)
     subject = PrepareTelegramResponseActivities(
@@ -695,7 +701,11 @@ async def test_prepares_each_static_response(
         (
             "store_response",
             "telegram:response:1447",
-            TelegramResponse(chat_id=-144_749, text=expected_text),
+            TelegramResponse(
+                chat_id=-144_749,
+                text=expected_text,
+                parse_mode=expected_parse_mode,
+            ),
             1433,
         )
     ], "static response activity stored an unexpected Telegram message"

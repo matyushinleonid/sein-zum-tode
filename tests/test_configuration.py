@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -5,6 +7,47 @@ from sein_zum_tode.bot.models import TelegramKeyboardMode
 from sein_zum_tode.config import Settings, WorkerSettings
 
 pytestmark = pytest.mark.fast
+
+
+def test_loads_ingress_secrets_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "189:environment-token")
+    monkeypatch.setenv("REDIS_PASSWORD", "redis-environment-1861")
+
+    actual = Settings.from_environment()
+
+    assert (
+        actual.telegram_bot_token.get_secret_value(),
+        actual.redis_password.get_secret_value(),
+    ) == (
+        "189:environment-token",
+        "redis-environment-1861",
+    ), "ingress entrypoint settings did not read required secrets from the environment"
+
+
+def test_loads_worker_secrets_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "191:worker-environment-token")
+    monkeypatch.setenv("REDIS_PASSWORD", "redis-worker-environment-1871")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "postgres-worker-environment-1873")
+
+    actual = WorkerSettings.from_environment()
+
+    assert (
+        actual.telegram_bot_token.get_secret_value(),
+        actual.redis_password.get_secret_value(),
+        actual.postgres_password.get_secret_value(),
+    ) == (
+        "191:worker-environment-token",
+        "redis-worker-environment-1871",
+        "postgres-worker-environment-1873",
+    ), "worker entrypoint settings did not read required secrets from the environment"
 
 
 def test_rejects_an_activity_retry_window_that_can_outlive_redis_payload() -> None:

@@ -57,6 +57,7 @@ class ConfigureMortalLocalizationActivity:
             prepared = TelegramResponse(
                 chat_id=input.chat_id,
                 text=localized.help if onboarding else localized.localization.updated,
+                parse_mode="HTML" if onboarding else None,
                 prelude_text=localized.localization.updated if onboarding else None,
                 callback_query_id=input.callback_query_id,
                 remove_reply_keyboard=input.remove_reply_keyboard,

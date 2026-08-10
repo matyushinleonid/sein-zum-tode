@@ -96,9 +96,10 @@ class TelegramKeyboardCatalog:
 
     def selection(self, update: Update) -> TelegramKeyboardSelection | None:
         callback = update.callback_query
-        if callback is not None and callback.data in self._callback_selections:
+        callback_data = callback.data if callback is not None else None
+        if callback_data is not None and callback_data in self._callback_selections:
             return TelegramKeyboardSelection(
-                data=callback.data,
+                data=callback_data,
                 from_reply_keyboard=False,
             )
         message = update.message

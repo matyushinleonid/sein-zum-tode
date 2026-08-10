@@ -1,6 +1,6 @@
 import ssl
 from pathlib import Path
-from typing import cast
+from typing import Any
 
 import pytest
 from temporalio.client import TLSConfig
@@ -78,9 +78,11 @@ def test_loads_a_postgres_client_certificate(
 
 
 def test_rejects_an_unknown_postgres_tls_mode() -> None:
+    invalid_mode: Any = "opportunistic"
+
     with pytest.raises(ValueError, match="Unsupported PostgreSQL TLS mode"):
         create_postgres_ssl_context(
-            mode=cast(PostgresTlsMode, "opportunistic"),
+            mode=invalid_mode,
             ca_file=None,
             certificate_file=None,
             private_key_file=None,

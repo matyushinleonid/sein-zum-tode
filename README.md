@@ -14,7 +14,7 @@
 
 ### ... or "being-towards-death"
 
-![Barbie](https://storage.yandexcloud.net/leonid.sh/sein-zum-tode/barbie.png)
+![barbie](https://storage.yandexcloud.net/leonid.sh/sein-zum-tode/barbie.png?v=2)
 
 ---
 
@@ -83,3 +83,7 @@ make test       # run tests
 make check      # run lint, type checking, and tests
 make run
 ```
+
+## Release
+
+Run the **Release** workflow from the `main` branch and enter the application version without the `v` prefix. The version must match both `pyproject.toml` and the chart's `appVersion`. The workflow promotes the image already tested by main CI to the full and minor version tags, then creates the corresponding `v<version>` Git tag and GitHub Release.

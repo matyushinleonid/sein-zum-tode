@@ -28,17 +28,22 @@ system_prompt: |
   Never contradict these field invariants. Return only the requested structured response fields.
 
   LANGUAGE AND STYLE
-  Write message in the language predominantly used in the user's answers. That language takes priority over saved_locale. If it cannot be determined reliably, use saved_locale. The message is not addressed to anyone. Use no first-person and no second-person pronouns, no greeting, no closing, no consolation, no encouragement, and no politeness formulas. Do not characterize the estimate or its reliability. Name the two or three particulars that weigh most, and name them concretely as they were given: a pack a day since twenty, a father dead at fifty-nine. Do not name a category where the answer gave you a particular. Do not sort the facts into helpful and harmful groups, and do not state that anything raises, lowers, worsens, or improves anything: naming a fact is enough. Do not build the message on abstract nouns such as risk, factor, prognosis, or lifestyle, and never repeat one. Write two or three connected sentences of uneven length. One sentence per category, or a run of parallel clauses ending in the same verb, is wrong. Avoid medical certainty, moral judgement, alarmism, and generic filler.
+  Write message in the language predominantly used in the user's answers. That language takes priority over saved_locale. If it cannot be determined reliably, use saved_locale.
+  The message has two movements in this fixed order, separated by a line break, and they are never blended.
+  First movement: one or two sentences of pure image, in the register of early expressionist verse — season, weather, light, rooms, objects, decay. The particulars from the answers appear here only as images. This movement contains no digits, no quantities, no measurements and no clinical vocabulary of any kind.
+  Second movement: the inventory. A bare comma-separated list of what remains, counted — winters, mornings, cigarettes, bottles, walks, glasses, journeys. Three or four counted quantities, no more. No imagery here, no verbs, no explanation, no judgement. Derive every quantity from the particulars in the answers and from the remaining days, and invent nothing the answers do not support.
+  Then the closing figure as its own sentence on its own line.
+  Never put a number in the first movement. Never put an image in the second. Use no abstract nouns such as risk, factor or prognosis, sort nothing into helpful and harmful, address no one, do not rhyme and do not break lines within a movement.
 mock:
   days_left: 26837
 yandex:
   model: aliceai-llm
   model_version: latest
   temperature: 0.3
-  max_tokens: 1000
+  max_tokens: 2500
   request_timeout_seconds: 120
 openai:
   model: gpt-5.6-sol
   reasoning_effort: medium
-  max_output_tokens: 1000
+  max_output_tokens: 2500
   request_timeout_seconds: 120

@@ -327,7 +327,12 @@ class PrepareTelegramResponseActivities:
 
     @activity.defn(name=PREPARE_HELP_ACTIVITY_NAME)
     async def prepare_help(self, input: PrepareResponseInput) -> None:
-        await self._prepare_localized(input, InspectionKind.HELP, "help")
+        await self._prepare_localized(
+            input,
+            InspectionKind.HELP,
+            "help",
+            parse_mode="HTML",
+        )
 
     @activity.defn(name=PREPARE_ABOUT_ACTIVITY_NAME)
     async def prepare_about(self, input: PrepareResponseInput) -> None:
@@ -403,17 +408,26 @@ class PrepareTelegramResponseActivities:
         input: PrepareResponseInput,
         kind: InspectionKind,
         field: str,
+        *,
+        parse_mode: str | None = None,
     ) -> None:
         localized = await self._localized(input.user_id)
-        await self._prepare_static(input, kind, getattr(localized, field))
+        await self._prepare_static(
+            input,
+            kind,
+            getattr(localized, field),
+            parse_mode=parse_mode,
+        )
 
     async def _prepare_static(
         self,
         input: PrepareResponseInput,
         kind: InspectionKind,
         text: str,
+        *,
+        parse_mode: str | None = None,
     ) -> None:
-        await self._store(input, text)
+        await self._store(input, text, parse_mode=parse_mode)
         self._log_prepared(input, kind)
 
     async def _store(

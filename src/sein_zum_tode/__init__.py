@@ -1,3 +1,5 @@
 """sein-zum-tode application package."""
 
-__version__ = "0.1.0"
+from importlib.metadata import version as distribution_version
+
+__version__ = distribution_version("sein-zum-tode")

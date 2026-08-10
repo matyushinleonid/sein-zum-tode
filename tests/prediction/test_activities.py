@@ -1,12 +1,11 @@
 from datetime import UTC, date, datetime
-from typing import cast
 
 import pytest
 from temporalio.exceptions import ApplicationError
 
 from sein_zum_tode.infrastructure.clock import SystemClock
 from sein_zum_tode.ports.completion import CompletionErrorKind, CompletionFailure
-from sein_zum_tode.ports.metrics import ApplicationMetrics
+from sein_zum_tode.ports.metrics import NoopApplicationMetrics
 from sein_zum_tode.prediction.activities import (
     ApplyDeathPredictionActivity,
     ApplyDeathPredictionInput,
@@ -380,7 +379,7 @@ def test_prediction_system_clock_is_timezone_aware() -> None:
     assert SystemClock().now().utcoffset() is not None
 
 
-class RecordingFallbackMetrics:
+class RecordingFallbackMetrics(NoopApplicationMetrics):
     def __init__(self) -> None:
         self.fallbacks: list[tuple[str, str, str, str]] = []
 
@@ -393,9 +392,6 @@ class RecordingFallbackMetrics:
         error_kind: str,
     ) -> None:
         self.fallbacks.append((use_case, from_provider, to_provider, error_kind))
-
-    def __getattr__(self, name: str) -> object:
-        return lambda **_: None
 
 
 class ClassifiedFailingPredictor:
@@ -425,7 +421,7 @@ async def test_falls_back_to_the_secondary_provider_and_attributes_it_to_that_pr
         fallback_predictor=fallback,
         clock=FixedClock(),
         logger=SilentLogger(),
-        metrics=cast(ApplicationMetrics, metrics),
+        metrics=metrics,
     )
 
     await subject.generate(
@@ -495,7 +491,7 @@ async def test_records_an_unclassified_primary_failure_as_an_unknown_error_kind(
         fallback_predictor=PredictorDouble(consumes_quota=True),
         clock=FixedClock(),
         logger=SilentLogger(),
-        metrics=cast(ApplicationMetrics, metrics),
+        metrics=metrics,
     )
 
     await subject.generate(

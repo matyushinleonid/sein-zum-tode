@@ -51,7 +51,8 @@ class NotificationSchedulePresenter:
             "",
             content.custom_schedule,
         ]
-        if settings.cron is None:
+        cron = settings.cron
+        if cron is None:
             lines.extend(
                 (
                     content.custom_disabled,
@@ -61,16 +62,16 @@ class NotificationSchedulePresenter:
                 )
             )
             return self._fit(lines, explanation_index=1)
-        description = self._description(settings.cron, locale, content)
+        description = self._description(cron, locale, content)
         occurrences = self._occurrences(
-            settings.cron,
+            cron,
             settings.timezone,
             locale,
             now,
         )
         lines.extend(
             (
-                f"{content.custom_cron}: {settings.cron}",
+                f"{content.custom_cron}: {cron}",
                 f"{content.custom_description}: {description}",
                 f"{content.custom_timezone}: {settings.timezone}",
                 "",

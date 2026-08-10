@@ -19,7 +19,7 @@ unsupported_updates:
       - "Im Wind sich fröstelnd blaue Astern neigen."
 notification_rewards:
   lucky:
-    probability: 0.1
+    probability: 0.05
     prelude: "🍀 Lucky!"
     rtl_walk_ids:
       - "5465469325815074451"
@@ -68,7 +68,7 @@ notification_rewards:
     ltr_arrow_emoji: ["➡️"]
     dead_emoji: ["☠️", "⚰️", "😵", "💀"]
   rare:
-    probability: 0.05
+    probability: 0.03
     prelude: "✨ Rare!"
     rtl_walk_ids:
       - "5337276388959330956"
@@ -138,14 +138,14 @@ notification_rewards:
       - "5307763684393629810"
       - "5325923123948695594"
   omen:
-    probability: 0.04
+    probability: 0.09
     prelude: "☄️ Omen!"
     mini_witch_house_characters: 3
   epic:
-    probability: 0.016666666666666666
+    probability: 0.02
     prelude: "🌟 Epic!"
   mythic:
-    probability: 0.005555555555555556
+    probability: 0.006
     prelude: "👑 Mythic!"
 locales:
   en:
