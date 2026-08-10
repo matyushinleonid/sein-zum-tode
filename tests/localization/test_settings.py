@@ -68,11 +68,13 @@ async def test_onboards_a_first_time_mortal_with_help_after_the_confirmation(
         mortals.mortals[user_id].locale,
         response.prelude_text,
         response.text,
+        response.parse_mode,
         response.callback_query_id,
     ) == (
         locale,
         confirmation,
         help_text,
+        "HTML",
         "callback-Sphinx-915",
     ), "first language choice did not persist, confirm, and then onboard with help"
 
@@ -116,10 +118,12 @@ async def test_confirms_a_later_language_change_without_repeating_help() -> None
         mortals.mortals[user_id].locale,
         response.prelude_text,
         response.text,
+        response.parse_mode,
     ) == (
         "en",
         None,
         "Language changed to English.",
+        None,
     ), "a returning mortal was onboarded again instead of only confirming the switch"
 
 
@@ -213,11 +217,13 @@ async def test_configures_localization_from_reply_keyboard_text() -> None:
         mortals.mortals[user_id].locale,
         response.prelude_text,
         response.text,
+        response.parse_mode,
         response.remove_reply_keyboard,
     ) == (
         "ru",
         "Язык изменён на русский.",
         "Путь укажут созвездия",
+        "HTML",
         True,
     ), "reply keyboard locale was not persisted, confirmed, and dismissed"
 

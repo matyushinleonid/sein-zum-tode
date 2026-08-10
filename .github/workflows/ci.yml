@@ -45,11 +45,27 @@ jobs:
           files: ./coverage.xml
           use_oidc: true
 
+  helm:
+    name: lint Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.18.4
+
+      - name: Lint chart
+        run: helm lint deploy/helm/sein-zum-tode
+
   publish-image:
     name: Build and push image
     if: github.event_name == 'push'
     needs:
       - tests
+      - helm
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository

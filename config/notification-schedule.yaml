@@ -33,10 +33,10 @@ yandex:
   model: aliceai-llm
   model_version: latest
   temperature: 0.2
-  max_tokens: 700
+  max_tokens: 1750
   request_timeout_seconds: 120
 openai:
   model: gpt-5.6-sol
   reasoning_effort: medium
-  max_output_tokens: 700
+  max_output_tokens: 1750
   request_timeout_seconds: 120

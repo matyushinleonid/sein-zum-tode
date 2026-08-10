@@ -204,7 +204,7 @@ async def run(settings: Settings) -> None:
 
 
 def main() -> None:
-    settings = Settings()
+    settings = Settings.from_environment()
     configure_logging(settings.log_level, settings.log_format, settings.app_name)
     asyncio.run(run(settings))
 

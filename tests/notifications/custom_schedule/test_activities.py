@@ -1,5 +1,4 @@
 from datetime import UTC, datetime, timedelta
-from typing import cast
 
 import pytest
 from temporalio.exceptions import ApplicationError
@@ -26,7 +25,7 @@ from sein_zum_tode.notifications.custom_schedule.validation import (
     NotificationScheduleValidator,
 )
 from sein_zum_tode.ports.completion import CompletionErrorKind, CompletionFailure
-from sein_zum_tode.ports.metrics import ApplicationMetrics
+from sein_zum_tode.ports.metrics import NoopApplicationMetrics
 from tests.support import (
     BotContents,
     MortalMemory,
@@ -517,7 +516,7 @@ def test_custom_schedule_system_clock_is_timezone_aware() -> None:
     assert SystemClock().now().utcoffset() is not None
 
 
-class RecordingFallbackMetrics:
+class RecordingFallbackMetrics(NoopApplicationMetrics):
     def __init__(self) -> None:
         self.fallbacks: list[tuple[str, str, str, str]] = []
 
@@ -530,9 +529,6 @@ class RecordingFallbackMetrics:
         error_kind: str,
     ) -> None:
         self.fallbacks.append((use_case, from_provider, to_provider, error_kind))
-
-    def __getattr__(self, name: str) -> object:
-        return lambda **_: None
 
 
 class ClassifiedFailingInterpreter:
@@ -576,7 +572,7 @@ async def test_interprets_the_schedule_with_the_secondary_provider_after_a_prima
         fallback_interpreter=fallback,
         clock=FixedClock(),
         logger=SilentLogger(),
-        metrics=cast(ApplicationMetrics, metrics),
+        metrics=metrics,
     )
 
     await subject.generate(

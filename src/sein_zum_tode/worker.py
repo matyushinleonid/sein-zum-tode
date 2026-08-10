@@ -159,9 +159,10 @@ def create_death_predictor(
             api_key=settings.openai_api_key.get_secret_value(),
             http_client=DefaultAsyncHttpxClient(proxy=proxy.url()),
         )
+        openai_adapter: AsyncOpenAISdkAdapter[DeathPrediction] = AsyncOpenAISdkAdapter(openai_sdk)
         return LLMDeathPredictor(
             client=OpenAICompletionClient(
-                sdk=AsyncOpenAISdkAdapter(openai_sdk),
+                sdk=openai_adapter,
                 profile=OpenAICompletionProfile(
                     model=config.openai.model,
                     reasoning_effort=config.openai.reasoning_effort,
@@ -237,9 +238,12 @@ def create_notification_schedule_interpreter(
             api_key=settings.openai_api_key.get_secret_value(),
             http_client=DefaultAsyncHttpxClient(proxy=proxy.url()),
         )
+        openai_adapter: AsyncOpenAISdkAdapter[NotificationScheduleProposal] = AsyncOpenAISdkAdapter(
+            openai_sdk
+        )
         return LLMNotificationScheduleInterpreter(
             client=OpenAICompletionClient(
-                sdk=AsyncOpenAISdkAdapter(openai_sdk),
+                sdk=openai_adapter,
                 profile=OpenAICompletionProfile(
                     model=config.openai.model,
                     reasoning_effort=config.openai.reasoning_effort,
@@ -675,7 +679,7 @@ async def run(settings: WorkerSettings) -> None:
 
 
 def main() -> None:
-    settings = WorkerSettings()
+    settings = WorkerSettings.from_environment()
     configure_logging(settings.log_level, settings.log_format, settings.app_name)
     asyncio.run(run(settings))
 

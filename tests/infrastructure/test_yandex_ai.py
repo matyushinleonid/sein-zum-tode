@@ -9,6 +9,7 @@ from yandex_ai_studio_sdk import AsyncAIStudio
 from sein_zum_tode.infrastructure.yandex_ai import (
     YandexAIStudioClient,
     YandexCompletionProfile,
+    YandexTextMessage,
     classify_yandex_error,
 )
 from sein_zum_tode.ports.completion import CompletionErrorKind, CompletionFailure
@@ -81,8 +82,8 @@ async def test_enforces_the_adapter_schema_in_yandex_and_returns_a_typed_model()
         [("completions", "yandexgpt", "rc")],
         CompletionResult,
         [
-            {"role": "system", "text": "Return mortality JSON"},
-            {"role": "user", "text": "Current date and answers"},
+            YandexTextMessage(role="system", text="Return mortality JSON"),
+            YandexTextMessage(role="user", text="Current date and answers"),
         ],
         73,
         "yandex",

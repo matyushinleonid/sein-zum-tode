@@ -24,6 +24,12 @@ class YandexCompletionProfile:
     system_prompt: str
 
 
+@dataclass(frozen=True, slots=True)
+class YandexTextMessage:
+    role: str
+    text: str
+
+
 class YandexAIStudioClient[ResponseT: BaseModel]:
     def __init__(
         self,
@@ -60,11 +66,11 @@ class YandexAIStudioClient[ResponseT: BaseModel]:
         try:
             result = await model.run(
                 [
-                    {
-                        "role": "system",
-                        "text": self._profile.system_prompt,
-                    },
-                    {"role": "user", "text": user_prompt},
+                    YandexTextMessage(
+                        role="system",
+                        text=self._profile.system_prompt,
+                    ),
+                    YandexTextMessage(role="user", text=user_prompt),
                 ],
                 timeout=self._profile.request_timeout_seconds,
             )

@@ -985,7 +985,11 @@ class EntrypointAssembly:
 
     def install(self, monkeypatch: Any, module: Any) -> None:
         settings_name = "WorkerSettings" if hasattr(module, "WorkerSettings") else "Settings"
-        monkeypatch.setattr(module, settings_name, self.create_settings)
+        monkeypatch.setattr(
+            module,
+            settings_name,
+            SimpleNamespace(from_environment=self.create_settings),
+        )
         monkeypatch.setattr(module, "configure_logging", self.configure_logging)
         monkeypatch.setattr(module, "run", self.run)
 

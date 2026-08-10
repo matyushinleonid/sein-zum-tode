@@ -81,6 +81,10 @@ class Settings(BaseSettings):
     redis_tls_certificate_file: Path | None = None
     redis_tls_private_key_file: Path | None = None
 
+    @classmethod
+    def from_environment(cls) -> Self:
+        return cls.model_validate({})
+
     @model_validator(mode="after")
     def validate_activity_retry_timeout(self) -> Self:
         shortest_payload_ttl = min(

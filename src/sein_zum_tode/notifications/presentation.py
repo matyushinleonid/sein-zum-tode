@@ -88,7 +88,7 @@ class NotificationMessagePresenter:
         sample: NotificationTier | None = None,
     ) -> RenderedNotification:
         locale_name = locale if locale in self._content.locales else self._content.default_locale
-        notification = self._content.localized(locale).notification
+        notification = self._content.localized(locale_name).notification
         tier = sample or self._tier(seed)
         selected = self._text(notification, tier, seed)
         displayed_days: int | str = days_left
