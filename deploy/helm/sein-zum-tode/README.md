@@ -25,7 +25,7 @@ postgres:
 
 ## Telegram SOCKS5 proxy
 
-Set `telegram.socks5Proxy.enabled: true` to route Telegram ingress requests through the shared `socks5Proxy` endpoint. The ingress then requires its host, port, username, and password Secret reference. Worker-side OpenAI integrations continue to use the same proxy configuration independently.
+Set `telegram.socks5Proxy.enabled: true` to route Telegram Bot API requests from both the ingress and worker through the shared `socks5Proxy` endpoint. Both workloads then require its host, port, username, and password Secret reference. Worker-side OpenAI integrations use the same endpoint independently of this Telegram flag.
 
 ## TLS
 
