@@ -2,7 +2,6 @@ import asyncio
 import logging
 from datetime import timedelta
 
-from aiogram import Bot
 from aiogram.types import Update
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 from temporalio.client import Client
@@ -50,6 +49,7 @@ from sein_zum_tode.infrastructure.redis_documents import (
     RedisJsonDocumentStore,
     RedisKeyCleaner,
 )
+from sein_zum_tode.infrastructure.telegram import create_telegram_bot
 from sein_zum_tode.infrastructure.tls import create_temporal_tls_config
 from sein_zum_tode.infrastructure.yandex_ai import (
     YandexAIStudioClient,
@@ -335,7 +335,18 @@ async def run(settings: WorkerSettings) -> None:
             provider=notification_schedule_config.fallback_provider,
         )
     )
-    bot = Bot(token=settings.telegram_bot_token.get_secret_value())
+    bot = create_telegram_bot(
+        token=settings.telegram_bot_token.get_secret_value(),
+        socks5_proxy_enabled=settings.telegram_socks5_proxy_enabled,
+        socks5_proxy_host=settings.socks5_proxy_host,
+        socks5_proxy_port=settings.socks5_proxy_port,
+        socks5_proxy_username=settings.socks5_proxy_username,
+        socks5_proxy_password=(
+            settings.socks5_proxy_password.get_secret_value()
+            if settings.socks5_proxy_password is not None
+            else None
+        ),
+    )
     redis_connection = create_redis_transport(
         host=settings.redis_host,
         port=settings.redis_port,
