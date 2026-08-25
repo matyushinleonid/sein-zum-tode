@@ -1,3 +1,5 @@
+{{- $openaiEnabled := or (eq .Values.deathPrediction.config.provider "openai") (eq .Values.notificationSchedule.config.provider "openai") (eq (default "" .Values.deathPrediction.config.fallback_provider) "openai") (eq (default "" .Values.notificationSchedule.config.fallback_provider) "openai") -}}
+{{- $socks5ProxyRequired := or .Values.telegram.socks5Proxy.enabled $openaiEnabled -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -128,16 +130,14 @@ spec:
             - name: YANDEX_AI_STUDIO_ENABLE_SERVER_DATA_LOGGING
               value: {{ .Values.yandexAiStudio.enableServerDataLogging | quote }}
             {{- end }}
-            {{- if or (eq .Values.deathPrediction.config.provider "openai") (eq .Values.notificationSchedule.config.provider "openai") (eq (default "" .Values.deathPrediction.config.fallback_provider) "openai") (eq (default "" .Values.notificationSchedule.config.fallback_provider) "openai") }}
+            {{- if $openaiEnabled }}
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "sein-zum-tode.secretRefName" (list . .Values.openai.apiKeySecretRef) }}
                   key: {{ .Values.openai.apiKeySecretRef.key | quote }}
             {{- end }}
-            - name: TELEGRAM_SOCKS5_PROXY_ENABLED
-              value: {{ .Values.telegram.socks5Proxy.enabled | quote }}
-            {{- if or .Values.telegram.socks5Proxy.enabled (eq .Values.deathPrediction.config.provider "openai") (eq .Values.notificationSchedule.config.provider "openai") (eq (default "" .Values.deathPrediction.config.fallback_provider) "openai") (eq (default "" .Values.notificationSchedule.config.fallback_provider) "openai") }}
+            {{- if $socks5ProxyRequired }}
             - name: SOCKS5_PROXY_HOST
               value: {{ required "socks5Proxy.host is required" .Values.socks5Proxy.host | quote }}
             - name: SOCKS5_PROXY_PORT
@@ -176,6 +176,8 @@ spec:
             {{- end }}
             - name: TEMPORAL_ACTIVITY_RETRY_TIMEOUT_SECONDS
               value: {{ .Values.application.temporalActivityRetryTimeoutSeconds | quote }}
+            - name: TELEGRAM_SOCKS5_PROXY_ENABLED
+              value: {{ .Values.telegram.socks5Proxy.enabled | quote }}
             - name: TELEGRAM_BOT_TOKEN
               valueFrom:
                 secretKeyRef:
