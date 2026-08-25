@@ -174,6 +174,7 @@ class Settings(BaseSettings):
 class WorkerSettings(Settings):
     telegram_admin_user_ids: frozenset[int] = frozenset()
     telegram_keyboard_mode: TelegramKeyboardMode = TelegramKeyboardMode.REPLY
+    notification_delivery_deadline_margin_seconds: int = Field(default=3600, ge=0)
     unsupported_update_session_ttl_seconds: int = Field(default=3600, ge=1)
     postgres_host: str = "localhost"
     postgres_port: int = Field(default=5432, ge=1, le=65535)

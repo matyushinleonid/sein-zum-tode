@@ -104,6 +104,20 @@ def test_defaults_the_unsupported_update_session_to_one_hour() -> None:
     )
 
 
+def test_defaults_notification_delivery_cutoff_to_one_hour_before_next_action() -> None:
+    actual = WorkerSettings.model_validate(
+        {
+            "telegram_bot_token": "217:deadline-token",
+            "redis_password": "redis-deadline-1919",
+            "postgres_password": "postgres-deadline-1927",
+        }
+    )
+
+    assert actual.notification_delivery_deadline_margin_seconds == 3600, (
+        "worker changed the one-hour notification delivery safety margin"
+    )
+
+
 def test_defaults_to_no_privileged_telegram_accounts() -> None:
     actual = WorkerSettings.model_validate(
         {

@@ -29,6 +29,7 @@
         "telegramUpdateTtlSeconds",
         "unsupportedUpdateSessionTtlSeconds",
         "questionnaireTtlSeconds",
+        "notificationDeliveryDeadlineMarginSeconds",
         "temporalActivityRetryTimeoutSeconds",
         "telegramAllowedUserIds",
         "telegramKeyboardMode"
@@ -39,6 +40,7 @@
         "telegramUpdateTtlSeconds": {"type": "integer", "minimum": 1},
         "unsupportedUpdateSessionTtlSeconds": {"type": "integer", "minimum": 1},
         "questionnaireTtlSeconds": {"type": "integer", "minimum": 1},
+        "notificationDeliveryDeadlineMarginSeconds": {"type": "integer", "minimum": 0},
         "temporalActivityRetryTimeoutSeconds": {"type": "integer", "minimum": 1},
         "telegramKeyboardMode": {"enum": ["inline", "reply"]},
         "telegramAllowedUserIds": {

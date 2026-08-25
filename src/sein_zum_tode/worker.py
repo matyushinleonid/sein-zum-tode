@@ -61,6 +61,7 @@ from sein_zum_tode.mortals.activities import MortalActivities
 from sein_zum_tode.mortals.models import MortalRegistrationDefaults
 from sein_zum_tode.mortals.postgres import PostgresMortalRepository
 from sein_zum_tode.notifications.activities import (
+    PlanMortalNotificationDeliveryActivity,
     PrepareMortalNotificationActivity,
     PrepareNotificationSampleActivity,
 )
@@ -580,8 +581,11 @@ async def run(settings: WorkerSettings) -> None:
         mortals=mortals,
         responses=response_documents,
         presenter=notification_presenter,
-        response_ttl_seconds=settings.telegram_update_ttl_seconds,
         metrics=metrics,
+    )
+    plan_notification_delivery = PlanMortalNotificationDeliveryActivity(
+        schedules=schedules,
+        deadline_margin_seconds=settings.notification_delivery_deadline_margin_seconds,
     )
     prepare_notification_sample = PrepareNotificationSampleActivity(
         mortals=mortals,
@@ -615,6 +619,7 @@ async def run(settings: WorkerSettings) -> None:
             start_questionnaire.start,
             record_answer.record,
             deliver.deliver,
+            deliver.deliver_notification,
             cleanup.cleanup,
             list_scream_recipients.list,
             deliver_scream.deliver,
@@ -623,6 +628,7 @@ async def run(settings: WorkerSettings) -> None:
             mortal_activities.has_quota,
             mortal_activities.mark_unreachable,
             mortal_activities.delete_schedule,
+            plan_notification_delivery.plan,
             prepare_notification.prepare,
             prepare_notification_sample.prepare,
             configure_localization.configure,

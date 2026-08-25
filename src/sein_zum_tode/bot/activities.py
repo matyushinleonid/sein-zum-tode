@@ -17,6 +17,7 @@ from sein_zum_tode.bot.errors import (
 from sein_zum_tode.bot.keyboards import TelegramKeyboardCatalog
 from sein_zum_tode.bot.models import (
     CLEANUP_PAYLOADS_ACTIVITY_NAME,
+    DELIVER_NOTIFICATION_RESPONSE_ACTIVITY_NAME,
     DELIVER_RESPONSE_ACTIVITY_NAME,
     INSPECT_UPDATE_ACTIVITY_NAME,
     PREPARE_ABOUT_ACTIVITY_NAME,
@@ -33,6 +34,7 @@ from sein_zum_tode.bot.models import (
     InspectedUpdate,
     InspectionKind,
     InspectUpdateInput,
+    PreparedResponseDeliveryOutcome,
     PrepareResponseInput,
     TelegramButton,
     TelegramResponse,
@@ -507,15 +509,7 @@ class DeliverTelegramResponseActivity:
     @activity.defn(name=DELIVER_RESPONSE_ACTIVITY_NAME)
     async def deliver(self, input: DeliverResponseInput) -> None:
         started = monotonic()
-        try:
-            response = await self._response_reader.load(input.response_key)
-        except InvalidStoredPayloadError as error:
-            self._record_delivery(input, "failed", "invalid_payload", started)
-            raise ApplicationError(
-                f"Invalid Telegram response at {input.response_key}",
-                type="InvalidTelegramResponse",
-                non_retryable=True,
-            ) from error
+        response = await self._load_response(input, started)
         if response is None:
             self._record_delivery(input, "failed", "expired_payload", started)
             raise ApplicationError(
@@ -523,6 +517,42 @@ class DeliverTelegramResponseActivity:
                 type="TelegramResponseNotFound",
                 non_retryable=True,
             )
+        await self._send(input, response, started)
+
+    @activity.defn(name=DELIVER_NOTIFICATION_RESPONSE_ACTIVITY_NAME)
+    async def deliver_notification(
+        self,
+        input: DeliverResponseInput,
+    ) -> PreparedResponseDeliveryOutcome:
+        started = monotonic()
+        response = await self._load_response(input, started)
+        if response is None:
+            self._record_delivery(input, "failed", "expired_payload", started)
+            return PreparedResponseDeliveryOutcome.RESPONSE_EXPIRED
+        await self._send(input, response, started)
+        return PreparedResponseDeliveryOutcome.DELIVERED
+
+    async def _load_response(
+        self,
+        input: DeliverResponseInput,
+        started: float,
+    ) -> TelegramResponse | None:
+        try:
+            return await self._response_reader.load(input.response_key)
+        except InvalidStoredPayloadError as error:
+            self._record_delivery(input, "failed", "invalid_payload", started)
+            raise ApplicationError(
+                f"Invalid Telegram response at {input.response_key}",
+                type="InvalidTelegramResponse",
+                non_retryable=True,
+            ) from error
+
+    async def _send(
+        self,
+        input: DeliverResponseInput,
+        response: TelegramResponse,
+        started: float,
+    ) -> None:
         try:
             await self._sender.send(response)
         except TelegramRateLimitedError as error:

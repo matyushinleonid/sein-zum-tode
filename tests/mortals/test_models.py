@@ -77,3 +77,30 @@ def test_rejects_a_naive_countdown_timestamp() -> None:
 
     with pytest.raises(ValueError, match="timezone"):
         current_mortal.days_left(datetime(2099, 12, 31))
+
+
+@pytest.mark.parametrize(
+    ("now", "expected_seconds"),
+    [
+        (datetime(2026, 3, 8, 5, 0, tzinfo=UTC), 23 * 60 * 60),
+        (datetime(2026, 11, 1, 4, 0, tzinfo=UTC), 25 * 60 * 60),
+    ],
+)
+def test_notification_freshness_ends_at_the_next_local_midnight_across_dst(
+    now: datetime,
+    expected_seconds: int,
+) -> None:
+    current_mortal = mortal(id=310_067, timezone="America/New_York")
+
+    actual = current_mortal.seconds_until_next_local_date(now)
+
+    assert actual == expected_seconds, (
+        "notification freshness ignored the Mortal timezone or a DST transition"
+    )
+
+
+def test_rejects_a_naive_notification_freshness_timestamp() -> None:
+    current_mortal = mortal(id=310_069)
+
+    with pytest.raises(ValueError, match="timezone"):
+        current_mortal.seconds_until_next_local_date(datetime(2099, 12, 31))

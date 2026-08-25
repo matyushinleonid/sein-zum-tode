@@ -1,10 +1,15 @@
 from collections.abc import Callable
+from dataclasses import replace
+from datetime import datetime
 from typing import Protocol
 
 from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,
     ScheduleAlreadyRunningError,
+    ScheduleDescription,
+    ScheduleOverlapPolicy,
+    SchedulePolicy,
     ScheduleSpec,
     ScheduleUpdate,
     ScheduleUpdateInput,
@@ -23,6 +28,8 @@ class TemporalScheduleHandle(Protocol):
         self,
         updater: Callable[[ScheduleUpdateInput], ScheduleUpdate | None],
     ) -> None: ...
+
+    async def describe(self) -> ScheduleDescription: ...
 
     async def delete(self) -> None: ...
 
@@ -70,6 +77,17 @@ class TemporalMortalSchedule:
             if error.status != RPCStatusCode.NOT_FOUND:
                 raise
 
+    async def next_action_time(self, mortal_id: int) -> datetime | None:
+        try:
+            handle = self._client.get_schedule_handle(self._schedule_id(mortal_id))
+            await handle.update(self._cancel_other_updater)
+            description = await handle.describe()
+        except RPCError as error:
+            if error.status == RPCStatusCode.NOT_FOUND:
+                return None
+            raise
+        return min(description.info.next_action_times, default=None)
+
     def _schedule_id(self, mortal_id: int) -> str:
         return f"telegram-notification:{self._bot_id}:{mortal_id}"
 
@@ -88,6 +106,9 @@ class TemporalMortalSchedule:
                 cron_expressions=[cron],
                 time_zone_name=mortal.timezone,
             ),
+            policy=SchedulePolicy(
+                overlap=ScheduleOverlapPolicy.CANCEL_OTHER,
+            ),
         )
 
     def _updater(
@@ -98,3 +119,20 @@ class TemporalMortalSchedule:
             return ScheduleUpdate(schedule=schedule)
 
         return update
+
+    def _cancel_other_updater(
+        self,
+        input: ScheduleUpdateInput,
+    ) -> ScheduleUpdate | None:
+        schedule = input.description.schedule
+        if schedule.policy.overlap == ScheduleOverlapPolicy.CANCEL_OTHER:
+            return None
+        return ScheduleUpdate(
+            schedule=replace(
+                schedule,
+                policy=replace(
+                    schedule.policy,
+                    overlap=ScheduleOverlapPolicy.CANCEL_OTHER,
+                ),
+            ),
+        )

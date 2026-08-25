@@ -13,10 +13,13 @@ from sein_zum_tode.bot.models import (
 from sein_zum_tode.infrastructure.clock import SystemClock
 from sein_zum_tode.mortals.models import Mortal
 from sein_zum_tode.notifications.activities import (
+    PlanMortalNotificationDeliveryActivity,
     PrepareMortalNotificationActivity,
     PrepareNotificationSampleActivity,
 )
 from sein_zum_tode.notifications.models import (
+    MortalNotificationDeliveryPlan,
+    PlanMortalNotificationDeliveryInput,
     PreparedMortalNotification,
     PrepareMortalNotificationInput,
     RenderedNotification,
@@ -103,6 +106,22 @@ class NotificationPresenterMemory:
         return self.rendered
 
 
+class MortalScheduleDouble:
+    def __init__(self, next_action_time: datetime | None) -> None:
+        self.next_action = next_action_time
+        self.events: list[tuple[object, ...]] = []
+
+    async def ensure(self, mortal: Mortal) -> None:
+        self.events.append(("ensure", mortal.id))
+
+    async def delete(self, mortal_id: int) -> None:
+        self.events.append(("delete", mortal_id))
+
+    async def next_action_time(self, mortal_id: int) -> datetime | None:
+        self.events.append(("next_action_time", mortal_id))
+        return self.next_action
+
+
 def responses() -> TelegramMemory:
     return TelegramMemory(
         update_result=None,
@@ -142,7 +161,6 @@ async def test_skips_a_notification_without_complete_enabled_preferences(
             content=BotContents.debug(),
             number_speller=NumberSpellerMemory(words={}),
         ),
-        response_ttl_seconds=3407,
         clock=ClockDouble(datetime(2099, 12, 1, tzinfo=UTC)),
         logger=SilentLogger(),
     )
@@ -180,7 +198,6 @@ async def test_prepares_a_localized_countdown_in_redis() -> None:
             content=BotContents.debug(),
             number_speller=NumberSpellerMemory(words={}),
         ),
-        response_ttl_seconds=3413,
         clock=clock,
         logger=SilentLogger(),
     )
@@ -205,9 +222,52 @@ async def test_prepares_a_localized_countdown_in_redis() -> None:
         ),
         340_019,
         "mock notification: 2",
-        3413,
+        60,
         1,
     ), "notification preparation used the wrong local day, recipient, text, or Redis TTL"
+
+
+async def test_plans_delivery_until_one_hour_before_the_next_schedule_action() -> None:
+    next_action = datetime(2100, 1, 2, 9, 0, tzinfo=UTC)
+    schedules = MortalScheduleDouble(next_action)
+    subject = PlanMortalNotificationDeliveryActivity(
+        schedules=schedules,
+        deadline_margin_seconds=3600,
+    )
+
+    actual = await subject.plan(
+        PlanMortalNotificationDeliveryInput(mortal_id=340_023),
+    )
+
+    assert (
+        actual,
+        schedules.events,
+    ) == (
+        MortalNotificationDeliveryPlan.ending_at(
+            datetime(2100, 1, 2, 8, 0, tzinfo=UTC),
+        ),
+        [("next_action_time", 340_023)],
+    ), "delivery deadline ignored the next Schedule action or its safety margin"
+
+
+async def test_returns_no_delivery_plan_without_a_future_schedule_action() -> None:
+    schedules = MortalScheduleDouble(None)
+    subject = PlanMortalNotificationDeliveryActivity(
+        schedules=schedules,
+        deadline_margin_seconds=3600,
+    )
+
+    actual = await subject.plan(
+        PlanMortalNotificationDeliveryInput(mortal_id=340_027),
+    )
+
+    assert (
+        actual,
+        schedules.events,
+    ) == (
+        None,
+        [("next_action_time", 340_027)],
+    ), "planner invented a delivery window without a future Schedule action"
 
 
 async def test_prepares_an_admin_notification_sample_with_its_reward_payload() -> None:

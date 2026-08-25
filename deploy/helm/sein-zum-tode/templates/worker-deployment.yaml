@@ -113,6 +113,8 @@ spec:
               value: {{ .Values.application.telegramKeyboardMode | quote }}
             - name: QUESTIONNAIRE_TTL_SECONDS
               value: {{ .Values.application.questionnaireTtlSeconds | quote }}
+            - name: NOTIFICATION_DELIVERY_DEADLINE_MARGIN_SECONDS
+              value: {{ .Values.application.notificationDeliveryDeadlineMarginSeconds | quote }}
             - name: BOT_CONTENT_PATH
               value: /app/config/bot-content.yaml
             - name: DEATH_PREDICTION_CONFIG_PATH
