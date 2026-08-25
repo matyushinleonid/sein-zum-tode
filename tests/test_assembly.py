@@ -6,6 +6,7 @@ import pytest
 from httpx import URL
 from pydantic import SecretStr
 
+import sein_zum_tode.infrastructure.telegram as telegram_module
 import sein_zum_tode.main as ingress_module
 import sein_zum_tode.worker as worker_module
 from sein_zum_tode.bot.models import TelegramKeyboardMode
@@ -98,7 +99,7 @@ async def test_assembles_and_closes_the_ingress_process(
     assert assembly.events == [
         ("signals", False),
         ("metrics", "ingress"),
-        ("bot", "181:irregular-token"),
+        ("bot", "181:irregular-token", False, None, None, None, None),
         (
             "redis",
             {
@@ -166,6 +167,33 @@ async def test_assembles_and_closes_the_ingress_process(
     ], "ingress composition root wired wrong settings or leaked a client"
 
 
+def test_builds_a_direct_telegram_bot_when_proxying_is_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[object, ...]] = []
+    bot = object()
+
+    def create_bot(*, token: str) -> object:
+        events.append(("bot", token))
+        return bot
+
+    monkeypatch.setattr(telegram_module, "Bot", create_bot)
+
+    actual = telegram_module.create_telegram_bot(
+        token="181:irregular-token",
+        socks5_proxy_enabled=False,
+        socks5_proxy_host=None,
+        socks5_proxy_port=None,
+        socks5_proxy_username=None,
+        socks5_proxy_password=None,
+    )
+
+    assert (actual is bot, events) == (
+        True,
+        [("bot", "181:irregular-token")],
+    ), "Telegram bot unexpectedly used a proxy session while proxying was disabled"
+
+
 def test_builds_the_ingress_bot_with_the_shared_authenticated_socks5_proxy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -181,19 +209,16 @@ def test_builds_the_ingress_bot_with_the_shared_authenticated_socks5_proxy(
         events.append(("bot", token, session))
         return bot
 
-    monkeypatch.setattr(ingress_module, "AiohttpSession", create_session)
-    monkeypatch.setattr(ingress_module, "Bot", create_bot)
-    settings = explicit_settings().model_copy(
-        update={
-            "telegram_socks5_proxy_enabled": True,
-            "socks5_proxy_host": "proxy-telegram.internal",
-            "socks5_proxy_port": 2357,
-            "socks5_proxy_username": "telegram user-2371",
-            "socks5_proxy_password": SecretStr("proxy@secret:/2377"),
-        }
+    monkeypatch.setattr(telegram_module, "AiohttpSession", create_session)
+    monkeypatch.setattr(telegram_module, "Bot", create_bot)
+    actual = telegram_module.create_telegram_bot(
+        token="181:irregular-token",
+        socks5_proxy_enabled=True,
+        socks5_proxy_host="proxy-telegram.internal",
+        socks5_proxy_port=2357,
+        socks5_proxy_username="telegram user-2371",
+        socks5_proxy_password="proxy@secret:/2377",
     )
-
-    actual = ingress_module.create_telegram_bot(settings)
 
     assert (actual is bot, events) == (
         True,
@@ -327,7 +352,7 @@ async def test_assembles_and_closes_the_temporal_worker(
         ("keyboards", True, True, TelegramKeyboardMode.REPLY),
         ("predictor", True, True),
         ("schedule_interpreter", True, True),
-        ("bot", "181:irregular-token"),
+        ("bot", "181:irregular-token", False, None, None, None, None),
         (
             "redis",
             {

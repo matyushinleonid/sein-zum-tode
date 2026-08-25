@@ -191,7 +191,7 @@ class IngressAssembly:
         self.metrics_registry = object()
 
     def install(self, monkeypatch: Any, module: Any) -> None:
-        monkeypatch.setattr(module, "Bot", self.create_bot)
+        monkeypatch.setattr(module, "create_telegram_bot", self.create_bot)
         monkeypatch.setattr(module, "create_redis_transport", self.create_redis)
         monkeypatch.setattr(
             module,
@@ -232,8 +232,27 @@ class IngressAssembly:
         )
         monkeypatch.setattr(module, "install_signal_handlers", self.install_signals)
 
-    def create_bot(self, *, token: str) -> BotResource:
-        self.events.append(("bot", token))
+    def create_bot(
+        self,
+        *,
+        token: str,
+        socks5_proxy_enabled: bool,
+        socks5_proxy_host: str | None,
+        socks5_proxy_port: int | None,
+        socks5_proxy_username: str | None,
+        socks5_proxy_password: str | None,
+    ) -> BotResource:
+        self.events.append(
+            (
+                "bot",
+                token,
+                socks5_proxy_enabled,
+                socks5_proxy_host,
+                socks5_proxy_port,
+                socks5_proxy_username,
+                socks5_proxy_password,
+            )
+        )
         return self.bot
 
     def create_metrics(self, *, component: str) -> tuple[object, object]:
@@ -458,7 +477,7 @@ class WorkerAssembly:
         self.metrics_registry = object()
 
     def install(self, monkeypatch: Any, module: Any) -> None:
-        monkeypatch.setattr(module, "Bot", self.create_bot)
+        monkeypatch.setattr(module, "create_telegram_bot", self.create_bot)
         monkeypatch.setattr(module, "create_redis_transport", self.create_redis)
         monkeypatch.setattr(
             module,
@@ -600,8 +619,27 @@ class WorkerAssembly:
         )
         monkeypatch.setattr(module, "install_signal_handlers", self.install_signals)
 
-    def create_bot(self, *, token: str) -> BotResource:
-        self.events.append(("bot", token))
+    def create_bot(
+        self,
+        *,
+        token: str,
+        socks5_proxy_enabled: bool,
+        socks5_proxy_host: str | None,
+        socks5_proxy_port: int | None,
+        socks5_proxy_username: str | None,
+        socks5_proxy_password: str | None,
+    ) -> BotResource:
+        self.events.append(
+            (
+                "bot",
+                token,
+                socks5_proxy_enabled,
+                socks5_proxy_host,
+                socks5_proxy_port,
+                socks5_proxy_username,
+                socks5_proxy_password,
+            )
+        )
         return self.bot
 
     def create_metrics(self, *, component: str) -> tuple[object, object]:

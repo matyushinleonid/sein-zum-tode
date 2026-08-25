@@ -1,9 +1,6 @@
 import asyncio
 import logging
-from urllib.parse import quote
 
-from aiogram import Bot
-from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.types import Update
 from temporalio.client import Client
 
@@ -22,6 +19,7 @@ from sein_zum_tode.infrastructure.redis_documents import (
     PydanticJsonCodec,
     RedisJsonDocumentStore,
 )
+from sein_zum_tode.infrastructure.telegram import create_telegram_bot
 from sein_zum_tode.infrastructure.tls import create_temporal_tls_config
 from sein_zum_tode.ingress.admission import WhitelistedUpdateAdmission
 from sein_zum_tode.ingress.coordination import (
@@ -68,25 +66,6 @@ def create_polling_turns(
     )
 
 
-def create_telegram_bot(settings: Settings) -> Bot:
-    if not settings.telegram_socks5_proxy_enabled:
-        return Bot(token=settings.telegram_bot_token.get_secret_value())
-    username = quote(settings.socks5_proxy_username or "", safe="")
-    password = quote(
-        settings.socks5_proxy_password.get_secret_value()
-        if settings.socks5_proxy_password is not None
-        else "",
-        safe="",
-    )
-    session = AiohttpSession(
-        proxy=(
-            f"socks5://{username}:{password}@"
-            f"{settings.socks5_proxy_host}:{settings.socks5_proxy_port}"
-        )
-    )
-    return Bot(token=settings.telegram_bot_token.get_secret_value(), session=session)
-
-
 async def run(settings: Settings) -> None:
     stop_event = asyncio.Event()
     install_signal_handlers(stop_event)
@@ -100,7 +79,18 @@ async def run(settings: Settings) -> None:
         success_threshold=settings.health_success_threshold,
         failure_threshold=settings.health_failure_threshold,
     )
-    bot = create_telegram_bot(settings)
+    bot = create_telegram_bot(
+        token=settings.telegram_bot_token.get_secret_value(),
+        socks5_proxy_enabled=settings.telegram_socks5_proxy_enabled,
+        socks5_proxy_host=settings.socks5_proxy_host,
+        socks5_proxy_port=settings.socks5_proxy_port,
+        socks5_proxy_username=settings.socks5_proxy_username,
+        socks5_proxy_password=(
+            settings.socks5_proxy_password.get_secret_value()
+            if settings.socks5_proxy_password is not None
+            else None
+        ),
+    )
     redis_connection = create_redis_transport(
         host=settings.redis_host,
         port=settings.redis_port,
