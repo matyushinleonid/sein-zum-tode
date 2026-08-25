@@ -166,6 +166,48 @@ async def test_assembles_and_closes_the_ingress_process(
     ], "ingress composition root wired wrong settings or leaked a client"
 
 
+def test_builds_the_ingress_bot_with_the_shared_authenticated_socks5_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[object, ...]] = []
+    session = object()
+    bot = object()
+
+    def create_session(*, proxy: object) -> object:
+        events.append(("session", proxy))
+        return session
+
+    def create_bot(*, token: str, session: object) -> object:
+        events.append(("bot", token, session))
+        return bot
+
+    monkeypatch.setattr(ingress_module, "AiohttpSession", create_session)
+    monkeypatch.setattr(ingress_module, "Bot", create_bot)
+    settings = explicit_settings().model_copy(
+        update={
+            "telegram_socks5_proxy_enabled": True,
+            "socks5_proxy_host": "proxy-telegram.internal",
+            "socks5_proxy_port": 2357,
+            "socks5_proxy_username": "telegram user-2371",
+            "socks5_proxy_password": SecretStr("proxy@secret:/2377"),
+        }
+    )
+
+    actual = ingress_module.create_telegram_bot(settings)
+
+    assert (actual is bot, events) == (
+        True,
+        [
+            (
+                "session",
+                "socks5://telegram%20user-2371:proxy%40secret%3A%2F2377@"
+                "proxy-telegram.internal:2357",
+            ),
+            ("bot", "181:irregular-token", session),
+        ],
+    ), "ingress bot bypassed or corrupted the configured authenticated SOCKS5 proxy"
+
+
 async def test_closes_the_kubernetes_lease_client_after_ingress_shutdown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -103,6 +103,21 @@ spec:
               value: {{ .Values.application.telegramPollingTimeoutSeconds | quote }}
             - name: TELEGRAM_REQUEST_TIMEOUT_SECONDS
               value: {{ .Values.application.telegramRequestTimeoutSeconds | quote }}
+            - name: TELEGRAM_SOCKS5_PROXY_ENABLED
+              value: {{ .Values.telegram.socks5Proxy.enabled | quote }}
+            {{- if .Values.telegram.socks5Proxy.enabled }}
+            - name: SOCKS5_PROXY_HOST
+              value: {{ required "socks5Proxy.host is required" .Values.socks5Proxy.host | quote }}
+            - name: SOCKS5_PROXY_PORT
+              value: {{ required "socks5Proxy.port is required" .Values.socks5Proxy.port | quote }}
+            - name: SOCKS5_PROXY_USERNAME
+              value: {{ required "socks5Proxy.username is required" .Values.socks5Proxy.username | quote }}
+            - name: SOCKS5_PROXY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sein-zum-tode.secretRefName" (list . .Values.socks5Proxy.passwordSecretRef) }}
+                  key: {{ .Values.socks5Proxy.passwordSecretRef.key | quote }}
+            {{- end }}
             - name: TELEGRAM_POLL_COORDINATION_MODE
               value: {{ ternary "kubernetes" "none" .Values.ingress.coordination.enabled | quote }}
             {{- if .Values.ingress.coordination.enabled }}

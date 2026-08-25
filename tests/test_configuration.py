@@ -145,6 +145,33 @@ def test_accepts_an_explicit_telegram_whitelist() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"socks5_proxy_host": None},
+        {"socks5_proxy_port": None},
+        {"socks5_proxy_username": None},
+        {"socks5_proxy_password": None},
+    ],
+)
+def test_rejects_an_enabled_telegram_proxy_without_complete_credentials(
+    overrides: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        Settings.model_validate(
+            {
+                "telegram_bot_token": "226:proxy-token",
+                "redis_password": "redis-proxy-2293",
+                "telegram_socks5_proxy_enabled": True,
+                "socks5_proxy_host": "proxy-nebula.internal",
+                "socks5_proxy_port": 2297,
+                "socks5_proxy_username": "telegram-2309",
+                "socks5_proxy_password": "proxy-secret-2311",
+                **overrides,
+            }
+        )
+
+
 def test_accepts_kubernetes_polling_coordination_with_a_safe_lease_window() -> None:
     actual = Settings.model_validate(
         {
