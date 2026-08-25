@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     broadcast_recipient_page_size: int = Field(default=100, ge=1, le=1000)
 
     telegram_bot_token: SecretStr
+    telegram_socks5_proxy_enabled: bool = False
     telegram_allowed_user_ids: frozenset[int] = frozenset()
     telegram_polling_timeout_seconds: int = Field(default=30, ge=1)
     telegram_request_timeout_seconds: int = Field(default=40, ge=1)
@@ -81,6 +82,11 @@ class Settings(BaseSettings):
     redis_tls_certificate_file: Path | None = None
     redis_tls_private_key_file: Path | None = None
 
+    socks5_proxy_host: str | None = None
+    socks5_proxy_port: int | None = Field(default=None, ge=1, le=65535)
+    socks5_proxy_username: str | None = None
+    socks5_proxy_password: SecretStr | None = None
+
     @classmethod
     def from_environment(cls) -> Self:
         return cls.model_validate({})
@@ -130,6 +136,22 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def validate_telegram_proxy(self) -> Self:
+        if not self.telegram_socks5_proxy_enabled:
+            return self
+        if (
+            not self.socks5_proxy_host
+            or self.socks5_proxy_port is None
+            or not self.socks5_proxy_username
+            or self.socks5_proxy_password is None
+            or not self.socks5_proxy_password.get_secret_value()
+        ):
+            raise ValueError(
+                "Complete SOCKS5 proxy settings are required when Telegram proxying is enabled"
+            )
+        return self
+
+    @model_validator(mode="after")
     def validate_client_certificates(self) -> Self:
         pairs = (
             (
@@ -172,10 +194,6 @@ class WorkerSettings(Settings):
     yandex_ai_studio_folder_id: str | None = None
     yandex_ai_studio_enable_server_data_logging: bool = False
     openai_api_key: SecretStr | None = None
-    socks5_proxy_host: str | None = None
-    socks5_proxy_port: int | None = Field(default=None, ge=1, le=65535)
-    socks5_proxy_username: str | None = None
-    socks5_proxy_password: SecretStr | None = None
 
     @model_validator(mode="after")
     def validate_unsupported_session_retry_timeout(self) -> Self:

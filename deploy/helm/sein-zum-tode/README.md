@@ -23,6 +23,10 @@ postgres:
 
 `externalSecret.enabled` is an optional convenience integration. Its `data` field accepts the native External Secrets data mappings and may populate the same default Secret or any independently referenced Secrets managed outside this chart.
 
+## Telegram SOCKS5 proxy
+
+Set `telegram.socks5Proxy.enabled: true` to route Telegram ingress requests through the shared `socks5Proxy` endpoint. The ingress then requires its host, port, username, and password Secret reference. Worker-side OpenAI integrations continue to use the same proxy configuration independently.
+
 ## TLS
 
 - PostgreSQL supports `disable`, `require`, `verify-ca`, and `verify-full`.

@@ -1,7 +1,9 @@
 import asyncio
 import logging
+from urllib.parse import quote
 
 from aiogram import Bot
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.types import Update
 from temporalio.client import Client
 
@@ -66,6 +68,25 @@ def create_polling_turns(
     )
 
 
+def create_telegram_bot(settings: Settings) -> Bot:
+    if not settings.telegram_socks5_proxy_enabled:
+        return Bot(token=settings.telegram_bot_token.get_secret_value())
+    username = quote(settings.socks5_proxy_username or "", safe="")
+    password = quote(
+        settings.socks5_proxy_password.get_secret_value()
+        if settings.socks5_proxy_password is not None
+        else "",
+        safe="",
+    )
+    session = AiohttpSession(
+        proxy=(
+            f"socks5://{username}:{password}@"
+            f"{settings.socks5_proxy_host}:{settings.socks5_proxy_port}"
+        )
+    )
+    return Bot(token=settings.telegram_bot_token.get_secret_value(), session=session)
+
+
 async def run(settings: Settings) -> None:
     stop_event = asyncio.Event()
     install_signal_handlers(stop_event)
@@ -79,7 +100,7 @@ async def run(settings: Settings) -> None:
         success_threshold=settings.health_success_threshold,
         failure_threshold=settings.health_failure_threshold,
     )
-    bot = Bot(token=settings.telegram_bot_token.get_secret_value())
+    bot = create_telegram_bot(settings)
     redis_connection = create_redis_transport(
         host=settings.redis_host,
         port=settings.redis_port,

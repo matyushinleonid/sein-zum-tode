@@ -38,6 +38,8 @@ telegram:
   tokenSecretRef:
     name: ""
     key: TELEGRAM_BOT_TOKEN
+  socks5Proxy:
+    enabled: false
 
 application:
   logLevel: INFO
@@ -212,7 +214,7 @@ botContent:
   locales:
     en:
       help: |-
-        The subject of death itself is taboo in contemporary society (as argued, for example, by Philippe Ariès). This project is intended to help users confront the prospect of death as something that will happen and, moreover, <b>is already happening</b> to them. Users are invited to answer a series of questions about their lifestyle, after which an LLM will provide an approximate estimate of their remaining lifespan. Naturally, the calculated number of days remaining does not claim any particular degree of accuracy. The principal value lies in the number of remaining days decreasing each day, which the bot will send to the user regularly.
+        The subject of death itself is taboo in contemporary society (as argued, for example, by Philippe Ariès). This project is intended to help users confront the prospect of death as something that will happen and, moreover, <b>is already happening</b> to them. Users are invited to answer a series of questions, after which an LLM will provide an approximate estimate of their remaining lifespan. Naturally, the calculated number of days remaining does not claim any particular degree of accuracy. The principal value lies in the number of remaining days decreasing each day, which the bot will send to the user regularly.
 
         Press /begin to start the questionnaire. You will be asked approximately 20 questions. For privacy reasons, your answers are not stored persistently on our servers. If you do not want to answer a question, send a dash (-). Use /notifications to manage notification frequency and /localization to change language. For the strongest effect, we recommend keeping daily notifications.
       about: 'Sein zum Tode by Leonid Matyushin. <a href="https://github.com/matyushinleonid/sein-zum-tode">Репозиторий проекта</a> · <a href="https://github.com/matyushinleonid/k8s.leonid.sh">Репозиторий инфраструктуры</a> · <a href="https://github.com/matyushinleonid/k8s.leonid.sh/tree/main/argocd/sein-zum-tode">Приложение Argo CD</a>'
@@ -359,7 +361,7 @@ botContent:
         custom: "✨ Custom schedule"
         custom_prompt: 'Describe when notifications should be sent, including your timezone when relevant. For example: "weekdays at 19:30 Berlin time".'
         custom_mock: Your custom notification schedule has been updated.
-        custom_invalid: The proposed schedule could not be applied. Please describe it differently and try again.
+        custom_invalid: The proposed schedule could not be applied. Rephrase and try again.
         custom_too_frequent: Your desire to remain so close to your own death is commendable, but notifications cannot be sent more than once a day.
         custom_failed: Something went wrong while configuring notifications. Please try again later.
         custom_interpretation: "The model interpreted your request as:"
@@ -383,9 +385,9 @@ botContent:
         privacy_notice: |-
           Before we begin, a note about privacy.
 
-          Your answers are kept temporarily only while the questionnaire is active. After processing, they are deleted immediately. If the questionnaire is abandoned, the data is deleted automatically when its retention period expires. The answers are not stored in the bot's primary database.
+          Your answers are kept temporarily only while the questionnaire is active. After processing, they are deleted immediately. If the questionnaire is abandoned, the data is deleted automatically when its retention period expires. Answers are not stored in the database or logged.
 
-          The bot is open source. Use /about to view the source code and learn more about the project.
+          This is an open-source project. Use /about to learn more.
         started: Your questionnaire has started.
         completed: Thank you for your answers!
         deleted: Your answers were deleted from our system for privacy reasons.
@@ -431,9 +433,9 @@ botContent:
             text: "What kind of work do you mainly do? (mostly physical / mostly office-based or intellectual / a mix of physical and intellectual / not currently working):"
     ru:
       help: |-
-        Сама по себе тема смерти сегодня в обществе табуирована (например, так считает Ф. Арьес). Данный проект предназначен для того, чтобы помочь пользователю пережить перспективу смерти как явления, которое произойдёт и, более того, <b>уже происходит</b> непосредственно с ним. Пользователю предлагается ответить на ряд вопросов о своём образе жизни, после чего будет осуществлена примерная оценка оставшейся её продолжительности средствами LLM. Разумеется, сам по себе результат вычисления оставшихся дней не претендует на какую-то особую точность. Основную ценность представляет ежедневно уменьшающееся число оставшихся дней, которое бот будет регулярно присылать пользователю.
+        Сама по себе тема смерти сегодня в обществе табуирована (например, так считает Ф. Арьес). Данный проект предназначен для того, чтобы помочь пользователю пережить перспективу смерти как явления, которое произойдёт и, более того, <b>уже происходит</b> непосредственно с ним. Пользователю предлагается ответить на ряд вопросов, после чего средствами LLM будет приблизительно оценена оставшаяся продолжительность его жизни. Разумеется, сам по себе результат вычисления оставшихся дней не претендует на какую-то особую точность. Основную ценность представляет ежедневно уменьшающееся число оставшихся дней, которое бот будет регулярно присылать пользователю.
 
-        Нажмите /begin, чтобы начать заполнение анкеты. Будет задано около 20 вопросов; ответы на них не хранятся на наших серверах постоянно из соображений приватности. Если вы не хотите отвечать на какой-то вопрос, отправьте дефис (-). Для управления частотой оповещений нажмите /notifications, а для изменения языка — /localization. Для скорейшего достижения эффекта рекомендуем оставить ежедневные уведомления.
+        Нажмите /begin, чтобы начать заполнение анкеты. Будет задано около 20 вопросов; ответы на них не хранятся на наших серверах персистентно из соображений приватности. Если вы не хотите отвечать на какой-то вопрос, отправьте дефис (-). Для управления частотой оповещений нажмите /notifications, а для изменения языка — /localization. Для скорейшего достижения эффекта рекомендуем оставить ежедневные уведомления.
       about: 'Sein zum Tode за авторством Леонида Матюшина. <a href="https://github.com/matyushinleonid/sein-zum-tode">Репозиторий проекта</a> · <a href="https://github.com/matyushinleonid/k8s.leonid.sh">Репозиторий инфраструктуры</a> · <a href="https://github.com/matyushinleonid/k8s.leonid.sh/tree/main/argocd/sein-zum-tode">Приложение Argo CD</a>'
       text_unsupported: Нажмите /help, чтобы узнать, как пользоваться ботом.
       payload_expired: Это сообщение не удалось обработать вовремя. Пожалуйста, отправьте его ещё раз.
@@ -634,7 +636,7 @@ botContent:
         custom: "✨ Своё расписание"
         custom_prompt: 'Опишите, когда и как часто присылать уведомления, при необходимости указав часовой пояс. Например: «по будням в 19:30 по московскому времени».'
         custom_mock: Ваше расписание уведомлений обновлено.
-        custom_invalid: Предложенное расписание не удалось применить. Опишите его иначе и попробуйте ещё раз.
+        custom_invalid: Предложенное расписание не удалось применить. Переформулируйте иначе и попробуйте ещё раз.
         custom_too_frequent: Ваше желание находиться рядом с собственной смертью столь часто похвально, но мы не можем присылать уведомления чаще одного раза в сутки.
         custom_failed: При настройке уведомлений что-то пошло не так. Попробуйте ещё раз позднее.
         custom_interpretation: "Модель интерпретировала ваш запрос так:"
@@ -658,9 +660,9 @@ botContent:
         privacy_notice: |-
           Перед началом — о приватности.
 
-          Ваши ответы временно хранятся только во время прохождения анкеты. После обработки они сразу удаляются. Если анкета не завершена, данные автоматически удалятся по истечении срока хранения. Ответы не сохраняются в основной базе данных бота.
+          Ваши ответы временно хранятся только во время прохождения анкеты. После обработки они сразу удаляются. Если анкета не завершена, данные автоматически удалятся по истечении срока хранения. Ответы не сохраняются в базе данных и не логируются.
 
-          Код бота открыт. Нажмите /about, чтобы посмотреть исходный код и узнать больше о проекте.
+          Это проект с открытым исходным кодом. Нажмите /about, чтобы узнать больше.
         started: Заполнение анкеты начато.
         completed: Спасибо за ваши ответы!
         deleted: Ваши ответы удалены из нашей системы по соображениям приватности.
