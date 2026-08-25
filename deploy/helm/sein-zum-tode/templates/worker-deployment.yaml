@@ -134,6 +134,10 @@ spec:
                 secretKeyRef:
                   name: {{ include "sein-zum-tode.secretRefName" (list . .Values.openai.apiKeySecretRef) }}
                   key: {{ .Values.openai.apiKeySecretRef.key | quote }}
+            {{- end }}
+            - name: TELEGRAM_SOCKS5_PROXY_ENABLED
+              value: {{ .Values.telegram.socks5Proxy.enabled | quote }}
+            {{- if or .Values.telegram.socks5Proxy.enabled (eq .Values.deathPrediction.config.provider "openai") (eq .Values.notificationSchedule.config.provider "openai") (eq (default "" .Values.deathPrediction.config.fallback_provider) "openai") (eq (default "" .Values.notificationSchedule.config.fallback_provider) "openai") }}
             - name: SOCKS5_PROXY_HOST
               value: {{ required "socks5Proxy.host is required" .Values.socks5Proxy.host | quote }}
             - name: SOCKS5_PROXY_PORT
