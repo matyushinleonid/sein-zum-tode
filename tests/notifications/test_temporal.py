@@ -1,5 +1,6 @@
 from collections.abc import Callable
-from datetime import date
+from datetime import UTC, date, datetime
+from types import SimpleNamespace
 from typing import cast
 
 import pytest
@@ -7,6 +8,10 @@ from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,
     ScheduleAlreadyRunningError,
+    ScheduleDescription,
+    ScheduleOverlapPolicy,
+    SchedulePolicy,
+    ScheduleSpec,
     ScheduleUpdate,
     ScheduleUpdateInput,
 )
@@ -29,8 +34,18 @@ def result_or_raise(value: object) -> object:
 
 
 class ScheduleHandleDouble:
-    def __init__(self, delete_outcome: object = None) -> None:
+    def __init__(
+        self,
+        delete_outcome: object = None,
+        *,
+        update_outcome: object = None,
+        described_schedule: Schedule | None = None,
+        next_action_times: tuple[datetime, ...] = (),
+    ) -> None:
         self.delete_outcome = delete_outcome
+        self.update_outcome = update_outcome
+        self.described_schedule = described_schedule
+        self.next_action_times = next_action_times
         self.events: list[tuple[object, ...]] = []
         self.updated_schedule: Schedule | None = None
 
@@ -39,8 +54,31 @@ class ScheduleHandleDouble:
         updater: Callable[[ScheduleUpdateInput], ScheduleUpdate | None],
     ) -> None:
         self.events.append(("update",))
-        update = updater(object.__new__(ScheduleUpdateInput))
+        result_or_raise(self.update_outcome)
+        input = (
+            object.__new__(ScheduleUpdateInput)
+            if self.described_schedule is None
+            else cast(
+                ScheduleUpdateInput,
+                SimpleNamespace(
+                    description=SimpleNamespace(schedule=self.described_schedule),
+                ),
+            )
+        )
+        update = updater(input)
         self.updated_schedule = update.schedule if update is not None else None
+        if self.updated_schedule is not None:
+            self.described_schedule = self.updated_schedule
+
+    async def describe(self) -> ScheduleDescription:
+        self.events.append(("describe",))
+        return cast(
+            ScheduleDescription,
+            SimpleNamespace(
+                schedule=self.described_schedule,
+                info=SimpleNamespace(next_action_times=list(self.next_action_times)),
+            ),
+        )
 
     async def delete(self) -> None:
         self.events.append(("delete",))
@@ -103,6 +141,7 @@ async def test_creates_a_timezone_aware_daily_schedule() -> None:
         action.id,
         action.task_queue,
         action.args,
+        created.policy.overlap,
     ) == (
         [("create_schedule", "telegram-notification:350003:350023")],
         ["17 9 * * *"],
@@ -116,6 +155,7 @@ async def test_creates_a_timezone_aware_daily_schedule() -> None:
                 activity_retry_timeout_seconds=3511,
             )
         ],
+        ScheduleOverlapPolicy.CANCEL_OTHER,
     ), "Schedule projection lost Mortal cron, timezone, workflow id, or input"
 
 
@@ -187,3 +227,94 @@ async def test_propagates_a_schedule_deletion_transport_failure() -> None:
         await mortal_schedule(client).delete(350_041)
 
     assert raised.value is failure
+
+
+async def test_returns_the_earliest_next_action_and_migrates_overlap_policy() -> None:
+    existing = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "OldNotificationWorkflow",
+            id="old-notification-workflow",
+            task_queue="old-notification-queue",
+        ),
+        spec=ScheduleSpec(cron_expressions=["0 9 * * *"]),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+    later = datetime(2100, 1, 3, 9, 0, tzinfo=UTC)
+    earlier = datetime(2100, 1, 2, 9, 0, tzinfo=UTC)
+    handle = ScheduleHandleDouble(
+        described_schedule=existing,
+        next_action_times=(later, earlier),
+    )
+    client = ScheduleClientDouble(handle=handle)
+
+    actual = await mortal_schedule(client).next_action_time(350_043)
+
+    assert (
+        actual,
+        client.events,
+        handle.events,
+        cast(Schedule, handle.updated_schedule).policy.overlap,
+    ) == (
+        earlier,
+        [("get_schedule_handle", "telegram-notification:350003:350043")],
+        [("update",), ("describe",)],
+        ScheduleOverlapPolicy.CANCEL_OTHER,
+    ), "delivery planning lost the earliest action or left the old overlap policy active"
+
+
+async def test_returns_no_next_action_for_a_missing_schedule() -> None:
+    missing = RPCError("missing schedule", RPCStatusCode.NOT_FOUND, b"not-found")
+    handle = ScheduleHandleDouble(update_outcome=missing)
+    client = ScheduleClientDouble(handle=handle)
+
+    actual = await mortal_schedule(client).next_action_time(350_047)
+
+    assert (
+        actual,
+        handle.events,
+    ) == (
+        None,
+        [("update",)],
+    ), "missing Schedule was not treated as having no future notification action"
+
+
+async def test_propagates_a_next_action_transport_failure() -> None:
+    failure = RPCError("Temporal unavailable", RPCStatusCode.UNAVAILABLE, b"unavailable")
+    client = ScheduleClientDouble(
+        handle=ScheduleHandleDouble(update_outcome=failure),
+    )
+
+    with pytest.raises(RPCError) as raised:
+        await mortal_schedule(client).next_action_time(350_053)
+
+    assert raised.value is failure
+
+
+async def test_keeps_an_existing_cancel_other_policy_unchanged() -> None:
+    existing = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "CurrentNotificationWorkflow",
+            id="current-notification-workflow",
+            task_queue="current-notification-queue",
+        ),
+        spec=ScheduleSpec(cron_expressions=["0 9 * * *"]),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.CANCEL_OTHER),
+    )
+    next_action = datetime(2100, 1, 4, 9, 0, tzinfo=UTC)
+    handle = ScheduleHandleDouble(
+        described_schedule=existing,
+        next_action_times=(next_action,),
+    )
+    client = ScheduleClientDouble(handle=handle)
+
+    actual = await mortal_schedule(client).next_action_time(350_059)
+
+    assert (
+        actual,
+        handle.updated_schedule,
+        handle.events,
+    ) == (
+        next_action,
+        None,
+        [("update",), ("describe",)],
+    ), "delivery planning rewrote an already-correct Schedule policy"

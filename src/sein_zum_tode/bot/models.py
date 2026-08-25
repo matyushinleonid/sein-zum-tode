@@ -20,6 +20,7 @@ PREPARE_PAYLOAD_EXPIRED_ACTIVITY_NAME = "prepare_payload_expired_response"
 PREPARE_GROUP_UNSUPPORTED_ACTIVITY_NAME = "prepare_group_unsupported_response"
 PREPARE_SCREAM_DENIED_ACTIVITY_NAME = "prepare_scream_denied_response"
 DELIVER_RESPONSE_ACTIVITY_NAME = "deliver_telegram_response"
+DELIVER_NOTIFICATION_RESPONSE_ACTIVITY_NAME = "deliver_notification_response"
 CLEANUP_PAYLOADS_ACTIVITY_NAME = "cleanup_telegram_payloads"
 
 
@@ -51,6 +52,11 @@ class DeliveryKind(StrEnum):
     QUESTIONNAIRE = "questionnaire"
     NOTIFICATION = "notification"
     BROADCAST_REPORT = "broadcast_report"
+
+
+class PreparedResponseDeliveryOutcome(StrEnum):
+    DELIVERED = "delivered"
+    RESPONSE_EXPIRED = "response_expired"
 
 
 class PayloadKind(StrEnum):

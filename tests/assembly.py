@@ -47,6 +47,7 @@ def explicit_settings() -> WorkerSettings:
         temporal_tls_certificate_file=Path("/tls/temporal/tls.crt"),
         temporal_tls_private_key_file=Path("/tls/temporal/tls.key"),
         temporal_activity_retry_timeout_seconds=1801,
+        notification_delivery_deadline_margin_seconds=1807,
         redis_host="redis-pulsar.internal",
         redis_port=1861,
         redis_database=13,
@@ -558,6 +559,11 @@ class WorkerAssembly:
         )
         monkeypatch.setattr(
             module,
+            "PlanMortalNotificationDeliveryActivity",
+            self.create_plan_notification_delivery,
+        )
+        monkeypatch.setattr(
+            module,
             "PrepareNotificationSampleActivity",
             self.create_prepare_notification_sample,
         )
@@ -885,7 +891,7 @@ class WorkerAssembly:
                 options["sender"] is self.sender,
             )
         )
-        return ActivityDefinitions(("deliver",))
+        return ActivityDefinitions(("deliver", "deliver_notification"))
 
     def create_cleanup(self, **options: object) -> ActivityDefinitions:
         self.events.append(("cleanup", options["cleaner"] is self.cleaner))
@@ -926,10 +932,19 @@ class WorkerAssembly:
                 options["mortals"] is self.mortals,
                 options["responses"] is self.response_documents,
                 options["presenter"] is self.notification_presenter,
-                options["response_ttl_seconds"],
             )
         )
         return ActivityDefinitions(("prepare",))
+
+    def create_plan_notification_delivery(self, **options: object) -> ActivityDefinitions:
+        self.events.append(
+            (
+                "plan_notification_delivery",
+                options["schedules"] is self.schedules,
+                options["deadline_margin_seconds"],
+            )
+        )
+        return ActivityDefinitions(("plan",))
 
     def create_prepare_notification_sample(self, **options: object) -> ActivityDefinitions:
         self.events.append(

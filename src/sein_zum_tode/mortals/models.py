@@ -1,4 +1,5 @@
-from datetime import date, datetime
+from datetime import UTC, date, datetime, time, timedelta
+from math import ceil
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -38,6 +39,19 @@ class Mortal(BaseModel):
         if now.utcoffset() is None:
             raise ValueError("now must include timezone information")
         return now.astimezone(ZoneInfo(self.timezone)).date()
+
+    def seconds_until_next_local_date(self, now: datetime) -> int:
+        if now.utcoffset() is None:
+            raise ValueError("now must include timezone information")
+        timezone = ZoneInfo(self.timezone)
+        local_now = now.astimezone(timezone)
+        next_midnight = datetime.combine(
+            local_now.date() + timedelta(days=1),
+            time.min,
+            tzinfo=timezone,
+        )
+        remaining = next_midnight.astimezone(UTC) - now.astimezone(UTC)
+        return max(1, ceil(remaining.total_seconds()))
 
     def can_request_llm(self) -> bool:
         return self.llm_requests_remaining > 0

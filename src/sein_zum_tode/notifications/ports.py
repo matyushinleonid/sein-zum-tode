@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Protocol
 
 from sein_zum_tode.bot.content import NotificationTier
@@ -10,6 +10,8 @@ class MortalSchedule(Protocol):
     async def ensure(self, mortal: Mortal) -> None: ...
 
     async def delete(self, mortal_id: int) -> None: ...
+
+    async def next_action_time(self, mortal_id: int) -> datetime | None: ...
 
 
 class NotificationPresenter(Protocol):

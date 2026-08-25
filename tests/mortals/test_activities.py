@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
@@ -68,6 +68,10 @@ class MortalScheduleDouble:
 
     async def delete(self, mortal_id: int) -> None:
         self.events.append(("delete_schedule", mortal_id))
+
+    async def next_action_time(self, mortal_id: int) -> datetime | None:
+        self.events.append(("next_action_time", mortal_id))
+        return None
 
 
 def activities(events: list[tuple[object, ...]]) -> MortalActivities:

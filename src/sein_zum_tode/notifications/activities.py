@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -8,17 +9,43 @@ from sein_zum_tode.bot.models import PrepareResponseInput, TelegramResponse
 from sein_zum_tode.infrastructure.clock import SystemClock
 from sein_zum_tode.mortals.ports import MortalRepository
 from sein_zum_tode.notifications.models import (
+    PLAN_MORTAL_NOTIFICATION_DELIVERY_ACTIVITY_NAME,
     PREPARE_MORTAL_NOTIFICATION_ACTIVITY_NAME,
     PREPARE_NOTIFICATION_SAMPLE_ACTIVITY_NAME,
+    MortalNotificationDeliveryPlan,
+    PlanMortalNotificationDeliveryInput,
     PreparedMortalNotification,
     PrepareMortalNotificationInput,
     RenderedNotification,
 )
-from sein_zum_tode.notifications.ports import NotificationPresenter
+from sein_zum_tode.notifications.ports import MortalSchedule, NotificationPresenter
 from sein_zum_tode.observability import LogContext
 from sein_zum_tode.ports.clock import Clock
 from sein_zum_tode.ports.documents import DocumentWriter
 from sein_zum_tode.ports.metrics import ApplicationMetrics, NoopApplicationMetrics
+
+
+class PlanMortalNotificationDeliveryActivity:
+    def __init__(
+        self,
+        *,
+        schedules: MortalSchedule,
+        deadline_margin_seconds: int,
+    ) -> None:
+        self._schedules = schedules
+        self._deadline_margin = timedelta(seconds=deadline_margin_seconds)
+
+    @activity.defn(name=PLAN_MORTAL_NOTIFICATION_DELIVERY_ACTIVITY_NAME)
+    async def plan(
+        self,
+        input: PlanMortalNotificationDeliveryInput,
+    ) -> MortalNotificationDeliveryPlan | None:
+        next_action_time = await self._schedules.next_action_time(input.mortal_id)
+        if next_action_time is None:
+            return None
+        return MortalNotificationDeliveryPlan.ending_at(
+            next_action_time - self._deadline_margin,
+        )
 
 
 class PrepareMortalNotificationActivity:
@@ -28,7 +55,6 @@ class PrepareMortalNotificationActivity:
         mortals: MortalRepository,
         responses: DocumentWriter[TelegramResponse],
         presenter: NotificationPresenter,
-        response_ttl_seconds: int,
         clock: Clock | None = None,
         logger: logging.Logger | None = None,
         metrics: ApplicationMetrics | None = None,
@@ -36,7 +62,6 @@ class PrepareMortalNotificationActivity:
         self._mortals = mortals
         self._responses = responses
         self._presenter = presenter
-        self._response_ttl_seconds = response_ttl_seconds
         self._clock = clock or SystemClock()
         self._logger = logger or logging.getLogger(__name__)
         self._metrics = metrics or NoopApplicationMetrics()
@@ -75,7 +100,7 @@ class PrepareMortalNotificationActivity:
         await self._responses.store(
             input.response_key,
             _response(mortal.id, rendered),
-            self._response_ttl_seconds,
+            mortal.seconds_until_next_local_date(now),
         )
         self._metrics.notification(
             outcome="prepared",

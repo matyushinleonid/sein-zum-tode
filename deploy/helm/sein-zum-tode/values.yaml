@@ -49,6 +49,7 @@ application:
   telegramUpdateTtlSeconds: 3600
   unsupportedUpdateSessionTtlSeconds: 3600
   questionnaireTtlSeconds: 3600
+  notificationDeliveryDeadlineMarginSeconds: 3600
   retryInitialDelaySeconds: 1
   retryMaxDelaySeconds: 30
   temporalActivityRetryTimeoutSeconds: 300

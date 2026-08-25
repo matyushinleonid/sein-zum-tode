@@ -1106,6 +1106,10 @@ class MortalScheduleMemory:
     async def delete(self, mortal_id: int) -> None:
         self.events.append(("delete", mortal_id))
 
+    async def next_action_time(self, mortal_id: int) -> datetime | None:
+        self.events.append(("next_action_time", mortal_id))
+        return None
+
 
 class UserResolverDouble:
     def __init__(self, user_id: int | None) -> None:

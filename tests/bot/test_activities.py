@@ -24,6 +24,7 @@ from sein_zum_tode.bot.models import (
     InspectedUpdate,
     InspectionKind,
     InspectUpdateInput,
+    PreparedResponseDeliveryOutcome,
     PrepareResponseInput,
     TelegramKeyboardMode,
     TelegramResponse,
@@ -929,6 +930,58 @@ async def test_rejects_an_unavailable_delivery_payload(response_outcome: object)
                 user_id=None,
             )
         )
+
+
+async def test_reports_an_expired_notification_payload_for_repreparation() -> None:
+    payloads = memory(None, None)
+    subject = DeliverTelegramResponseActivity(
+        response_reader=payloads.response_documents,
+        sender=payloads,
+        logger=SilentLogger(),
+    )
+
+    actual = await subject.deliver_notification(
+        DeliverResponseInput(
+            response_key="telegram:notification:1483",
+            user_id=148_307,
+        )
+    )
+
+    assert (
+        actual,
+        payloads.events,
+    ) == (
+        PreparedResponseDeliveryOutcome.RESPONSE_EXPIRED,
+        [("load_response", "telegram:notification:1483")],
+    ), "expired notification payload was not returned to the workflow for repreparation"
+
+
+async def test_delivers_a_prepared_notification_payload() -> None:
+    response = TelegramResponse(chat_id=148_311, text="Pack my box with five dozen")
+    payloads = memory(None, response)
+    subject = DeliverTelegramResponseActivity(
+        response_reader=payloads.response_documents,
+        sender=payloads,
+        logger=SilentLogger(),
+    )
+
+    actual = await subject.deliver_notification(
+        DeliverResponseInput(
+            response_key="telegram:notification:1487",
+            user_id=148_311,
+        )
+    )
+
+    assert (
+        actual,
+        payloads.events,
+    ) == (
+        PreparedResponseDeliveryOutcome.DELIVERED,
+        [
+            ("load_response", "telegram:notification:1487"),
+            ("send_text", 148_311, "Pack my box with five dozen"),
+        ],
+    ), "notification delivery did not report success after sending the stored response"
 
 
 async def test_rejects_a_permanent_telegram_delivery_failure() -> None:
